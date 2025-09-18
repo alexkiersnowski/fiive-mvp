@@ -15,15 +15,39 @@ function CheckEmailContent() {
   
   const email = isClient ? searchParams.get("email") : null
   const mode = isClient ? searchParams.get("mode") : null
+  const existing = isClient ? searchParams.get("existing") : null
+  const newUser = isClient ? searchParams.get("new") : null
   const isSignup = mode === "signup"
+  const isExistingUser = existing === "true"
+  const isNewUser = newUser === "true"
   
-  const title = isSignup ? "Verify your email" : "Sign in with email"
-  const subtitle = email 
-    ? `We've sent a ${isSignup ? 'verification' : 'secure sign-in'} link to ${email}`
-    : `We've sent a ${isSignup ? 'verification' : 'secure sign-in'} link to your email address`
-  const description = isSignup 
-    ? "Click the link to confirm and finish creating your account"
-    : "Click the link to access your account"
+  // Handle messaging based on user's intent vs what actually happened
+  let title, subtitle, description
+  
+  if (isSignup && isExistingUser) {
+    // User was on signup page but already has account
+    title = "You already have an account"
+    subtitle = email 
+      ? `We've sent a sign-in link to ${email}`
+      : "We've sent a sign-in link to your email address"
+    description = "Click the link to access your existing account"
+  } else if (!isSignup && isNewUser) {
+    // User was on signin page but we created new account
+    title = "Welcome! We've created your account"
+    subtitle = email 
+      ? `We've sent a verification link to ${email}`
+      : "We've sent a verification link to your email address"
+    description = "Click the link to confirm and finish setting up your account"
+  } else {
+    // Normal flow
+    title = isSignup ? "Verify your email" : "Sign in with email"
+    subtitle = email 
+      ? `We've sent a ${isSignup ? 'verification' : 'secure sign-in'} link to ${email}`
+      : `We've sent a ${isSignup ? 'verification' : 'secure sign-in'} link to your email address`
+    description = isSignup 
+      ? "Click the link to confirm and finish creating your account"
+      : "Click the link to access your account"
+  }
 
   return (
     <AuthLayout
