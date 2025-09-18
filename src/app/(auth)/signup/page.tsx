@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import AuthLayout from '@/components/layouts/AuthLayout'
-import { createClient } from '@/app/utils/supabase/server'
+import { createClient, isUserVerified } from '@/app/utils/supabase/server'
 
 async function handleSignUp(data: { email: string }) {
   'use server'
@@ -20,38 +20,81 @@ async function handleSignUp(data: { email: string }) {
   // Create Supabase client
   const supabase = await createClient()
   
-  // First, check if user already exists by trying to sign them in
-  const signinResult = await supabase.auth.signInWithOtp({
-    email: email,
-    options: {
-      shouldCreateUser: false,
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+  // Check if user exists and their verification status
+  const userStatus = await isUserVerified(email)
+  
+  if (userStatus?.exists) {
+    if (userStatus.is_verified) {
+      // User exists and is verified - send magic link
+      const signinResult = await supabase.auth.signInWithOtp({
+        email: email,
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+        }
+      })
+      
+      if (!signinResult.error) {
+        redirect(`/check-email?mode=signin&email=${encodeURIComponent(email)}&existing=true&from=signup`)
+      } else {
+        // Handle rate limiting or other errors
+        if (signinResult.error.message.includes('rate limit') || 
+            signinResult.error.message.includes('too many requests') ||
+            signinResult.error.message.includes('security purposes') ||
+            signinResult.error.message.includes('21 seconds') ||
+            signinResult.error.message.includes('54 seconds') ||
+            signinResult.error.message.includes('55 seconds')) {
+          // For signin rate limits, redirect to check-email page
+          // User will see "Sign in with email" messaging
+          redirect(`/check-email?mode=signin&email=${encodeURIComponent(email)}&from=signup`)
+        } else {
+          throw new Error(signinResult.error.message)
+        }
+      }
+    } else {
+      // User exists but is unverified - resend confirmation
+      const resendResult = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+        }
+      })
+      
+      if (!resendResult.error) {
+        redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&resend=true&from=signup`)
+      } else {
+        // Handle rate limiting or other errors
+        if (resendResult.error.message.includes('rate limit') || 
+            resendResult.error.message.includes('too many requests') ||
+            resendResult.error.message.includes('security purposes') ||
+            resendResult.error.message.includes('55 seconds')) {
+          // Redirect to check-email with resend state (same as successful resend)
+          redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&resend=true&from=signup`)
+        } else {
+          throw new Error(resendResult.error.message)
+        }
+      }
     }
-  })
-  
-  if (!signinResult.error) {
-    // User exists - they'll get magic link email
-    // Redirect with mode=signin so check-email page shows correct message
-    redirect(`/check-email?mode=signin&email=${encodeURIComponent(email)}&existing=true`)
-  }
-  
-  // User doesn't exist, try signup
-  const randomPassword = Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12)
-  
-  const signupResult = await supabase.auth.signUp({
-    email: email,
-    password: randomPassword,
-    options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+  } else {
+    // User doesn't exist - create new account
+    const randomPassword = Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12)
+    
+    const signupResult = await supabase.auth.signUp({
+      email: email,
+      password: randomPassword,
+      options: {
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+      }
+    })
+    
+    if (signupResult.error) {
+      throw new Error(signupResult.error.message)
     }
-  })
-  
-  if (signupResult.error) {
-    throw new Error(signupResult.error.message)
+    
+    // New user - they'll get confirm email
+    redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&new=true&from=signup`)
   }
-  
-  // Signup succeeded - new user will get confirm email
-  redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}`)
 }
 
 export default function SignUpPage() {

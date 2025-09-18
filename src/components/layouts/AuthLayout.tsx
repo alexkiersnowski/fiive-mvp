@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { useEffect } from "react"
+import Image from 'next/image'
 import { z } from "zod"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -81,9 +82,11 @@ export default function AuthLayout({
         paddingTop: '24px', 
         paddingBottom: '24px' 
       }}>
-        <img 
+        <Image 
           src="/logos/fiive-logo.svg" 
           alt="Fiive" 
+          width={96}
+          height={24}
           style={{ height: '24px' }}
           draggable={false}
         />
@@ -204,9 +207,11 @@ export default function AuthLayout({
       <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
         <div className="w-full h-full p-2">
           <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
-            <img 
+            <Image 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
+              width={200}
+              height={200}
               className="max-w-full max-h-full object-contain"
               draggable={false}
             />

@@ -15,29 +15,24 @@ function CheckEmailContent() {
   
   const email = isClient ? searchParams.get("email") : null
   const mode = isClient ? searchParams.get("mode") : null
-  const existing = isClient ? searchParams.get("existing") : null
-  const newUser = isClient ? searchParams.get("new") : null
+  const resend = isClient ? searchParams.get("resend") : null
+  const from = isClient ? searchParams.get("from") : null
   const isSignup = mode === "signup"
-  const isExistingUser = existing === "true"
-  const isNewUser = newUser === "true"
+  const isResend = resend === "true"
+  
+  // Determine which page to redirect back to
+  const backToPage = from === "signin" ? "/signin" : "/signup"
   
   // Handle messaging based on user's intent vs what actually happened
   let title, subtitle, description
   
-  if (isSignup && isExistingUser) {
-    // User was on signup page but already has account
-    title = "You already have an account"
-    subtitle = email 
-      ? `We've sent a sign-in link to ${email}`
-      : "We've sent a sign-in link to your email address"
-    description = "Click the link to access your existing account"
-  } else if (!isSignup && isNewUser) {
-    // User was on signin page but we created new account
-    title = "Welcome! We've created your account"
+  if (isResend) {
+    // User exists but unverified - resending confirmation (or rate limited)
+    title = "Check your email again"
     subtitle = email 
       ? `We've sent a verification link to ${email}`
       : "We've sent a verification link to your email address"
-    description = "Click the link to confirm and finish setting up your account"
+    description = "Click the link to confirm and finish creating your account"
   } else {
     // Normal flow
     title = isSignup ? "Verify your email" : "Sign in with email"
@@ -55,13 +50,13 @@ function CheckEmailContent() {
       subtitle={subtitle}
       description={description}
       linkText="Didn't get it? Check your spam or"
-      linkHref={isSignup ? "/signup" : "/signin"}
+      linkHref={backToPage}
       linkLabel="try again"
       buttonText="Try again"
       showForm={false}
       onSubmit={async () => {
-        // TODO: Implement resend email logic
-        console.log(`Resending ${mode} email`)
+        // Redirect back to the original page to resend email
+        window.location.href = backToPage
       }}
     />
   )
