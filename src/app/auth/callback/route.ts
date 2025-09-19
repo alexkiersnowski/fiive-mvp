@@ -44,17 +44,17 @@ export async function GET(request: NextRequest) {
     })
     
     if (!error) {
-      // For passwordless users, we can optionally disable password auth
-      // This ensures they can only use magic links in the future
-      // Note: This requires additional Supabase configuration
+      // Redirect verified users to the onboarding profile step
       const forwardedHost = request.headers.get('x-forwarded-host')
       const isLocalEnv = process.env.NODE_ENV === 'development'
+      const redirectUrl = '/profile'
+      
       if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`)
+        return NextResponse.redirect(`${origin}${redirectUrl}`)
       } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`)
+        return NextResponse.redirect(`https://${forwardedHost}${redirectUrl}`)
       } else {
-        return NextResponse.redirect(`${origin}${next}`)
+        return NextResponse.redirect(`${origin}${redirectUrl}`)
       }
     } else {
       // Log the error for debugging

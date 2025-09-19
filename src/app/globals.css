@@ -366,6 +366,8 @@
   /* Typography Styles - Display */
   --typography-display-5-regular:
     400 1.25rem/1.75rem 'Inter', sans-serif; /* 400 20px/28px */
+  --typography-display-5-medium:
+    500 1.25rem/1.75rem 'Inter', sans-serif; /* 500 20px/28px */
   --typography-display-5-bold:
     700 1.25rem/1.75rem 'Inter', sans-serif; /* 700 20px/28px */
   --typography-display-5-letter-spacing: -0.005rem; /* -0.08px */
@@ -613,6 +615,25 @@
     letter-spacing: var(--typography-text-xs-letter-spacing);
   }
 
+  .back-button {
+    color: var(--color-neutral-11);
+    font-weight: var(--font-weight-regular);
+  }
+
+  .no-hover:hover {
+    background-color: transparent !important;
+    color: inherit !important;
+    border-color: var(--color-neutral-5) !important;
+    opacity: 1 !important;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+  
+  .no-hover:hover * {
+    color: inherit !important;
+    opacity: 1 !important;
+  }
+
   .text-sm-light {
     font: var(--typography-text-sm-light);
     letter-spacing: var(--typography-text-sm-letter-spacing);
@@ -666,6 +687,12 @@
   .display-5-bold {
     font: var(--typography-display-5-bold);
     letter-spacing: var(--typography-display-5-letter-spacing);
+  }
+
+  .display-5-medium {
+    font: var(--typography-display-5-medium);
+    letter-spacing: var(--typography-display-5-letter-spacing);
+    color: var(--color-base-text-primary);
   }
 
   .display-6-bold {

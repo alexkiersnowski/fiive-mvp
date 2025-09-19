@@ -210,9 +210,9 @@ export default function AuthLayout({
             <Image 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
-              width={200}
-              height={200}
-              className="max-w-full max-h-full object-contain"
+              width={240}
+              height={240}
+              className="max-w-full h-60 object-contain"
               draggable={false}
             />
           </div>
