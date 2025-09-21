@@ -16,7 +16,7 @@ export default async function AccountTypePage({
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   
   if (userError || !user) {
-    redirect('/signin')
+    redirect('/signup')
   }
 
   return (

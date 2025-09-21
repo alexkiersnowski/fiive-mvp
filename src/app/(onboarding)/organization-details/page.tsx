@@ -17,7 +17,7 @@ export default async function OrganizationDetailsPage({
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   
   if (userError || !user) {
-    redirect('/signin')
+    redirect('/signup')
   }
 
   // Load existing organization data

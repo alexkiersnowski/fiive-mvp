@@ -9,7 +9,7 @@ export default async function ProfilePage() {
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   
   if (userError || !user) {
-    redirect('/signin')
+    redirect('/signup')
   }
   
   // Load existing profile data
