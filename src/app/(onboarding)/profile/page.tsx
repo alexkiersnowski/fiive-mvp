@@ -51,7 +51,7 @@ export default async function ProfilePage() {
         onSubmit={handleProfileCreation}
         showForm={true}
         formType="profile"
-        showBackButton={true}
+        showBackButton={false}
         initialData={{
           firstName: profile.first_name || '',
           lastName: profile.last_name || '',

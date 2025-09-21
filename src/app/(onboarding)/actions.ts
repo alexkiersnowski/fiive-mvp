@@ -70,7 +70,7 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
   console.log('Profile updated successfully:', result)
   
   // Redirect to next step (account type selection)
-  redirect('/onboarding/account-type')
+  redirect('/account-type')
 }
 
 // Account type actions
@@ -92,25 +92,127 @@ export async function handleAccountTypeSelection(data: { email: string } | { fir
 }
 
 // Organization actions
-export async function handleOrganizationDetails(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { organizationName: string; organizationType: string }) {
+export async function handleOrganizationDetails(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { name: string; agencyType?: string; industry?: string; logoUrl?: string | File } | { accountType: string }) {
+  console.log('=== ACTION STARTED ===')
+  console.log('Action received data:', data)
+  
   // Type guard to ensure we have organization data
-  if (!('organizationName' in data)) {
+  if (!('name' in data)) {
+    console.log('Type guard failed - not organization data')
     throw new Error('This function only handles organization data')
   }
   
-  const { organizationName, organizationType } = data
+  const { name, agencyType, industry, logoUrl } = data
   
   // Basic validation
-  if (!organizationName || organizationName.trim() === '') {
+  if (!name || name.trim() === '') {
     throw new Error('Organization name is required')
   }
   
-  if (!organizationType || (organizationType !== 'agency' && organizationType !== 'client')) {
-    throw new Error('Organization type is required')
+  // Determine organization type based on which field is present
+  const organizationType = agencyType ? 'agency' : 'client'
+  
+  // Validate required fields based on type
+  if (organizationType === 'agency' && (!agencyType || agencyType.trim() === '')) {
+    throw new Error('Agency type is required')
   }
   
-  // TODO: Create organization record in database
-  console.log('Organization details:', { organizationName, organizationType })
+  if (organizationType === 'client' && (!industry || industry.trim() === '')) {
+    throw new Error('Industry is required')
+  }
+  
+  // Create Supabase client
+  const supabase = await createClient()
+  
+  // Get the current user
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  
+  if (userError || !user) {
+    console.error('User authentication error:', userError)
+    throw new Error('You must be logged in to create an organization')
+  }
+  
+  console.log('Creating organization for user:', user.id, 'with data:', { name, organizationType, agencyType, industry, logoUrl })
+  
+  // Step 1: Create organization first (without logo URL) to get the ID
+  console.log('=== CALLING CREATE_ORGANIZATION RPC ===')
+  console.log('RPC Parameters:', {
+    p_name: name.trim(),
+    p_type: organizationType,
+    p_industry: (organizationType === 'client' ? industry?.trim() : agencyType?.trim()) || null,
+    p_logo_url: null
+  })
+  
+  const { data: organizationId, error: rpcError } = await supabase.rpc('create_organization', {
+    p_name: name.trim(),
+    p_type: organizationType,
+    p_industry: (organizationType === 'client' ? industry?.trim() : agencyType?.trim()) || null,
+    p_logo_url: null // Create org first without logo
+  })
+  
+  console.log('RPC Result:', { organizationId, rpcError })
+  
+  if (rpcError) {
+    console.error('Organization creation RPC error:', {
+      error: rpcError,
+      user: user.id,
+      name: name.trim(),
+      type: organizationType,
+      industry: organizationType === 'client' ? industry?.trim() : agencyType?.trim()
+    })
+    throw new Error(`Failed to create organization: ${rpcError.message}`)
+  }
+  
+  console.log('Organization created successfully, org ID:', organizationId)
+  
+  // Step 2: If logo is provided, upload it using the organization ID
+  if (logoUrl && logoUrl instanceof File) {
+    try {
+      console.log('Uploading new logo file:', { fileName: logoUrl.name, fileSize: logoUrl.size, fileType: logoUrl.type })
+      
+      const { uploadLogo } = await import('@/lib/supabase/storage')
+      const logoUrlString = await uploadLogo(logoUrl, organizationId)
+      
+      console.log('Logo uploaded successfully, URL:', logoUrlString)
+      
+      // Step 3: Update organization with logo URL
+      const { error: updateError } = await supabase
+        .from('organizations')
+        .update({ logo_url: logoUrlString })
+        .eq('id', organizationId)
+      
+      if (updateError) {
+        console.error('Failed to update organization with logo URL:', updateError)
+        throw new Error(`Failed to update organization with logo: ${updateError.message}`)
+      }
+      
+      console.log('Organization updated with logo URL successfully')
+      
+    } catch (logoError) {
+      console.error('Failed to upload logo:', logoError)
+      const errorMessage = logoError instanceof Error ? logoError.message : String(logoError)
+      throw new Error(`Failed to upload logo: ${errorMessage}`)
+    }
+  } else if (logoUrl && typeof logoUrl === 'string') {
+    // logoUrl is already a URL string (existing logo), just update the organization
+    console.log('Using existing logo URL:', logoUrl)
+    
+    const { error: updateError } = await supabase
+      .from('organizations')
+      .update({ logo_url: logoUrl })
+      .eq('id', organizationId)
+    
+    if (updateError) {
+      console.error('Failed to update organization with existing logo URL:', updateError)
+      throw new Error(`Failed to update organization with logo: ${updateError.message}`)
+    }
+    
+    console.log('Organization updated with existing logo URL successfully')
+  } else {
+    console.log('No logo provided')
+  }
+  
+  console.log('Organization creation/update completed successfully, org ID:', organizationId)
   
   // Redirect to next step (dashboard or completion)
   redirect('/dashboard')

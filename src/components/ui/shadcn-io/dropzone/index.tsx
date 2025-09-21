@@ -65,12 +65,16 @@ export const Dropzone = ({
     onError,
     disabled,
     onDrop: (acceptedFiles, fileRejections, event) => {
+      console.log('Dropzone onDrop called:', { acceptedFiles, fileRejections, event })
+      
       if (fileRejections.length > 0) {
         const message = fileRejections.at(0)?.errors.at(0)?.message;
+        console.log('File rejection:', message)
         onError?.(new Error(message));
         return;
       }
 
+      console.log('Calling parent onDrop with:', acceptedFiles)
       onDrop?.(acceptedFiles, fileRejections, event);
     },
     ...props,

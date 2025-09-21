@@ -1,41 +1,96 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dropzone, DropzoneContent, DropzoneEmptyState } from '@/components/ui/shadcn-io/dropzone'
 import { UploadIcon } from 'lucide-react'
 
 interface LogoUploadProps {
   onLogoChange?: (file: File | null) => void
   currentLogo?: string
+  initialLogoUrl?: string
   className?: string
 }
 
-export function LogoUpload({ onLogoChange, currentLogo, className }: LogoUploadProps) {
+export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, className }: LogoUploadProps) {
   const [files, setFiles] = useState<File[] | undefined>()
-  const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo)
+  const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Store base64 data for instant preview
+  const [base64Preview, setBase64Preview] = useState<string | null>(null)
+  
+  // Check for stored preview data on mount
+  useEffect(() => {
+    const storedPreview = sessionStorage.getItem('logoPreview')
+    if (storedPreview) {
+      setLogoPreview(storedPreview)
+      setBase64Preview(storedPreview)
+    } else if (currentLogo) {
+      setLogoPreview(currentLogo)
+    }
+  }, [])
 
-  const handleDrop = (files: File[]) => {
+  // Update preview when currentLogo changes (but don't overwrite base64)
+  useEffect(() => {
+    if (currentLogo && !base64Preview) {
+      setLogoPreview(currentLogo)
+    }
+  }, [currentLogo, base64Preview])
+
+  const handleDrop = async (files: File[]) => {
     console.log('Logo uploaded:', files)
     setFiles(files)
+    setError(null) // Clear any previous errors
     
     if (files.length > 0) {
       const file = files[0]
-      onLogoChange?.(file)
+      console.log('Processing logo file:', { name: file.name, size: file.size, type: file.type })
       
-      // Create preview
+      // Validate file size
+      if (file.size > 5 * 1024 * 1024) {
+        setError('Please choose an image smaller than 5MB.')
+        return
+      }
+      
+      // Validate file type
+      const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']
+      if (!allowedTypes.includes(file.type)) {
+        setError('Please choose a PNG, JPG, JPEG, or SVG file.')
+        return
+      }
+      
+      // Create preview immediately and store base64
       const reader = new FileReader()
       reader.onload = (e) => {
         if (typeof e.target?.result === 'string') {
           setLogoPreview(e.target.result)
+          setBase64Preview(e.target.result)
+          // Store in sessionStorage with a unique key for this session
+          const sessionKey = `logoPreview_${Date.now()}`
+          sessionStorage.setItem('logoPreview', e.target.result)
+          sessionStorage.setItem('logoPreviewKey', sessionKey)
         }
       }
       reader.readAsDataURL(file)
+      
+      // Just pass the file - upload will happen on form submit
+      console.log('Calling onLogoChange with file:', file)
+      onLogoChange?.(file)
     }
   }
 
+
   const handleError = (error: Error) => {
     console.error('Logo upload error:', error)
-    // You could add toast notifications here
+    
+    // Add user-friendly error messages based on react-dropzone error messages
+    if (error.message.includes('larger than') || error.message.includes('File too large') || error.message.includes('bytes') || error.message.includes('5242880')) {
+      setError('Please choose an image smaller than 5MB')
+    } else if (error.message.includes('File type not supported') || error.message.includes('Invalid file type') || error.message.includes('file type must be')) {
+      setError('Please choose a PNG, JPG, JPEG, or SVG file')
+    } else {
+      setError('Upload failed. Please try again.')
+    }
   }
 
   return (
@@ -86,6 +141,11 @@ export function LogoUpload({ onLogoChange, currentLogo, className }: LogoUploadP
           <p className="text-xs text-gray-500 mt-1">
             Drag and drop or click to upload
           </p>
+          {error && (
+            <p className="text-xs text-red-500 mt-1">
+              {error}
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { useEffect } from "react"
+import React, { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from 'next/image'
 import { z } from "zod"
@@ -38,6 +38,7 @@ const organizationSchema = z.object({
   name: z.string().min(1, "Please enter your organization name"),
   agencyType: z.string().optional(),
   industry: z.string().optional(),
+  logoUrl: z.string().optional(),
 })
 
 const agencySchema = z.object({
@@ -60,31 +61,31 @@ type OrganizationFormData = z.infer<typeof organizationSchema>
 type AccountTypeFormData = z.infer<typeof accountTypeSchema>
 
 const agencyTypes: ComboboxOption[] = [
-  { value: "advertising", label: "Advertising Agency" },
-  { value: "brand", label: "Brand Agency" },
-  { value: "content-social", label: "Content & Social Media Agency" },
-  { value: "creative", label: "Creative Agency" },
-  { value: "event", label: "Events Agency" },
-  { value: "marketing", label: "Marketing Agency" },
-  { value: "media", label: "Media Agency" },
-  { value: "performance", label: "Performance Marketing Agency" },
-  { value: "pr-communications", label: "PR & Communications Agency" },
-  { value: "seo", label: "SEO Agency" },
-  { value: "web-digital", label: "Web & Digital Agency" },
+  { value: "Advertising Agency", label: "Advertising Agency" },
+  { value: "Brand Agency", label: "Brand Agency" },
+  { value: "Content & Social Media Agency", label: "Content & Social Media Agency" },
+  { value: "Creative Agency", label: "Creative Agency" },
+  { value: "Events Agency", label: "Events Agency" },
+  { value: "Marketing Agency", label: "Marketing Agency" },
+  { value: "Media Agency", label: "Media Agency" },
+  { value: "Performance Marketing Agency", label: "Performance Marketing Agency" },
+  { value: "PR & Communications Agency", label: "PR & Communications Agency" },
+  { value: "SEO Agency", label: "SEO Agency" },
+  { value: "Web & Digital Agency", label: "Web & Digital Agency" },
 ]
 
 const industryTypes: ComboboxOption[] = [
-  { value: "education", label: "Education & Training" },
-  { value: "finance", label: "Finance & Insurance" },
-  { value: "healthcare", label: "Healthcare & Wellness" },
-  { value: "manufacturing", label: "Manufacturing & Industrial" },
-  { value: "media", label: "Media & Entertainment" },
-  { value: "nonprofit", label: "Non-Profit, Public Sector & Government" },
-  { value: "real-estate", label: "Real Estate & Construction" },
-  { value: "retail", label: "Retail & E-Commerce" },
-  { value: "sports", label: "Sports & Fitness" },
-  { value: "technology", label: "Technology & Software" },
-  { value: "travel", label: "Travel, Leisure & Hospitality" },
+  { value: "Education & Training", label: "Education & Training" },
+  { value: "Finance & Insurance", label: "Finance & Insurance" },
+  { value: "Healthcare & Wellness", label: "Healthcare & Wellness" },
+  { value: "Manufacturing & Industrial", label: "Manufacturing & Industrial" },
+  { value: "Media & Entertainment", label: "Media & Entertainment" },
+  { value: "Non-Profit, Public Sector & Government", label: "Non-Profit, Public Sector & Government" },
+  { value: "Real Estate & Construction", label: "Real Estate & Construction" },
+  { value: "Retail & E-Commerce", label: "Retail & E-Commerce" },
+  { value: "Sports & Fitness", label: "Sports & Fitness" },
+  { value: "Technology & Software", label: "Technology & Software" },
+  { value: "Travel, Leisure & Hospitality", label: "Travel, Leisure & Hospitality" },
 ]
 
 interface OnboardingLayoutProps {
@@ -100,10 +101,16 @@ interface OnboardingLayoutProps {
   showBackButton?: boolean
   logoUpload?: React.ReactNode
   accountType?: 'agency' | 'client'
+  urlAccountType?: string // Account type from URL parameter
+  initialLogoUrl?: string // Existing logo URL when editing
   initialData?: {
     firstName?: string
     lastName?: string
     jobTitle?: string
+    accountType?: string
+    name?: string
+    agencyType?: string
+    industry?: string
   }
 }
 
@@ -120,12 +127,34 @@ export default function OnboardingLayout({
   showBackButton = false,
   logoUpload,
   accountType,
+  urlAccountType,
+  initialLogoUrl,
   initialData
 }: OnboardingLayoutProps) {
   const router = useRouter()
   const isProfileForm = formType === 'profile'
   const isOrganizationForm = formType === 'organization'
   const isAccountTypeForm = formType === 'accountType'
+  const [logoFile, setLogoFile] = useState<File | null>(() => {
+    // If there's an existing logo URL, create a fake File object to represent it
+    if (initialLogoUrl && isOrganizationForm) {
+      // Create a fake File object that represents the existing logo
+      const fakeFile = new File([''], 'existing-logo', { type: 'image/png' })
+      // Add a custom property to track that this is an existing logo
+      ;(fakeFile as any).existingLogoUrl = initialLogoUrl
+      return fakeFile
+    }
+    return null
+  })
+  
+  // Read session storage synchronously during initial render
+  const [sessionAccountType, setSessionAccountType] = useState<string>(() => {
+    if (typeof window !== 'undefined' && isAccountTypeForm) {
+      return sessionStorage.getItem('onboarding_account_type') || ''
+    }
+    return ''
+  })
+
   const schema = isAccountTypeForm 
     ? accountTypeSchema 
     : isOrganizationForm 
@@ -134,14 +163,22 @@ export default function OnboardingLayout({
         ? profileSchema 
         : authSchema
   
+  // Debug logging for initialData
+  console.log('OnboardingLayout received initialData:', {
+    initialData,
+    isOrganizationForm,
+    isAccountTypeForm,
+    isProfileForm
+  })
+
   const form = useForm<AuthFormData | ProfileFormData | OrganizationFormData | AccountTypeFormData>({
     resolver: zodResolver(schema),
     defaultValues: isAccountTypeForm ? {
-      accountType: "",
+      accountType: initialData?.accountType || sessionAccountType || "",
     } : isOrganizationForm ? {
-      name: "",
-      agencyType: "",
-      industry: "",
+      name: initialData?.name || "",
+      agencyType: initialData?.agencyType || "",
+      industry: initialData?.industry || "",
     } : isProfileForm ? {
       firstName: initialData?.firstName || "",
       lastName: initialData?.lastName || "",
@@ -152,6 +189,22 @@ export default function OnboardingLayout({
     mode: "onSubmit",
   })
 
+  // Handle URL parameter for account type (only when URL parameter is provided)
+  useEffect(() => {
+    if (isAccountTypeForm && urlAccountType) {
+      // Store URL account type in session storage and update state
+      sessionStorage.setItem('onboarding_account_type', urlAccountType)
+      setSessionAccountType(urlAccountType)
+    }
+  }, [isAccountTypeForm, urlAccountType])
+
+  // Reset form when session account type changes
+  useEffect(() => {
+    if (isAccountTypeForm && sessionAccountType) {
+      form.setValue('accountType', sessionAccountType)
+    }
+  }, [sessionAccountType, isAccountTypeForm, form])
+
   // Reset form when formKey changes to prevent stale state
   useEffect(() => {
     form.reset()
@@ -159,8 +212,38 @@ export default function OnboardingLayout({
 
   const handleSubmit = async (data: AuthFormData | ProfileFormData | OrganizationFormData | AccountTypeFormData) => {
     try {
+      console.log('Form submission started:', { 
+        isOrganizationForm, 
+        hasLogoFile: !!logoFile, 
+        logoFile, 
+        data 
+      })
+      
       if (onSubmit) {
-        await onSubmit(data)
+        // For organization forms, include logo file or existing logo URL
+        if (isOrganizationForm && logoFile) {
+          console.log('Including logo file in submission:', logoFile)
+          
+          // Check if this is an existing logo (has existingLogoUrl property)
+          if ((logoFile as any).existingLogoUrl) {
+            // This is an existing logo, pass the URL instead of the File object
+            console.log('Using existing logo URL:', (logoFile as any).existingLogoUrl)
+            const orgData = { ...data, logoUrl: (logoFile as any).existingLogoUrl } as any
+            console.log('About to call onSubmit with existing logo URL:', orgData)
+            await onSubmit(orgData)
+          } else {
+            // This is a new logo file
+            const orgData = { ...data, logoUrl: logoFile } as any
+            console.log('About to call onSubmit with new logo file:', orgData)
+            await onSubmit(orgData)
+          }
+          console.log('onSubmit completed successfully')
+        } else {
+          console.log('No logo file, submitting without logo')
+          console.log('About to call onSubmit with data:', data)
+          await onSubmit(data)
+          console.log('onSubmit completed successfully')
+        }
       } else {
         console.log('Form submitted (no handler):', data)
       }
@@ -189,14 +272,17 @@ export default function OnboardingLayout({
             <div className="w-full space-y-8" style={{ maxWidth: '520px' }}>
               {/* Title and description - left aligned */}
               <div className="text-left">
-                {showBackButton && (
+                <div className="mb-4">
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="mb-4 h-auto p-2 text-xs-bold cursor-pointer back-button"
+                    className={`h-auto p-2 text-xs-bold cursor-pointer back-button ${!showBackButton ? 'invisible' : ''}`}
                     onClick={() => {
                       if (isAccountTypeForm) {
                         router.push('/profile')
+                      } else if (isOrganizationForm && accountType) {
+                        // Preserve account type when going back to account type page
+                        router.push(`/account-type?type=${accountType}`)
                       } else {
                         window.history.back()
                       }
@@ -205,7 +291,7 @@ export default function OnboardingLayout({
                     <ArrowLeft size={16} weight="regular" />
                     <span className="ml-1">Back</span>
                   </Button>
-                )}
+                </div>
                 <h1 className="display-8-medium" style={{ marginBottom: '16px' }}>{title}</h1>
                 {subtitle && (
                   <p className="text-md-regular" style={{ 
@@ -226,7 +312,12 @@ export default function OnboardingLayout({
                         {/* Logo Upload */}
                         {logoUpload && (
                           <div className="mb-6">
-                            {logoUpload}
+                            {React.cloneElement(logoUpload as React.ReactElement<any>, {
+                              onLogoChange: (file: File | null) => {
+                                console.log('onLogoChange called with file:', file)
+                                setLogoFile(file)
+                              }
+                            })}
                           </div>
                         )}
 
@@ -239,7 +330,15 @@ export default function OnboardingLayout({
                                 <FormControl>
                                   <RadioCards
                                     value={field.value}
-                                    onValueChange={field.onChange}
+                                    onValueChange={(value) => {
+                                      // Update form field
+                                      field.onChange(value)
+                                      // Store in session storage immediately
+                                      if (value) {
+                                        sessionStorage.setItem('onboarding_account_type', value)
+                                        setSessionAccountType(value)
+                                      }
+                                    }}
                                   >
                                     <RadioCard value="agency" icon={<AgencyIcon />}>
                                       <h3 className="display-5-medium mb-2">
@@ -380,7 +479,7 @@ export default function OnboardingLayout({
                                   {...field}
                                   value={field.value || ""}
                                   autoComplete="organization-title"
-                                  placeholder="Enter your job title"
+                                  placeholder="E.g. Account Manager"
                                   className="h-10 px-4 py-2 text-sm"
                                 />
                                   </FormControl>
