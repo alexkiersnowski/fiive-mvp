@@ -3,6 +3,25 @@
 import { redirect } from "next/navigation"
 import { createClient } from '@/app/utils/supabase/server'
 
+// Timeout wrapper for server actions
+async function withTimeout<T>(query: any, timeoutMs: number = 30000): Promise<T> {
+  const promise = query.then ? query : Promise.resolve(query)
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+  })
+  
+  return Promise.race([promise, timeoutPromise])
+}
+
+// Input sanitization utility
+function sanitizeInput(input: string): string {
+  return input
+    .trim()
+    .replace(/[<>]/g, '') // Remove potential HTML tags
+    .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+    .slice(0, 255) // Limit length to prevent buffer overflow
+}
+
 // Profile actions
 export async function handleProfileCreation(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
   // Type guard to ensure we have profile data
@@ -17,12 +36,17 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
   
   const { firstName, lastName, jobTitle } = data
   
+  // Sanitize inputs
+  const sanitizedFirstName = sanitizeInput(firstName)
+  const sanitizedLastName = sanitizeInput(lastName)
+  const sanitizedJobTitle = jobTitle ? sanitizeInput(jobTitle) : null
+  
   // Basic validation
-  if (!firstName || firstName.trim() === '') {
+  if (!sanitizedFirstName) {
     throw new Error('First name is required')
   }
   
-  if (!lastName || lastName.trim() === '') {
+  if (!sanitizedLastName) {
     throw new Error('Last name is required')
   }
   
@@ -37,23 +61,24 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
     throw new Error('You must be logged in to create a profile')
   }
   
-  console.log('User authenticated:', { id: user.id, email: user.email })
-  
   // Update the existing user profile (profile was created during signup)
-  const profileData = {
-    first_name: firstName.trim(),
-    last_name: lastName.trim(),
-    job_title: jobTitle?.trim() || null,
+  const profileUpdateData = {
+    first_name: sanitizedFirstName,
+    last_name: sanitizedLastName,
+    job_title: sanitizedJobTitle,
     updated_at: new Date().toISOString()
   }
   
-  console.log('Attempting to update profile for user:', user.id, 'with data:', profileData)
+  const result = await withTimeout(
+    supabase
+      .from('profiles')
+      .update(profileUpdateData)
+      .eq('id', user.id)
+      .select(),
+    10000 // 10 second timeout for profile updates
+  )
   
-  const { data: result, error: profileError } = await supabase
-    .from('profiles')
-    .update(profileData)
-    .eq('id', user.id)
-    .select()
+  const { data: profileData, error: profileError } = result as { data: any; error: any }
   
   if (profileError) {
     console.error('Profile update error details:', {
@@ -67,7 +92,6 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
     throw new Error(`Failed to update profile: ${profileError.message}`)
   }
   
-  console.log('Profile updated successfully:', result)
   
   // Redirect to next step (account type selection)
   redirect('/account-type')
@@ -93,31 +117,32 @@ export async function handleAccountTypeSelection(data: { email: string } | { fir
 
 // Organization actions
 export async function handleOrganizationDetails(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { name: string; agencyType?: string; industry?: string; logoUrl?: string | File } | { accountType: string }) {
-  console.log('=== ACTION STARTED ===')
-  console.log('Action received data:', data)
-  
   // Type guard to ensure we have organization data
   if (!('name' in data)) {
-    console.log('Type guard failed - not organization data')
     throw new Error('This function only handles organization data')
   }
   
   const { name, agencyType, industry, logoUrl } = data
   
+  // Sanitize inputs
+  const sanitizedName = sanitizeInput(name)
+  const sanitizedAgencyType = agencyType ? sanitizeInput(agencyType) : null
+  const sanitizedIndustry = industry ? sanitizeInput(industry) : null
+  
   // Basic validation
-  if (!name || name.trim() === '') {
+  if (!sanitizedName) {
     throw new Error('Organization name is required')
   }
   
   // Determine organization type based on which field is present
-  const organizationType = agencyType ? 'agency' : 'client'
+  const organizationType = sanitizedAgencyType ? 'agency' : 'client'
   
   // Validate required fields based on type
-  if (organizationType === 'agency' && (!agencyType || agencyType.trim() === '')) {
+  if (organizationType === 'agency' && !sanitizedAgencyType) {
     throw new Error('Agency type is required')
   }
   
-  if (organizationType === 'client' && (!industry || industry.trim() === '')) {
+  if (organizationType === 'client' && !sanitizedIndustry) {
     throw new Error('Industry is required')
   }
   
@@ -132,25 +157,20 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
     throw new Error('You must be logged in to create an organization')
   }
   
-  console.log('Creating organization for user:', user.id, 'with data:', { name, organizationType, agencyType, industry, logoUrl })
-  
   // Step 1: Create organization first (without logo URL) to get the ID
-  console.log('=== CALLING CREATE_ORGANIZATION RPC ===')
-  console.log('RPC Parameters:', {
-    p_name: name.trim(),
-    p_type: organizationType,
-    p_industry: (organizationType === 'client' ? industry?.trim() : agencyType?.trim()) || null,
-    p_logo_url: null
-  })
   
-  const { data: organizationId, error: rpcError } = await supabase.rpc('create_organization', {
-    p_name: name.trim(),
-    p_type: organizationType,
-    p_industry: (organizationType === 'client' ? industry?.trim() : agencyType?.trim()) || null,
-    p_logo_url: null // Create org first without logo
-  })
+  const rpcResult = await withTimeout(
+    supabase.rpc('create_organization', {
+      p_name: sanitizedName,
+      p_type: organizationType,
+      p_industry: (organizationType === 'client' ? sanitizedIndustry : sanitizedAgencyType) || null,
+      p_logo_url: null // Create org first without logo
+    }),
+    15000 // 15 second timeout for organization creation
+  )
   
-  console.log('RPC Result:', { organizationId, rpcError })
+  const { data: organizationId, error: rpcError } = rpcResult as { data: string; error: any }
+  
   
   if (rpcError) {
     console.error('Organization creation RPC error:', {
@@ -163,30 +183,31 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
     throw new Error(`Failed to create organization: ${rpcError.message}`)
   }
   
-  console.log('Organization created successfully, org ID:', organizationId)
   
   // Step 2: If logo is provided, upload it using the organization ID
   if (logoUrl && logoUrl instanceof File) {
     try {
-      console.log('Uploading new logo file:', { fileName: logoUrl.name, fileSize: logoUrl.size, fileType: logoUrl.type })
       
       const { uploadLogo } = await import('@/lib/supabase/storage')
       const logoUrlString = await uploadLogo(logoUrl, organizationId)
       
-      console.log('Logo uploaded successfully, URL:', logoUrlString)
       
       // Step 3: Update organization with logo URL
-      const { error: updateError } = await supabase
-        .from('organizations')
-        .update({ logo_url: logoUrlString })
-        .eq('id', organizationId)
+      const updateResult = await withTimeout(
+        supabase
+          .from('organizations')
+          .update({ logo_url: logoUrlString })
+          .eq('id', organizationId),
+        10000 // 10 second timeout for organization updates
+      )
+      
+      const { error: updateError } = updateResult as { error: any }
       
       if (updateError) {
         console.error('Failed to update organization with logo URL:', updateError)
         throw new Error(`Failed to update organization with logo: ${updateError.message}`)
       }
       
-      console.log('Organization updated with logo URL successfully')
       
     } catch (logoError) {
       console.error('Failed to upload logo:', logoError)
@@ -195,24 +216,23 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
     }
   } else if (logoUrl && typeof logoUrl === 'string') {
     // logoUrl is already a URL string (existing logo), just update the organization
-    console.log('Using existing logo URL:', logoUrl)
     
-    const { error: updateError } = await supabase
-      .from('organizations')
-      .update({ logo_url: logoUrl })
-      .eq('id', organizationId)
+    const updateResult = await withTimeout(
+      supabase
+        .from('organizations')
+        .update({ logo_url: logoUrl })
+        .eq('id', organizationId),
+      10000 // 10 second timeout for organization updates
+    )
+    
+    const { error: updateError } = updateResult as { error: any }
     
     if (updateError) {
       console.error('Failed to update organization with existing logo URL:', updateError)
       throw new Error(`Failed to update organization with logo: ${updateError.message}`)
     }
     
-    console.log('Organization updated with existing logo URL successfully')
-  } else {
-    console.log('No logo provided')
   }
-  
-  console.log('Organization creation/update completed successfully, org ID:', organizationId)
   
   // Redirect to next step (dashboard or completion)
   redirect('/dashboard')

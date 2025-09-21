@@ -147,6 +147,9 @@ export default function OnboardingLayout({
     return null
   })
   
+  // Local loading state that persists until redirect
+  const [isRedirecting, setIsRedirecting] = useState(false)
+  
   // Read session storage synchronously during initial render
   const [sessionAccountType, setSessionAccountType] = useState<string>(() => {
     if (typeof window !== 'undefined' && isAccountTypeForm) {
@@ -212,6 +215,7 @@ export default function OnboardingLayout({
 
   const handleSubmit = async (data: AuthFormData | ProfileFormData | OrganizationFormData | AccountTypeFormData) => {
     try {
+      setIsRedirecting(true)
       console.log('Form submission started:', { 
         isOrganizationForm, 
         hasLogoFile: !!logoFile, 
@@ -515,9 +519,9 @@ export default function OnboardingLayout({
                             type="submit" 
                             size="lg" 
                             className="w-full cursor-pointer text-sm"
-                            disabled={form.formState.isSubmitting}
+                            disabled={form.formState.isSubmitting || isRedirecting}
                           >
-                            {form.formState.isSubmitting ? (
+                            {(form.formState.isSubmitting || isRedirecting) ? (
                               <Spinner size={16} />
                             ) : (
                               buttonText

@@ -15,9 +15,13 @@ export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, classNam
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   
   // Store base64 data for instant preview
   const [base64Preview, setBase64Preview] = useState<string | null>(null)
+  
+  // Rate limiting state
+  const [lastUploadTime, setLastUploadTime] = useState<number>(0)
   
   // Check for stored preview data on mount
   useEffect(() => {
@@ -38,13 +42,20 @@ export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, classNam
   }, [currentLogo, base64Preview])
 
   const handleDrop = async (files: File[]) => {
-    console.log('Logo uploaded:', files)
     setFiles(files)
     setError(null) // Clear any previous errors
     
+    // Rate limiting: prevent uploads more than once every 2 seconds
+    const now = Date.now()
+    if (now - lastUploadTime < 2000) {
+      setError('Please wait a moment before uploading another file.')
+      return
+    }
+    
     if (files.length > 0) {
+      setIsUploading(true)
+      setLastUploadTime(now)
       const file = files[0]
-      console.log('Processing logo file:', { name: file.name, size: file.size, type: file.type })
       
       // Validate file size
       if (file.size > 5 * 1024 * 1024) {
@@ -74,14 +85,13 @@ export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, classNam
       reader.readAsDataURL(file)
       
       // Just pass the file - upload will happen on form submit
-      console.log('Calling onLogoChange with file:', file)
       onLogoChange?.(file)
     }
+    setIsUploading(false)
   }
 
 
   const handleError = (error: Error) => {
-    console.error('Logo upload error:', error)
     
     // Add user-friendly error messages based on react-dropzone error messages
     if (error.message.includes('larger than') || error.message.includes('File too large') || error.message.includes('bytes') || error.message.includes('5242880')) {
