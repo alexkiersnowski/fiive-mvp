@@ -1,7 +1,7 @@
 'use server'
 
 import { redirect } from "next/navigation"
-import { createClient } from '@/app/utils/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 
 // Timeout wrapper for server actions
 async function withTimeout<T>(query: any, timeoutMs: number = 30000): Promise<T> {

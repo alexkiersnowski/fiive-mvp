@@ -38,9 +38,14 @@
   --color-base-text-high-contrast: #1c2024;
   --color-base-surface-black-contrast: #1c2024;
   --color-base-surface-page-background: #ffffff;
+  --color-base-icons-primary: #1c2024;
+  --color-base-icons-secondary: #000714bd;
+  --color-base-icons-tertiary: #6F737D;
 
   /* Interactive Colors */
-  --color-interactive-surface-selected: '#00002D';
+  --color-interactive-surface-selected: rgba(0, 0, 45, 0.09);
+  --color-interactive-surface-hover: rgba(0, 0, 51, 0.06);
+  --color-interactive-surface-pressed: rgba(0, 9, 50, 0.12);
 
   /* Slate (Neutral) Colors */
   --color-slate-1: #fcfcfd;
@@ -291,6 +296,7 @@
   /* Neutral Alpha Colors */
   --color-neutral-alpha-2: #00005506;
   --color-neutral-alpha-3: #0000330f;
+  --color-neutral-alpha-4: #00002d17;
   --color-neutral-alpha-7: #00062e32;
   --color-neutral-alpha-10: #03091a8f;
   --color-neutral-alpha-11: #000714bd;

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { handleProfileCreation } from '../actions'
-import { createClient } from '@/app/utils/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 
 export default async function ProfilePage() {
   // Check authentication

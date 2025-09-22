@@ -1,7 +1,7 @@
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { LogoUpload } from '@/components/ui/logo-upload'
 import { handleOrganizationDetails } from '../actions'
-import { createClient } from '@/app/utils/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
 export default async function OrganizationDetailsPage({ 

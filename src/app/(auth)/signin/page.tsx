@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import AuthLayout from '@/components/layouts/AuthLayout'
-import { createClient, isUserVerified } from '@/app/utils/supabase/server'
+import { createClient, isUserVerified } from '@/lib/supabase/server'
 
 async function handleSignIn(data: { email: string }) {
   'use server'
