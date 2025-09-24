@@ -33,7 +33,7 @@
   /* Base Colors */
   --color-base-text-primary: #1c2024;
   --color-base-text-secondary: #000714bd;
-  --color-base-text-tertiary: #03091a;
+  --color-base-text-tertiary: #71757E;
   --color-base-text-inverse: #fcfcfd;
   --color-base-text-high-contrast: #1c2024;
   --color-base-surface-black-contrast: #1c2024;
@@ -346,7 +346,14 @@
   /* Typography Styles - Text */
   --typography-text-xs:
     700 0.75rem/1rem 'Inter', sans-serif; /* 700 12px/16px */
+  --typography-text-xs-regular:
+    400 0.75rem/1rem 'Inter', sans-serif; /* 400 12px/16px */
+  --typography-text-xs-medium:
+    500 0.75rem/1rem 'Inter', sans-serif; /* 500 12px/16px */
   --typography-text-xs-letter-spacing: 0.0025rem; /* 0.04px */
+  --typography-text-nav-regular:
+    400 0.8125rem/1.125rem 'Inter', sans-serif; /* 400 13px/18px */
+  --typography-text-nav-letter-spacing: 0; /* 0px */
   --typography-text-sm-light:
     300 0.875rem/1.25rem 'Inter', sans-serif; /* 300 14px/20px */
   --typography-text-sm-regular:
@@ -363,6 +370,8 @@
   --typography-text-md-bold:
     700 1rem/1.5rem 'Inter', sans-serif; /* 700 16px/24px */
   --typography-text-md-letter-spacing: 0;
+  --typography-text-xl-regular:
+    400 1.125rem/1.625rem 'Inter', sans-serif; /* 400 18px/26px */
   --typography-text-xl-medium:
     500 1.125rem/1.625rem 'Inter', sans-serif; /* 500 18px/26px */
   --typography-text-xl-bold:
@@ -395,8 +404,11 @@
     700 2.1875rem/2.5rem 'Inter', sans-serif; /* 700 35px/40px */
   --typography-display-8-letter-spacing: -0.01rem; /* -0.16px */
   --typography-display-9-medium:
-    500 3.75rem/3.75rem 'Inter', sans-serif; /* 500 60px/60px */
+    500 3rem/3rem 'Inter', sans-serif; /* 500 48px/48px */
   --typography-display-9-letter-spacing: -0.025rem; /* -0.4px */
+  --typography-display-10-medium:
+    500 3.75rem/3.75rem 'Inter', sans-serif; /* 500 60px/60px */
+  --typography-display-10-letter-spacing: -0.025rem; /* -0.4px */
 
   /* Scale Tokens - From Figma Design System */
   --scale-1: 0.25rem; /* 4px */
@@ -621,6 +633,25 @@
     letter-spacing: var(--typography-text-xs-letter-spacing);
   }
 
+  .text-xs-regular {
+    font: var(--typography-text-xs-regular);
+    letter-spacing: var(--typography-text-xs-letter-spacing);
+  }
+
+  .text-xs-medium {
+    font: var(--typography-text-xs-medium);
+    letter-spacing: var(--typography-text-xs-letter-spacing);
+  }
+
+  .text-nav-regular {
+    font: var(--typography-text-nav-regular);
+    letter-spacing: var(--typography-text-nav-letter-spacing);
+  }
+
+  .text-tertiary {
+    color: var(--color-base-text-tertiary);
+  }
+
   .back-button {
     color: var(--color-neutral-11);
     font-weight: var(--font-weight-regular);
@@ -739,6 +770,21 @@
   .display-9-medium {
     font: var(--typography-display-9-medium);
     letter-spacing: var(--typography-display-9-letter-spacing);
+  }
+
+  .display-10-medium {
+    font: var(--typography-display-10-medium);
+    letter-spacing: var(--typography-display-10-letter-spacing);
+  }
+
+  .display-8-medium {
+    font: var(--typography-display-8-medium);
+    letter-spacing: var(--typography-display-8-letter-spacing);
+  }
+
+  .text-xl-regular {
+    font: var(--typography-text-xl-regular);
+    letter-spacing: var(--typography-text-xl-letter-spacing);
   }
 
   /* Background Utility Classes */

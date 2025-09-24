@@ -15,9 +15,9 @@ export default function BrandLink({
     <Button 
       variant="ghost" 
       asChild 
-      className={`h-10 p-[var(--spacing-2)] hover:bg-[var(--color-interactive-surface-hover)] ${className}`}
+      className={`h-10 p-[var(--spacing-2)] hover:bg-[var(--color-interactive-surface-hover)] transition-all duration-75 ${className}`}
     >
-      <Link href={href}>
+      <Link href={href} prefetch={true}>
         <Image 
           src="/logos/fiive-logo.svg" 
           alt="Fiive" 

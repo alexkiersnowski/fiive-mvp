@@ -23,10 +23,10 @@ export default function NavItem({ href, children, icon, className = '', isSelect
       // Hide text immediately when collapsing
       setShowText(false)
     } else {
-      // Show text with 100ms delay when expanding
+      // Show text with 50ms delay when expanding
       const timer = setTimeout(() => {
         setShowText(true)
-      }, 100)
+      }, 50)
       
       return () => clearTimeout(timer)
     }
@@ -41,38 +41,42 @@ export default function NavItem({ href, children, icon, className = '', isSelect
   const linkElement = (
     <Link 
       href={href}
-      className={`block w-full flex items-center text-left rounded-md transition-all duration-200 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] ${className}`}
-      style={{
-        padding: '8px',
+      prefetch={true}
+      className={`block w-full flex items-center text-left rounded-md transition-all duration-75 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] text-nav-regular ${className}`}
+              style={{
+                padding: isCollapsed ? '9px' : '9px',
         height: '36px',
         width: isCollapsed ? '36px' : '100%',
         backgroundColor: getBackgroundColor(),
         color: 'var(--color-base-text-primary, #1C2024)',
-        fontFamily: 'var(--typography-font-family-text, Inter)',
-        fontSize: 'var(--typography-font-size-2, 14px)',
-        fontStyle: 'normal',
-        fontWeight: '400',
-        lineHeight: 'var(--typography-line-height-2, 20px)',
-        letterSpacing: 'var(--typography-letter-spacing-2, 0)'
+        justifyContent: isCollapsed ? 'center' : 'flex-start'
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <span className="flex-shrink-0 flex items-center justify-center" style={{ 
-        width: '18px', 
-        height: '18px', 
-        marginRight: isCollapsed ? '0' : '12px'
-      }}>
-        {icon || <SquaresFour size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />}
-      </span>
-      <span 
-        style={{ 
-          opacity: showText ? 1 : 0,
-          transition: showText ? 'opacity 0.15s ease-in-out' : 'none'
-        }}
-      >
-        {children}
-      </span>
+      {isCollapsed ? (
+        <div className="flex items-center justify-center w-full h-full">
+          {icon || <SquaresFour size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />}
+        </div>
+      ) : (
+        <span className="flex-shrink-0 flex items-center justify-center" style={{ 
+          width: '18px', 
+          height: '18px', 
+          marginRight: '12px'
+        }}>
+          {icon || <SquaresFour size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />}
+        </span>
+      )}
+      {!isCollapsed && (
+        <span 
+          style={{ 
+            opacity: showText ? 1 : 0,
+            transition: showText ? 'opacity 0.1s ease-in-out' : 'none'
+          }}
+        >
+          {children}
+        </span>
+      )}
     </Link>
   )
 

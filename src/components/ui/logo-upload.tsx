@@ -9,9 +9,11 @@ interface LogoUploadProps {
   currentLogo?: string
   initialLogoUrl?: string
   className?: string
+  uploadText?: string
+  changeText?: string
 }
 
-export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, className }: LogoUploadProps) {
+export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload logo", changeText = "Click to change logo" }: LogoUploadProps) {
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
@@ -146,7 +148,7 @@ export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, classNam
         {/* Upload Text */}
         <div className="flex-1 flex flex-col justify-center text-left">
           <p className="text-sm font-medium text-gray-900">
-            {logoPreview ? 'Click to change logo' : 'Upload logo'}
+            {logoPreview ? changeText : uploadText}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             Drag and drop or click to upload

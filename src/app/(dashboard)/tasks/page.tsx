@@ -1,9 +1,8 @@
-import DashboardLayout from '@/components/layouts/DashboardLayout'
-
 export default function TasksPage() {
   return (
-    <DashboardLayout>
-      <div>Tasks</div>
-    </DashboardLayout>
+    <div>
+      <h1 className="text-2xl font-semibold mb-4">Tasks</h1>
+      <p className="text-gray-600">Manage your tasks here</p>
+    </div>
   )
 }

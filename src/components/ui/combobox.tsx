@@ -33,7 +33,9 @@ interface ComboboxProps {
   emptyText?: string
   className?: string
   disabled?: boolean
+  readOnly?: boolean
   hasError?: boolean
+  style?: React.CSSProperties
 }
 
 export function Combobox({
@@ -45,7 +47,9 @@ export function Combobox({
   emptyText = "No option found.",
   className,
   disabled = false,
+  readOnly = false,
   hasError = false,
+  style,
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
   const [triggerWidth, setTriggerWidth] = React.useState<number | undefined>()
@@ -60,7 +64,7 @@ export function Combobox({
   }, [])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open && !readOnly} onOpenChange={(open) => !readOnly && setOpen(open)}>
       <PopoverTrigger asChild>
         <div
           ref={triggerRef}
@@ -68,6 +72,7 @@ export function Combobox({
           aria-expanded={open}
           tabIndex={disabled ? -1 : 0}
           onKeyDown={(e) => {
+            if (readOnly || disabled) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               setOpen(!open)
@@ -77,20 +82,32 @@ export function Combobox({
               setOpen(true)
             }
           }}
+          onClick={() => !readOnly && !disabled && setOpen(!open)}
           className={cn(
-            "w-full h-10 px-4 py-2 text-sm font-normal border rounded-md bg-transparent transition-[color,box-shadow] duration-75 outline-none cursor-pointer flex items-center justify-between",
-            "border-[var(--color-neutral-5)] bg-[var(--color-base-surface-page-background)]",
+            "w-full px-4 py-2 text-sm font-normal border rounded-md bg-transparent transition-[color,box-shadow] duration-75 outline-none flex items-center justify-between",
+            !readOnly && "border-[var(--color-neutral-5)] bg-[var(--color-base-surface-page-background)]",
             "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px]",
             open && "border-ring ring-ring/50 ring-[2px]",
             hasError && "border-destructive",
             hasError && open && "ring-destructive/20 ring-[2px]",
             !selectedOption && "text-muted-foreground",
             disabled && "pointer-events-none cursor-not-allowed opacity-50",
+            readOnly && "cursor-default",
+            !disabled && !readOnly && "cursor-pointer",
             className
           )}
+          style={{
+            ...style,
+            ...(readOnly && {
+              background: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))'
+            })
+          }}
         >
           <span>{selectedOption ? selectedOption.label : placeholder}</span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronsUpDown 
+            className="ml-2 h-4 w-4 shrink-0 opacity-50" 
+            style={readOnly ? { color: '#B5B7C4' } : undefined}
+          />
         </div>
       </PopoverTrigger>
       <PopoverContent 
@@ -99,9 +116,11 @@ export function Combobox({
         style={{ width: triggerWidth ? `${triggerWidth}px` : 'auto' }}
       >
         <Command>
-          <div className="[&_[data-slot=command-input-wrapper]]:!h-auto [&_[data-slot=command-input-wrapper]]:!py-1">
-            <CommandInput placeholder={searchPlaceholder} className="!h-auto !py-2 px-4 text-sm" />
-          </div>
+          {searchPlaceholder && (
+            <div className="[&_[data-slot=command-input-wrapper]]:!h-auto [&_[data-slot=command-input-wrapper]]:!py-1">
+              <CommandInput placeholder={searchPlaceholder} className="!h-auto !py-2 px-4 text-sm" />
+            </div>
+          )}
           <CommandList className="max-h-[200px]">
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
@@ -110,9 +129,10 @@ export function Combobox({
                   key={option.value}
                   value={option.value}
                   onSelect={(currentValue) => {
-                    onValueChange?.(currentValue === value ? "" : currentValue)
+                    onValueChange?.(currentValue)
                     setOpen(false)
                   }}
+                  className="cursor-pointer"
                 >
                   {option.label}
                   <Check

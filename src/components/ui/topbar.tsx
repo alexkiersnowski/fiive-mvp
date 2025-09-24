@@ -1,25 +1,37 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, memo, useCallback } from 'react'
+import Link from 'next/link'
 import BrandLink from './brand-link'
 import AvatarButton from './avatar-button'
 import { Avatar, AvatarFallback, AvatarImage } from './avatar'
 import { Button } from './button'
-import { Question, Gear, Users, UserPlus, UserGear, SignOut, BookOpen } from '@phosphor-icons/react'
+import { Question, Gear, UserPlus, UserGear, SignOut, BookOpen } from '@phosphor-icons/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
-  DropdownMenuLabel, 
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from './dropdown-menu'
 
-export default function Topbar() {
+const Topbar = memo(function Topbar() {
   const [isHelpDropdownOpen, setIsHelpDropdownOpen] = useState(false)
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false)
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
+
+  const handleHelpDropdownChange = useCallback((open: boolean) => {
+    setIsHelpDropdownOpen(open)
+  }, [])
+
+  const handleWorkspaceDropdownChange = useCallback((open: boolean) => {
+    setIsWorkspaceDropdownOpen(open)
+  }, [])
+
+  const handleUserDropdownChange = useCallback((open: boolean) => {
+    setIsUserDropdownOpen(open)
+  }, [])
   return (
     <div className="w-full" style={{ 
       backgroundColor: 'var(--color-neutral-2)',
@@ -33,7 +45,7 @@ export default function Topbar() {
       <div className="flex items-center justify-between">
         <div className="flex items-center" style={{ gap: '20px' }}>
           {/* Workspace avatar */}
-          <DropdownMenu modal={false} open={isWorkspaceDropdownOpen} onOpenChange={setIsWorkspaceDropdownOpen}>
+          <DropdownMenu modal={false} open={isWorkspaceDropdownOpen} onOpenChange={handleWorkspaceDropdownChange}>
             <Tooltip open={isWorkspaceDropdownOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -68,13 +80,17 @@ export default function Topbar() {
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <Gear size={16} style={{ color: 'inherit' }} />
-                Agency admin
+              <DropdownMenuItem asChild>
+                <Link href="/settings/organization/details" className="flex items-center w-full">
+                  <Gear size={16} style={{ color: 'inherit' }} />
+                  Agency admin
+                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <UserPlus size={16} style={{ color: 'inherit' }} />
-                User management
+              <DropdownMenuItem asChild>
+                <Link href="/settings/organization/members" className="flex items-center w-full">
+                  <UserPlus size={16} style={{ color: 'inherit' }} />
+                  User management
+                </Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -92,7 +108,7 @@ export default function Topbar() {
         </div>
         <div className="flex items-center" style={{ gap: 'var(--spacing-2)' }}>
           {/* User actions area */}
-          <DropdownMenu open={isHelpDropdownOpen} onOpenChange={setIsHelpDropdownOpen} modal={false}>
+          <DropdownMenu open={isHelpDropdownOpen} onOpenChange={handleHelpDropdownChange} modal={false}>
             <Tooltip open={isHelpDropdownOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -100,7 +116,7 @@ export default function Topbar() {
                     <Button 
                       variant="ghost"
                       size="icon"
-                      className={`h-10 w-10 cursor-pointer ${isHelpDropdownOpen ? 'bg-[var(--color-interactive-surface-hover)]' : 'hover:bg-[var(--color-interactive-surface-hover)]'}`}
+                      className={`h-10 w-10 cursor-pointer transition-all duration-75 ${isHelpDropdownOpen ? 'bg-[var(--color-interactive-surface-hover)]' : 'hover:bg-[var(--color-interactive-surface-hover)]'}`}
                       style={{ 
                         borderRadius: '6px',
                         ...(isHelpDropdownOpen && { 
@@ -129,7 +145,7 @@ export default function Topbar() {
                   }}
                 >
                   <div className="text-sm font-normal text-gray-900 mb-1">support@fiive.co</div>
-                  <div className="text-xs text-gray-600">We're here for support, questions, or anything else</div>
+                  <div className="text-xs text-gray-600">We&apos;re here for support, questions, or anything else</div>
                 </div>
               </div>
               
@@ -143,42 +159,44 @@ export default function Topbar() {
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
-          <DropdownMenu modal={false} open={isUserDropdownOpen} onOpenChange={setIsUserDropdownOpen}>
+          <DropdownMenu modal={false} open={isUserDropdownOpen} onOpenChange={handleUserDropdownChange}>
             <Tooltip open={isUserDropdownOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <div>
                     <AvatarButton 
-                      fallback="AK" 
+                      fallback="ZR" 
                       isActive={isUserDropdownOpen}
                     />
                   </div>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="bottom" align="end" sideOffset={8}>
-                Alex Kiersnowski
+                Zen Rae
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-64">
               {/* User avatar preview with metadata */}
               <div className="flex items-center gap-3 py-3 px-2">
                 <Avatar className="h-10 w-10 rounded-full">
-                  <AvatarImage src="" alt="Alex Kiersnowski" />
+                  <AvatarImage src="" alt="Zen Rae" />
                   <AvatarFallback 
                     className="bg-[var(--color-neutral-9)] !text-white text-sm-regular rounded-full"
                   >
-                    AK
+                    ZR
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium">Alex Kiersnowski</span>
-                  <span className="text-xs text-muted-foreground">alex.kiersnowski@gmail.com</span>
+                  <span className="text-sm font-medium">Zen Rae</span>
+                  <span className="text-xs text-muted-foreground">zen.rae@exastudios.com</span>
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <UserGear size={16} style={{ color: 'inherit' }} />
-                Account settings
+              <DropdownMenuItem asChild>
+                <Link href="/settings/account/profile" className="flex items-center w-full">
+                  <UserGear size={16} style={{ color: 'inherit' }} />
+                  Account settings
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem>
@@ -191,4 +209,6 @@ export default function Topbar() {
       </div>
     </div>
   )
-}
+})
+
+export default Topbar
