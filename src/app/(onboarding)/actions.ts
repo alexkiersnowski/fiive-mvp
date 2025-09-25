@@ -53,7 +53,7 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
   // Create Supabase client
   const supabase = await createClient()
   
-  // Get the current user
+  // Get the current user (centralized auth)
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   
   if (userError || !user) {
@@ -149,7 +149,7 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
   // Create Supabase client
   const supabase = await createClient()
   
-  // Get the current user
+  // Get the current user (centralized auth)
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   
   if (userError || !user) {

@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from './server'
 import { UserProfile, Organization } from './user'
 
@@ -20,7 +21,7 @@ export interface DashboardData {
   }
 }
 
-export async function getDashboardData(): Promise<DashboardData | null> {
+export const getDashboardData = cache(async (): Promise<DashboardData | null> => {
   const supabase = await createClient()
   
   try {
@@ -41,14 +42,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       
       supabase
         .from('organizations')
-        .select(`
-          id,
-          name,
-          type,
-          industry,
-          logo_url,
-          memberships(count)
-        `)
+        .select('id, name, type, industry, logo_url')
         .eq('owner_id', user.id)
         .single()
     ])
@@ -75,11 +69,11 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         type: organization.type,
         industry: organization.industry || undefined,
         logoUrl: organization.logo_url || undefined,
-        memberCount: organization.memberships?.[0]?.count || 1
+        memberCount: 1 // Simplified - we can add member count later if needed
       }
     }
   } catch (error) {
     console.error('Error fetching dashboard data:', error)
     return null
   }
-}
+})

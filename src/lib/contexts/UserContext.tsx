@@ -70,26 +70,37 @@ export function UserProvider({ children }: UserProviderProps) {
   const isAuthenticated = !!user
 
   const fetchUserProfile = async (userId: string) => {
+    if (!userId) return null
+    
     try {
+      console.log('Fetching profile for userId:', userId)
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', userId)
+        .eq('id', userId)
         .single()
+
+      console.log('Profile fetch result:', { data, error })
 
       if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
         console.error('Error fetching user profile:', error)
+        console.error('Error details:', { code: error.code, message: error.message, details: error.details })
+        console.error('Full error object:', JSON.stringify(error, null, 2))
         return null
       }
 
       return data
     } catch (error) {
-      console.error('Error fetching user profile:', error)
+      console.error('Caught error in fetchUserProfile:', error)
+      console.error('Error type:', typeof error)
+      console.error('Error stringified:', JSON.stringify(error, null, 2))
       return null
     }
   }
 
   const fetchUserMemberships = async (userId: string) => {
+    if (!userId) return []
+    
     try {
       const { data, error } = await supabase
         .from('memberships')
@@ -98,7 +109,7 @@ export function UserProvider({ children }: UserProviderProps) {
           organization:organizations(*),
           user_profile:profiles(*)
         `)
-        .eq('user_id', userId)
+        .eq('id', userId)
 
       if (error) {
         console.error('Error fetching memberships:', error)
@@ -126,34 +137,27 @@ export function UserProvider({ children }: UserProviderProps) {
       }
       
       const user = session?.user || null
+      setUser(user)
       
       if (!user) {
-        setUser(null)
         setProfile(null)
         setCurrentOrganization(null)
         setMemberships([])
         return
       }
 
-      setUser(user)
+      // Only fetch profile data if user is authenticated
+      const [userProfile, userMemberships] = await Promise.all([
+        fetchUserProfile(user.id),
+        fetchUserMemberships(user.id)
+      ])
 
-      if (user) {
-        const [userProfile, userMemberships] = await Promise.all([
-          fetchUserProfile(user.id),
-          fetchUserMemberships(user.id)
-        ])
+      setProfile(userProfile)
+      setMemberships(userMemberships)
 
-        setProfile(userProfile)
-        setMemberships(userMemberships)
-
-        // Set current organization to the first active membership or null
-        const activeMembership = userMemberships.find(m => m.status === 'active')
-        setCurrentOrganization(activeMembership?.organization || null)
-      } else {
-        setProfile(null)
-        setCurrentOrganization(null)
-        setMemberships([])
-      }
+      // Set current organization to the first active membership or null
+      const activeMembership = userMemberships.find(m => m.status === 'active')
+      setCurrentOrganization(activeMembership?.organization || null)
     } catch (error) {
       // Suppress common auth errors that are expected during signup/initial load
       const suppressErrors = [

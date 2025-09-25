@@ -1,63 +1,34 @@
 import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { handleProfileCreation } from '../actions'
-import { createClient } from '@/lib/supabase/server'
+import { getAuthenticatedUser } from '@/lib/onboarding/auth'
+import { getProfileData } from '@/lib/onboarding/data'
 
 export default async function ProfilePage() {
-  // Check authentication
-  const supabase = await createClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  // Check authentication (centralized, DRY)
+  const user = await getAuthenticatedUser()
   
-  if (userError || !user) {
-    redirect('/signup')
-  }
+  // Load existing profile data (optimized query)
+  const profile = await getProfileData(user.id)
   
-  // Load existing profile data
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('first_name, last_name, job_title')
-    .eq('id', user.id)
-    .single()
-  
-  if (profileError) {
-    console.error('Error loading profile:', profileError)
-    // If profile doesn't exist, redirect to signup
+  // If profile doesn't exist, redirect to signup
+  if (!profile) {
     redirect('/signup')
   }
   
   return (
-    <div>
-      {/* TEMP: Quick sign out for development */}
-      <div className="fixed top-2 right-2 z-50">
-        <form action={async () => {
-          'use server'
-          const supabase = await createClient()
-          await supabase.auth.signOut()
-          redirect('/signin')
-        }}>
-          <button 
-            type="submit"
-            className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded border"
-            title="Temporary sign out for development"
-          >
-            TEMP: Sign Out
-          </button>
-        </form>
-      </div>
-      
-      <OnboardingLayout
-        title="Create your account"
-        buttonText="Continue"
-        onSubmit={handleProfileCreation}
-        showForm={true}
-        formType="profile"
-        showBackButton={false}
-        initialData={{
-          firstName: profile.first_name || '',
-          lastName: profile.last_name || '',
-          jobTitle: profile.job_title || ''
-        }}
-      />
-    </div>
+    <OnboardingLayout
+      title="Create your account"
+      buttonText="Continue"
+      onSubmit={handleProfileCreation}
+      showForm={true}
+      formType="profile"
+      showBackButton={false}
+      initialData={{
+        firstName: profile.first_name || '',
+        lastName: profile.last_name || '',
+        jobTitle: profile.job_title || ''
+      }}
+    />
   )
 }

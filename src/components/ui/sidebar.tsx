@@ -4,7 +4,7 @@ import NavItem from './nav-item'
 import { Button } from './button'
 import { Alert, AlertDescription } from './alert'
 import { Badge } from './badge'
-import { SquaresFour, Users, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, Gear, CreditCard, BuildingOffice, UsersThree } from '@phosphor-icons/react'
+import { SquaresFour, Users, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, Gear, CreditCard, BuildingOffice, UsersThree, User, Shield } from '@phosphor-icons/react'
 import { useState, useEffect, memo, useCallback } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 import { useRouter } from 'next/navigation'
@@ -20,6 +20,7 @@ interface SidebarProps {
   backLabel?: string
   showTitle?: boolean
   title?: string
+  pathname?: string
   navItems?: Array<{
     href: string
     label: string
@@ -39,6 +40,7 @@ const SidebarComponent = memo(function SidebarComponent({
   backLabel = 'Back',
   showTitle = false,
   title = '',
+  pathname = '',
   navItems
 }: SidebarProps) {
   const router = useRouter()
@@ -72,12 +74,27 @@ const SidebarComponent = memo(function SidebarComponent({
     { href: '/tasks', label: 'Tasks', icon: <CheckCircle size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />, isSelected: selectedItem === 'tasks' }
   ]
 
-  // Default navigation items for secondary variant
-  const secondaryNavItems = [
+  // Account settings navigation items
+  const accountNavItems = [
+    { href: '/settings/account/profile', label: 'Profile', icon: <User size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />, isSelected: selectedItem === 'profile' },
+    { href: '/settings/account/access', label: 'Account access', icon: <Shield size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />, isSelected: selectedItem === 'access' }
+  ]
+
+  // Organization settings navigation items  
+  const organizationNavItems = [
     { href: '/settings/organization/details', label: 'Agency details', icon: <BuildingOffice size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />, isSelected: selectedItem === 'details' },
     { href: '/settings/organization/members', label: 'User management', icon: <UsersThree size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />, isSelected: selectedItem === 'members' },
     { href: '/settings/organization/billing', label: 'Billing & subscription', icon: <CreditCard size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />, isSelected: selectedItem === 'billing' }
   ]
+
+  // Determine which secondary nav items to show based on current path
+  const getSecondaryNavItems = () => {
+    if (pathname.startsWith('/settings/account')) return accountNavItems
+    if (pathname.startsWith('/settings/organization')) return organizationNavItems
+    return organizationNavItems // Default fallback
+  }
+
+  const secondaryNavItems = getSecondaryNavItems()
 
   const currentNavItems = navItems || (variant === 'secondary' ? secondaryNavItems : defaultNavItems)
   const isSecondary = variant === 'secondary'

@@ -37,6 +37,15 @@ export default function DashboardLayoutClient({
   const selectedItem = pathname.split('/').pop() || 'home'
   const [isCollapsed, setIsCollapsed] = useState(false)
   const isHomePage = pathname === '/home'
+  const isSettingsPage = pathname.startsWith('/settings')
+  const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
+  
+  // Get settings section title
+  const getSettingsTitle = () => {
+    if (pathname.startsWith('/settings/account')) return 'Account settings'
+    if (pathname.startsWith('/settings/organization')) return 'Organization settings'
+    return 'Settings'
+  }
   
   return (
     <div 
@@ -60,15 +69,26 @@ export default function DashboardLayoutClient({
         selectedItem={selectedItem} 
         isCollapsed={isCollapsed}
         onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+        variant={sidebarVariant}
+        showBackButton={isSettingsPage}
+        backHref="/home"
+        backLabel="Back to dashboard"
+        showTitle={isSettingsPage}
+        title={isSettingsPage ? getSettingsTitle() : ''}
+        pathname={pathname}
       />
-      <main style={{ padding: isHomePage ? '0' : '16px 16px 24px 16px' }}>
+      <main style={{ 
+        padding: isHomePage ? '0' : '16px 16px 24px 16px',
+        overflow: 'hidden' // Prevent main from growing beyond viewport
+      }}>
         <div 
           style={{
             borderRadius: isHomePage ? '0' : 'var(--radius-6, 16px)',
             border: isHomePage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
             background: isHomePage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isHomePage ? '0' : '16px',
-            height: '100%'
+            padding: isHomePage ? '0' : (isSettingsPage ? '40px 64px 24px 64px' : '16px'), // Settings pages get special padding
+            height: '100%',
+            overflow: isSettingsPage ? 'auto' : 'visible' // Make settings pages scrollable
           }}
         >
           {children}

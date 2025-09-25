@@ -57,7 +57,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single()
 
     if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
@@ -83,7 +83,7 @@ export async function getUserMemberships(userId: string): Promise<OrganizationMe
         organization:organizations(*),
         user_profile:profiles(*)
       `)
-      .eq('user_id', userId)
+      .eq('id', userId)
 
     if (error) {
       console.error('Error fetching memberships:', error)

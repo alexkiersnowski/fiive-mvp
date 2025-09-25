@@ -1,7 +1,6 @@
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { handleAccountTypeSelection } from '../actions'
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 
 export default async function AccountTypePage({ 
   searchParams 
@@ -11,13 +10,8 @@ export default async function AccountTypePage({
   const resolvedSearchParams = await searchParams
   const urlType = resolvedSearchParams.type // 'agency' or 'client' from URL
   
-  // Check authentication
-  const supabase = await createClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  
-  if (userError || !user) {
-    redirect('/signup')
-  }
+  // Check authentication (centralized, DRY)
+  await getAuthenticatedUser()
 
   return (
     <OnboardingLayout

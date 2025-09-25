@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import React, { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import Image from 'next/image'
+// Removed Next.js Image import to use regular img tag
 import { z } from "zod"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -176,13 +176,8 @@ export default function OnboardingLayout({
   // Local loading state that persists until redirect
   const [isRedirecting, setIsRedirecting] = useState(false)
   
-  // Read session storage synchronously during initial render
-  const [sessionAccountType, setSessionAccountType] = useState<string>(() => {
-    if (typeof window !== 'undefined' && isAccountTypeForm) {
-      return sessionStorage.getItem('onboarding_account_type') || ''
-    }
-    return ''
-  })
+  // Read session storage after hydration to prevent hydration mismatch
+  const [sessionAccountType, setSessionAccountType] = useState<string>('')
 
   const schema = isAccountTypeForm 
     ? accountTypeSchema 
@@ -192,18 +187,12 @@ export default function OnboardingLayout({
         ? profileSchema 
         : authSchema
   
-  // Debug logging for initialData
-  console.log('OnboardingLayout received initialData:', {
-    initialData,
-    isOrganizationForm,
-    isAccountTypeForm,
-    isProfileForm
-  })
+  // Removed debug logging for production performance
 
   const form = useForm<AuthFormData | ProfileFormData | OrganizationFormData | AccountTypeFormData>({
     resolver: zodResolver(schema),
     defaultValues: isAccountTypeForm ? {
-      accountType: initialData?.accountType || sessionAccountType || "",
+      accountType: initialData?.accountType || "", // Remove sessionAccountType to prevent hydration mismatch
     } : isOrganizationForm ? {
       name: initialData?.name || "",
       agencyType: initialData?.agencyType || "",
@@ -226,6 +215,17 @@ export default function OnboardingLayout({
       setSessionAccountType(urlAccountType)
     }
   }, [isAccountTypeForm, urlAccountType])
+
+  // Read session storage after hydration to prevent hydration mismatch
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isAccountTypeForm) {
+      const storedAccountType = sessionStorage.getItem('onboarding_account_type') || ''
+      setSessionAccountType(storedAccountType)
+      if (storedAccountType) {
+        form.setValue('accountType', storedAccountType)
+      }
+    }
+  }, [isAccountTypeForm, form])
 
   // Reset form when session account type changes
   useEffect(() => {
@@ -272,32 +272,20 @@ export default function OnboardingLayout({
   const handleSubmit = async (data: AuthFormData | ProfileFormData | OrganizationFormData | AccountTypeFormData) => {
     try {
       setIsRedirecting(true)
-      console.log('Form submission started:', { 
-        isOrganizationForm, 
-        hasLogoFile: !!logoFile, 
-        logoFile, 
-        data 
-      })
       
         if (onSubmit) {
           // For organization forms, include logo file or existing logo URL
           if (isOrganizationForm && logoFile) {
-            console.log('Including logo file in submission:', logoFile)
-            
             // Check if this is an existing logo (has existingLogoUrl property)
             if ((logoFile as unknown as Record<string, unknown>).existingLogoUrl) {
               // This is an existing logo, pass the URL instead of the File object
-              console.log('Using existing logo URL:', (logoFile as unknown as Record<string, unknown>).existingLogoUrl)
               const orgData = { ...data, logoUrl: (logoFile as unknown as Record<string, unknown>).existingLogoUrl as string }
-              console.log('About to call onSubmit with existing logo URL:', orgData)
               await onSubmit(orgData as unknown as Parameters<typeof onSubmit>[0])
             } else {
               // This is a new logo file
               const orgData = { ...data, logoUrl: logoFile }
-              console.log('About to call onSubmit with new logo file:', orgData)
               await onSubmit(orgData as unknown as Parameters<typeof onSubmit>[0])
             }
-            console.log('onSubmit completed successfully')
             
             // Clear stored logo data after successful submission
             if (typeof window !== 'undefined') {
@@ -305,13 +293,8 @@ export default function OnboardingLayout({
               sessionStorage.removeItem('logoPreview')
             }
           } else {
-            console.log('No logo file, submitting without logo')
-            console.log('About to call onSubmit with data:', data)
             await onSubmit(data)
-            console.log('onSubmit completed successfully')
           }
-        } else {
-          console.log('Form submitted (no handler):', data)
         }
     } catch (error) {
       console.error('Form submission error:', error)
@@ -323,13 +306,14 @@ export default function OnboardingLayout({
       <div className="flex-1" style={{ width: '66.67%' }}>
         {/* Navigation */}
         <div className="py-5 px-10">
-          <Image 
+          <img 
             src="/logos/fiive-logo.svg" 
             alt="Fiive" 
             width={96}
             height={24}
             style={{ height: '24px' }}
             draggable={false}
+            loading="eager"
           />
         </div>
 
@@ -380,7 +364,6 @@ export default function OnboardingLayout({
                           <div className="mb-6">
                             {React.cloneElement(logoUpload as React.ReactElement<Record<string, unknown>>, {
                               onLogoChange: (file: File | null) => {
-                                console.log('onLogoChange called with file:', file)
                                 setLogoFile(file)
                                 storeLogoFile(file)
                               }
@@ -605,13 +588,14 @@ export default function OnboardingLayout({
       <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
         <div className="w-full h-full p-2">
           <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
-            <Image 
+            <img 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
               width={240}
               height={240}
               className="max-w-full h-60 object-contain"
               draggable={false}
+              loading="eager"
             />
           </div>
         </div>

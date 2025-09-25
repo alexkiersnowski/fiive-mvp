@@ -1,6 +1,8 @@
 import { getDashboardData } from '@/lib/supabase/dashboard-data'
 import { redirect } from 'next/navigation'
 import DashboardLayoutClient from '@/components/layouts/DashboardLayoutClient'
+import { UserProvider } from '@/lib/contexts/UserContext'
+import QueryProvider from '@/lib/providers/query-provider'
 
 export default async function Layout({
   children,
@@ -14,12 +16,16 @@ export default async function Layout({
   }
 
   return (
-    <DashboardLayoutClient 
-      user={data.user}
-      profile={data.user}
-      organization={data.organization}
-    >
-      {children}
-    </DashboardLayoutClient>
+    <QueryProvider>
+      <UserProvider>
+        <DashboardLayoutClient 
+          user={data.user}
+          profile={data.user}
+          organization={data.organization}
+        >
+          {children}
+        </DashboardLayoutClient>
+      </UserProvider>
+    </QueryProvider>
   )
 }
