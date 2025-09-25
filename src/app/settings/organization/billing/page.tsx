@@ -142,7 +142,7 @@ export default function BillingPage() {
         </div>
         <div style={{ marginTop: 'var(--spacing-2, 8px)' }}>
           <p className="text-xs-regular" style={{ color: 'var(--color-base-text-tertiary)' }}>
-            Founding rate only applies with an active annual subscription. If you cancel, you'll lose your founding plan and locked-in price. If you rejoin later, standard pricing will apply.
+            Founding rate only applies with an active annual subscription. If you cancel, you&apos;ll lose your founding plan and locked-in price. If you rejoin later, standard pricing will apply.
           </p>
         </div>
       </div>

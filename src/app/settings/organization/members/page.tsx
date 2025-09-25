@@ -349,7 +349,7 @@ export default function UserManagementPage() {
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            You'll be downgraded to a member and lose access to billing, user management, and ownership settings. Only the new owner can transfer it back.
+            You&apos;ll be downgraded to a member and lose access to billing, user management, and ownership settings. Only the new owner can transfer it back.
           </DialogDescription>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
             <Button 
@@ -382,7 +382,7 @@ export default function UserManagementPage() {
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            This will immediately revoke their access. They won't be able to sign in, but any work or activity will remain visible. You can re-invite them at any time.
+            This will immediately revoke their access. They won&apos;t be able to sign in, but any work or activity will remain visible. You can re-invite them at any time.
           </DialogDescription>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
             <Button 
@@ -416,7 +416,7 @@ export default function UserManagementPage() {
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            Add team members to your agency account. They'll receive an email with a link to join.
+            Add team members to your agency account. They&apos;ll receive an email with a link to join.
           </DialogDescription>
           <div style={{ marginTop: '12px' }}>
             <MultiEmailInput

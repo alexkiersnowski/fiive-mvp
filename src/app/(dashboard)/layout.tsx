@@ -1,29 +1,25 @@
-'use client'
+import { getDashboardData } from '@/lib/supabase/dashboard-data'
+import { redirect } from 'next/navigation'
+import DashboardLayoutClient from '@/components/layouts/DashboardLayoutClient'
 
-import { useEffect } from 'react'
-import DashboardLayout from '@/components/layouts/DashboardLayout'
-
-export default function Layout({
+export default async function Layout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  useEffect(() => {
-    // Precompile all dashboard pages in development
-    if (process.env.NODE_ENV === 'development') {
-      const pages = ['/home', '/tasks', '/requests', '/connected']
-      pages.forEach(page => {
-        // Use fetch to trigger compilation without navigation
-        fetch(page, { method: 'HEAD' }).catch(() => {
-          // Ignore errors - we just want to trigger compilation
-        })
-      })
-    }
-  }, [])
+  const data = await getDashboardData()
+  
+  if (!data) {
+    redirect('/signin')
+  }
 
   return (
-    <DashboardLayout>
+    <DashboardLayoutClient 
+      user={data.user}
+      profile={data.user}
+      organization={data.organization}
+    >
       {children}
-    </DashboardLayout>
+    </DashboardLayoutClient>
   )
 }

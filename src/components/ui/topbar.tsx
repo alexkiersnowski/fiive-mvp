@@ -16,10 +16,33 @@ import {
   DropdownMenuTrigger 
 } from './dropdown-menu'
 
-const Topbar = memo(function Topbar() {
+interface TopbarProps {
+  user: {
+    id: string
+    email: string
+    firstName: string
+    lastName: string
+  }
+  profile: {
+    id: string
+    email: string
+    firstName: string
+    lastName: string
+    avatar_url?: string
+  }
+  organization: {
+    id: string
+    name: string
+    logoUrl?: string
+    type: string
+  }
+}
+
+const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps) {
   const [isHelpDropdownOpen, setIsHelpDropdownOpen] = useState(false)
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false)
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
+
 
   const handleHelpDropdownChange = useCallback((open: boolean) => {
     setIsHelpDropdownOpen(open)
@@ -49,9 +72,11 @@ const Topbar = memo(function Topbar() {
             <Tooltip open={isWorkspaceDropdownOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <div>
+                  <div style={{ height: '40px', width: '40px', display: 'inline-block' }}>
                     <AvatarButton 
-                      fallback="E" 
+                      src={organization?.logoUrl || ""}
+                      alt={organization?.name || 'Organization'}
+                      fallback={organization?.name?.charAt(0).toUpperCase() || 'O'} 
                       variant="workspace"
                       isActive={isWorkspaceDropdownOpen}
                     />
@@ -59,24 +84,27 @@ const Topbar = memo(function Topbar() {
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="bottom" align="start" sideOffset={8}>
-                Exa. Studio
+                {organization?.name || 'Organization'}
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="start" className="w-64">
               {/* Avatar preview with metadata */}
               <div className="flex items-center gap-3 py-3 px-2">
                 <Avatar className="h-10 w-10" style={{ borderRadius: 'var(--spacing-1)' }}>
-                  <AvatarImage src="" alt="Exa. Studio" />
+                  <AvatarImage 
+                    src={organization?.logoUrl || ""} 
+                    alt={organization?.name || 'Organization'} 
+                  />
                   <AvatarFallback 
                     className="bg-[var(--color-neutral-9)] !text-white text-sm-regular"
                     style={{ borderRadius: 'var(--spacing-1)' }}
                   >
-                    E
+                    {organization?.name?.charAt(0).toUpperCase() || 'O'}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium">exa. studio</span>
-                  <span className="text-xs text-muted-foreground">55 members</span>
+                  <span className="text-sm font-medium">{organization?.name || 'Organization'}</span>
+                  <span className="text-xs text-muted-foreground">0 members</span>
                 </div>
               </div>
               <DropdownMenuSeparator />
@@ -163,32 +191,34 @@ const Topbar = memo(function Topbar() {
             <Tooltip open={isUserDropdownOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <div>
+                  <div style={{ height: '40px', width: '40px', display: 'inline-block' }}>
                     <AvatarButton 
-                      fallback="ZR" 
+                      src={profile?.avatar_url || ""}
+                      alt={`${profile?.firstName || ''} ${profile?.lastName || ''}`}
+                      fallback={`${profile?.firstName?.charAt(0) || ''}${profile?.lastName?.charAt(0) || ''}`} 
                       isActive={isUserDropdownOpen}
                     />
                   </div>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="bottom" align="end" sideOffset={8}>
-                Zen Rae
+                {profile?.firstName || ''} {profile?.lastName || ''}
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-64">
               {/* User avatar preview with metadata */}
               <div className="flex items-center gap-3 py-3 px-2">
                 <Avatar className="h-10 w-10 rounded-full">
-                  <AvatarImage src="" alt="Zen Rae" />
+                  <AvatarImage src={profile?.avatar_url || ""} alt={`${profile?.firstName || ''} ${profile?.lastName || ''}`} />
                   <AvatarFallback 
                     className="bg-[var(--color-neutral-9)] !text-white text-sm-regular rounded-full"
                   >
-                    ZR
+                    {`${profile?.firstName?.charAt(0) || ''}${profile?.lastName?.charAt(0) || ''}`}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium">Zen Rae</span>
-                  <span className="text-xs text-muted-foreground">zen.rae@exastudios.com</span>
+                  <span className="text-sm font-medium">{profile?.firstName || ''} {profile?.lastName || ''}</span>
+                  <span className="text-xs text-muted-foreground">{user?.email || ''}</span>
                 </div>
               </div>
               <DropdownMenuSeparator />

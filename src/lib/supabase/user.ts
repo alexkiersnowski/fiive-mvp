@@ -55,7 +55,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
   
   try {
     const { data, error } = await supabase
-      .from('user_profiles')
+      .from('profiles')
       .select('*')
       .eq('user_id', userId)
       .single()
@@ -77,11 +77,11 @@ export async function getUserMemberships(userId: string): Promise<OrganizationMe
   
   try {
     const { data, error } = await supabase
-      .from('organization_memberships')
+      .from('memberships')
       .select(`
         *,
         organization:organizations(*),
-        user_profile:user_profiles(*)
+        user_profile:profiles(*)
       `)
       .eq('user_id', userId)
 

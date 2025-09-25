@@ -15,7 +15,7 @@ export default function BrandLink({
     <Button 
       variant="ghost" 
       asChild 
-      className={`h-10 p-[var(--spacing-2)] hover:bg-[var(--color-interactive-surface-hover)] transition-all duration-75 ${className}`}
+      className={`h-10 p-[var(--spacing-2)] hover:bg-[var(--color-interactive-surface-hover)] ${className}`}
     >
       <Link href={href} prefetch={true}>
         <Image 
@@ -25,6 +25,7 @@ export default function BrandLink({
           height={20}
           style={{ height: '20px', width: 'auto' }}
           draggable={false}
+          priority
         />
       </Link>
     </Button>

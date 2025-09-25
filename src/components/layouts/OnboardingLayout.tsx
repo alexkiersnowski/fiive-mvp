@@ -136,13 +136,39 @@ export default function OnboardingLayout({
   const isOrganizationForm = formType === 'organization'
   const isAccountTypeForm = formType === 'accountType'
   const [logoFile, setLogoFile] = useState<File | null>(() => {
-    // If there's an existing logo URL, create a fake File object to represent it
-    if (initialLogoUrl && isOrganizationForm) {
-      // Create a fake File object that represents the existing logo
-      const fakeFile = new File([''], 'existing-logo', { type: 'image/png' })
-      // Add a custom property to track that this is an existing logo
-      ;(fakeFile as any).existingLogoUrl = initialLogoUrl
-      return fakeFile
+    // Check if there's a stored logo file in sessionStorage
+    if (typeof window !== 'undefined' && isOrganizationForm) {
+      const storedLogoData = sessionStorage.getItem('onboarding_logo_file')
+      if (storedLogoData) {
+        try {
+          const logoData = JSON.parse(storedLogoData)
+          if (logoData.existingLogoUrl) {
+            // This is an existing logo, create a fake File object
+            const fakeFile = new File([''], 'existing-logo', { type: 'image/png' })
+            ;(fakeFile as unknown as Record<string, unknown>).existingLogoUrl = logoData.existingLogoUrl
+            return fakeFile
+          } else if (logoData.fileData) {
+            // This is a new file, reconstruct it from base64
+            const byteCharacters = atob(logoData.fileData)
+            const byteNumbers = new Array(byteCharacters.length)
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i)
+            }
+            const byteArray = new Uint8Array(byteNumbers)
+            const file = new File([byteArray], logoData.fileName, { type: logoData.fileType })
+            return file
+          }
+        } catch (error) {
+          console.error('Error parsing stored logo data:', error)
+        }
+      }
+      
+      // If there's an existing logo URL, create a fake File object to represent it
+      if (initialLogoUrl) {
+        const fakeFile = new File([''], 'existing-logo', { type: 'image/png' })
+        ;(fakeFile as unknown as Record<string, unknown>).existingLogoUrl = initialLogoUrl
+        return fakeFile
+      }
     }
     return null
   })
@@ -213,6 +239,36 @@ export default function OnboardingLayout({
     form.reset()
   }, [formKey, form])
 
+  // Function to store logo file in sessionStorage
+  const storeLogoFile = (file: File | null) => {
+    if (typeof window !== 'undefined' && isOrganizationForm) {
+      if (file) {
+        // Check if this is an existing logo
+        if ((file as unknown as Record<string, unknown>).existingLogoUrl) {
+          const logoData = {
+            existingLogoUrl: (file as unknown as Record<string, unknown>).existingLogoUrl
+          }
+          sessionStorage.setItem('onboarding_logo_file', JSON.stringify(logoData))
+        } else {
+          // This is a new file, convert to base64 and store
+          const reader = new FileReader()
+          reader.onload = () => {
+            const logoData = {
+              fileData: (reader.result as string).split(',')[1], // Remove data:image/...;base64, prefix
+              fileName: file.name,
+              fileType: file.type
+            }
+            sessionStorage.setItem('onboarding_logo_file', JSON.stringify(logoData))
+          }
+          reader.readAsDataURL(file)
+        }
+      } else {
+        // Clear stored logo data
+        sessionStorage.removeItem('onboarding_logo_file')
+      }
+    }
+  }
+
   const handleSubmit = async (data: AuthFormData | ProfileFormData | OrganizationFormData | AccountTypeFormData) => {
     try {
       setIsRedirecting(true)
@@ -223,34 +279,40 @@ export default function OnboardingLayout({
         data 
       })
       
-      if (onSubmit) {
-        // For organization forms, include logo file or existing logo URL
-        if (isOrganizationForm && logoFile) {
-          console.log('Including logo file in submission:', logoFile)
-          
-          // Check if this is an existing logo (has existingLogoUrl property)
-          if ((logoFile as any).existingLogoUrl) {
-            // This is an existing logo, pass the URL instead of the File object
-            console.log('Using existing logo URL:', (logoFile as any).existingLogoUrl)
-            const orgData = { ...data, logoUrl: (logoFile as any).existingLogoUrl } as any
-            console.log('About to call onSubmit with existing logo URL:', orgData)
-            await onSubmit(orgData)
+        if (onSubmit) {
+          // For organization forms, include logo file or existing logo URL
+          if (isOrganizationForm && logoFile) {
+            console.log('Including logo file in submission:', logoFile)
+            
+            // Check if this is an existing logo (has existingLogoUrl property)
+            if ((logoFile as unknown as Record<string, unknown>).existingLogoUrl) {
+              // This is an existing logo, pass the URL instead of the File object
+              console.log('Using existing logo URL:', (logoFile as unknown as Record<string, unknown>).existingLogoUrl)
+              const orgData = { ...data, logoUrl: (logoFile as unknown as Record<string, unknown>).existingLogoUrl as string }
+              console.log('About to call onSubmit with existing logo URL:', orgData)
+              await onSubmit(orgData as unknown as Parameters<typeof onSubmit>[0])
+            } else {
+              // This is a new logo file
+              const orgData = { ...data, logoUrl: logoFile }
+              console.log('About to call onSubmit with new logo file:', orgData)
+              await onSubmit(orgData as unknown as Parameters<typeof onSubmit>[0])
+            }
+            console.log('onSubmit completed successfully')
+            
+            // Clear stored logo data after successful submission
+            if (typeof window !== 'undefined') {
+              sessionStorage.removeItem('onboarding_logo_file')
+              sessionStorage.removeItem('logoPreview')
+            }
           } else {
-            // This is a new logo file
-            const orgData = { ...data, logoUrl: logoFile } as any
-            console.log('About to call onSubmit with new logo file:', orgData)
-            await onSubmit(orgData)
+            console.log('No logo file, submitting without logo')
+            console.log('About to call onSubmit with data:', data)
+            await onSubmit(data)
+            console.log('onSubmit completed successfully')
           }
-          console.log('onSubmit completed successfully')
         } else {
-          console.log('No logo file, submitting without logo')
-          console.log('About to call onSubmit with data:', data)
-          await onSubmit(data)
-          console.log('onSubmit completed successfully')
+          console.log('Form submitted (no handler):', data)
         }
-      } else {
-        console.log('Form submitted (no handler):', data)
-      }
     } catch (error) {
       console.error('Form submission error:', error)
     }
@@ -316,10 +378,11 @@ export default function OnboardingLayout({
                         {/* Logo Upload */}
                         {logoUpload && (
                           <div className="mb-6">
-                            {React.cloneElement(logoUpload as React.ReactElement<any>, {
+                            {React.cloneElement(logoUpload as React.ReactElement<Record<string, unknown>>, {
                               onLogoChange: (file: File | null) => {
                                 console.log('onLogoChange called with file:', file)
                                 setLogoFile(file)
+                                storeLogoFile(file)
                               }
                             })}
                           </div>
@@ -477,7 +540,7 @@ export default function OnboardingLayout({
                               name="jobTitle"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel className="text-sm font-medium">Job title or role</FormLabel>
+                                  <FormLabel className="text-sm font-medium">Job title</FormLabel>
                                   <FormControl>
                                 <Input
                                   {...field}

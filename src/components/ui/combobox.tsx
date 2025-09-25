@@ -70,6 +70,7 @@ export function Combobox({
           ref={triggerRef}
           role="combobox"
           aria-expanded={open}
+          aria-controls={open ? "combobox-options" : undefined}
           tabIndex={disabled ? -1 : 0}
           onKeyDown={(e) => {
             if (readOnly || disabled) return
@@ -115,7 +116,7 @@ export function Combobox({
         align="start"
         style={{ width: triggerWidth ? `${triggerWidth}px` : 'auto' }}
       >
-        <Command>
+        <Command id="combobox-options">
           {searchPlaceholder && (
             <div className="[&_[data-slot=command-input-wrapper]]:!h-auto [&_[data-slot=command-input-wrapper]]:!py-1">
               <CommandInput placeholder={searchPlaceholder} className="!h-auto !py-2 px-4 text-sm" />

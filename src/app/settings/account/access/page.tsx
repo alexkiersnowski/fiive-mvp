@@ -197,7 +197,7 @@ export default function AccessPage() {
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            This will permanently remove your personal account and access to Fiive. You'll lose access to all workspaces and shared content. This action cannot be undone.
+            This will permanently remove your personal account and access to Fiive. You&apos;ll lose access to all workspaces and shared content. This action cannot be undone.
           </DialogDescription>
           <div style={{ marginTop: '12px' }}>
             <div className="mb-2">

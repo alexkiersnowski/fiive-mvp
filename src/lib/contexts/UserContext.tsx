@@ -72,7 +72,7 @@ export function UserProvider({ children }: UserProviderProps) {
   const fetchUserProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('user_profiles')
+        .from('profiles')
         .select('*')
         .eq('user_id', userId)
         .single()
@@ -92,11 +92,11 @@ export function UserProvider({ children }: UserProviderProps) {
   const fetchUserMemberships = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('organization_memberships')
+        .from('memberships')
         .select(`
           *,
           organization:organizations(*),
-          user_profile:user_profiles(*)
+          user_profile:profiles(*)
         `)
         .eq('user_id', userId)
 
@@ -114,10 +114,20 @@ export function UserProvider({ children }: UserProviderProps) {
 
   const refreshUser = async () => {
     try {
-      const { data: { user }, error } = await supabase.auth.getUser()
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
       
-      if (error) {
-        console.error('Error getting user:', error)
+      if (sessionError) {
+        console.error('Error getting session:', sessionError)
+        setUser(null)
+        setProfile(null)
+        setCurrentOrganization(null)
+        setMemberships([])
+        return
+      }
+      
+      const user = session?.user || null
+      
+      if (!user) {
         setUser(null)
         setProfile(null)
         setCurrentOrganization(null)
@@ -145,7 +155,18 @@ export function UserProvider({ children }: UserProviderProps) {
         setMemberships([])
       }
     } catch (error) {
-      console.error('Error refreshing user:', error)
+      // Suppress common auth errors that are expected during signup/initial load
+      const suppressErrors = [
+        'Auth session missing!',
+        'User from sub claim in JWT does not exist',
+        'Invalid JWT'
+      ]
+      
+      if (error instanceof Error && suppressErrors.some(err => error.message?.includes(err)) && !user) {
+        // These are expected during signup flow, don't log them
+      } else {
+        console.error('Error refreshing user:', error)
+      }
     }
   }
 

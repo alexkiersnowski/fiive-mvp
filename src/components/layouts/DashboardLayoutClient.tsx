@@ -5,15 +5,39 @@ import { usePathname } from 'next/navigation'
 import Topbar from '@/components/ui/topbar'
 import SidebarComponent from '@/components/ui/sidebar'
 
-interface DashboardLayoutProps {
+interface DashboardLayoutClientProps {
   children: React.ReactNode
+  user: {
+    id: string
+    email: string
+    firstName: string
+    lastName: string
+  }
+  profile: {
+    id: string
+    email: string
+    firstName: string
+    lastName: string
+  }
+  organization: {
+    id: string
+    name: string
+    logoUrl?: string
+    type: string
+  }
 }
 
-const DashboardLayout = memo(function DashboardLayout({ children }: DashboardLayoutProps) {
+export default function DashboardLayoutClient({
+  children,
+  user,
+  profile,
+  organization,
+}: DashboardLayoutClientProps) {
   const pathname = usePathname()
   const selectedItem = pathname.split('/').pop() || 'home'
   const [isCollapsed, setIsCollapsed] = useState(false)
   const isHomePage = pathname === '/home'
+  
   return (
     <div 
       className="h-screen" 
@@ -26,7 +50,11 @@ const DashboardLayout = memo(function DashboardLayout({ children }: DashboardLay
       }}
     >
       <div style={{ gridColumn: '1 / -1' }}>
-        <Topbar />
+        <Topbar 
+          user={user}
+          profile={profile}
+          organization={organization}
+        />
       </div>
       <SidebarComponent 
         selectedItem={selectedItem} 
@@ -48,6 +76,4 @@ const DashboardLayout = memo(function DashboardLayout({ children }: DashboardLay
       </main>
     </div>
   )
-})
-
-export default DashboardLayout
+}

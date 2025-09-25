@@ -4,8 +4,8 @@ import { redirect } from "next/navigation"
 import { createClient } from '@/lib/supabase/server'
 
 // Timeout wrapper for server actions
-async function withTimeout<T>(query: any, timeoutMs: number = 30000): Promise<T> {
-  const promise = query.then ? query : Promise.resolve(query)
+async function withTimeout<T>(query: Promise<T> | T, timeoutMs: number = 5000): Promise<T> {
+  const promise = query instanceof Promise ? query : Promise.resolve(query)
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
   })
@@ -75,10 +75,10 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
       .update(profileUpdateData)
       .eq('id', user.id)
       .select(),
-    10000 // 10 second timeout for profile updates
+    3000 // 3 second timeout for profile updates
   )
   
-  const { data: profileData, error: profileError } = result as { data: any; error: any }
+  const { data: profileData, error: profileError } = result as { data: unknown; error: unknown }
   
   if (profileError) {
     console.error('Profile update error details:', {
@@ -89,7 +89,7 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
       lastName,
       jobTitle
     })
-    throw new Error(`Failed to update profile: ${profileError.message}`)
+    throw new Error(`Failed to update profile: ${profileError instanceof Error ? profileError.message : String(profileError)}`)
   }
   
   
@@ -166,10 +166,10 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
       p_industry: (organizationType === 'client' ? sanitizedIndustry : sanitizedAgencyType) || null,
       p_logo_url: null // Create org first without logo
     }),
-    15000 // 15 second timeout for organization creation
+    5000 // 5 second timeout for organization creation
   )
   
-  const { data: organizationId, error: rpcError } = rpcResult as { data: string; error: any }
+  const { data: organizationId, error: rpcError } = rpcResult as { data: string; error: unknown }
   
   
   if (rpcError) {
@@ -180,7 +180,7 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
       type: organizationType,
       industry: organizationType === 'client' ? industry?.trim() : agencyType?.trim()
     })
-    throw new Error(`Failed to create organization: ${rpcError.message}`)
+    throw new Error(`Failed to create organization: ${rpcError instanceof Error ? rpcError.message : String(rpcError)}`)
   }
   
   
@@ -198,14 +198,14 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
           .from('organizations')
           .update({ logo_url: logoUrlString })
           .eq('id', organizationId),
-        10000 // 10 second timeout for organization updates
+        3000 // 3 second timeout for organization updates
       )
       
-      const { error: updateError } = updateResult as { error: any }
+      const { error: updateError } = updateResult as { error: unknown }
       
       if (updateError) {
         console.error('Failed to update organization with logo URL:', updateError)
-        throw new Error(`Failed to update organization with logo: ${updateError.message}`)
+        throw new Error(`Failed to update organization with logo: ${updateError instanceof Error ? updateError.message : String(updateError)}`)
       }
       
       
@@ -222,18 +222,18 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
         .from('organizations')
         .update({ logo_url: logoUrl })
         .eq('id', organizationId),
-      10000 // 10 second timeout for organization updates
+      3000 // 3 second timeout for organization updates
     )
     
-    const { error: updateError } = updateResult as { error: any }
+    const { error: updateError } = updateResult as { error: unknown }
     
     if (updateError) {
       console.error('Failed to update organization with existing logo URL:', updateError)
-      throw new Error(`Failed to update organization with logo: ${updateError.message}`)
+      throw new Error(`Failed to update organization with logo: ${updateError instanceof Error ? updateError.message : String(updateError)}`)
     }
     
   }
   
-  // Redirect to next step (dashboard or completion)
-  redirect('/dashboard')
+  // Redirect to next step (dashboard home)
+  redirect('/home')
 }
