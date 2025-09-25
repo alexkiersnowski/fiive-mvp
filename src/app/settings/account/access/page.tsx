@@ -14,6 +14,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 
@@ -27,6 +28,9 @@ export default function AccessPage() {
   const currentEmail = "zen.rae@exastudio.com" // This would come from auth/session in real app
   const [isUpdating, setIsUpdating] = useState(false)
   const [pendingEmail, setPendingEmail] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
   
   const form = useForm<AccessFormData>({
     resolver: zodResolver(accessSchema),
@@ -38,6 +42,7 @@ export default function AccessPage() {
   const watchedEmail = form.watch("email")
   const isEmailChanged = watchedEmail !== currentEmail
   const isEmailValid = form.formState.isValid
+  const isDeleteConfirmed = deleteConfirmation === currentEmail
 
   const handleSubmit = async (data: AccessFormData) => {
     setIsUpdating(true)
@@ -60,6 +65,31 @@ export default function AccessPage() {
       toast.error("Failed to send verification email. Please try again.")
     } finally {
       setIsUpdating(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true)
+    
+    try {
+      // Simulate API call to delete account
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // Close dialog and reset form
+      setDeleteDialogOpen(false)
+      setDeleteConfirmation('')
+      
+      // In a real app, this would:
+      // 1. Delete the account from the backend
+      // 2. Clear any local storage/session data
+      // 3. Redirect to signup/login page
+      console.log('Account deleted successfully - user would be logged out and redirected')
+      
+    } catch (error) {
+      console.error('Error deleting account:', error)
+      toast.error("Failed to delete account. Please try again.")
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -150,10 +180,68 @@ export default function AccessPage() {
           onMouseLeave={(e) => {
             e.currentTarget.style.backgroundColor = 'transparent'
           }}
+          onClick={() => setDeleteDialogOpen(true)}
         >
           Delete account
         </Button>
       </div>
+
+      {/* Delete Account Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent style={{ padding: '24px', width: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto">
+          <DialogHeader className="space-y-0">
+            <DialogTitle className="display-5-medium mb-0">
+              Delete your account
+            </DialogTitle>
+          </DialogHeader>
+          <DialogDescription 
+            className="text-sm-regular mb-0"
+          >
+            This will permanently remove your personal account and access to Fiive. You'll lose access to all workspaces and shared content. This action cannot be undone.
+          </DialogDescription>
+          <div style={{ marginTop: '12px' }}>
+            <div className="mb-2">
+              <label className="text-sm font-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
+                Confirm by typing your email
+              </label>
+            </div>
+            <Input
+              placeholder="Enter your email address"
+              value={deleteConfirmation}
+              onChange={(e) => setDeleteConfirmation(e.target.value)}
+              className="h-10 px-4 py-2 text-sm"
+            />
+          </div>
+          <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
+            <Button 
+              variant="ghost" 
+              onClick={() => {
+                setDeleteDialogOpen(false)
+                setDeleteConfirmation('')
+              }}
+              style={{ height: '40px' }}
+              className="cursor-pointer"
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleDeleteAccount}
+              style={{ height: '40px' }}
+              className="cursor-pointer relative"
+              disabled={!isDeleteConfirmed || isDeleting}
+            >
+              <span className={isDeleting ? "invisible" : ""}>Delete</span>
+              {isDeleting && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Spinner size={16} />
+                </div>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
