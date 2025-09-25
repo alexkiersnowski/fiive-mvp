@@ -1,6 +1,4 @@
-import { cache } from 'react'
-import { createClient } from './server'
-import { UserProfile, Organization } from './user'
+import { createClient } from '@/lib/supabase/server'
 
 export interface DashboardData {
   user: {
@@ -21,7 +19,7 @@ export interface DashboardData {
   }
 }
 
-export const getDashboardData = cache(async (): Promise<DashboardData | null> => {
+export async function getDashboardData(): Promise<DashboardData | null> {
   const supabase = await createClient()
   
   try {
@@ -76,4 +74,4 @@ export const getDashboardData = cache(async (): Promise<DashboardData | null> =>
     console.error('Error fetching dashboard data:', error)
     return null
   }
-})
+}

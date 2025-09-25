@@ -4,35 +4,14 @@ import { useState, memo } from 'react'
 import { usePathname } from 'next/navigation'
 import Topbar from '@/components/ui/topbar'
 import SidebarComponent from '@/components/ui/sidebar'
+import { DashboardData } from '@/lib/dashboard-data'
 
-interface DashboardLayoutClientProps {
+interface DashboardLayoutProps {
+  data: DashboardData
   children: React.ReactNode
-  user: {
-    id: string
-    email: string
-    firstName: string
-    lastName: string
-  }
-  profile: {
-    id: string
-    email: string
-    firstName: string
-    lastName: string
-  }
-  organization: {
-    id: string
-    name: string
-    logoUrl?: string
-    type: string
-  }
 }
 
-export default function DashboardLayoutClient({
-  children,
-  user,
-  profile,
-  organization,
-}: DashboardLayoutClientProps) {
+export default function DashboardLayout({ data, children }: DashboardLayoutProps) {
   const pathname = usePathname()
   const selectedItem = pathname.split('/').pop() || 'home'
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -60,9 +39,9 @@ export default function DashboardLayoutClient({
     >
       <div style={{ gridColumn: '1 / -1' }}>
         <Topbar 
-          user={user}
-          profile={profile}
-          organization={organization}
+          user={data.user}
+          profile={data.user}
+          organization={data.organization}
         />
       </div>
       <SidebarComponent 
@@ -79,16 +58,16 @@ export default function DashboardLayoutClient({
       />
       <main style={{ 
         padding: isHomePage ? '0' : '16px 16px 24px 16px',
-        overflow: 'hidden' // Prevent main from growing beyond viewport
+        overflow: 'hidden'
       }}>
         <div 
           style={{
             borderRadius: isHomePage ? '0' : 'var(--radius-6, 16px)',
             border: isHomePage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
             background: isHomePage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isHomePage ? '0' : (isSettingsPage ? '40px 64px 24px 64px' : '16px'), // Settings pages get special padding
+            padding: isHomePage ? '0' : (isSettingsPage ? '40px 64px 24px 64px' : '16px'),
             height: '100%',
-            overflow: isSettingsPage ? 'auto' : 'visible' // Make settings pages scrollable
+            overflow: isSettingsPage ? 'auto' : 'visible'
           }}
         >
           {children}
