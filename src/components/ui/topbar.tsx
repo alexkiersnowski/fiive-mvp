@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, memo, useCallback } from 'react'
+import { useState, memo, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import BrandLink from './brand-link'
 import AvatarButton from './avatar-button'
@@ -35,6 +35,7 @@ interface TopbarProps {
     name: string
     logoUrl?: string
     type: string
+    memberCount: number
   }
 }
 
@@ -43,6 +44,16 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false)
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
 
+  // Memoize computed values to prevent recalculation on every render
+  const userInitials = useMemo(() => {
+    const firstName = profile?.firstName || ''
+    const lastName = profile?.lastName || ''
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`
+  }, [profile?.firstName, profile?.lastName])
+
+  const organizationInitial = useMemo(() => {
+    return organization?.name?.charAt(0).toUpperCase() || 'O'
+  }, [organization?.name])
 
   const handleHelpDropdownChange = useCallback((open: boolean) => {
     setIsHelpDropdownOpen(open)
@@ -56,27 +67,19 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
     setIsUserDropdownOpen(open)
   }, [])
   return (
-    <div className="w-full" style={{ 
-      backgroundColor: 'var(--color-neutral-2)',
-      borderBottom: '1px solid var(--color-neutral-alpha-4)',
-      paddingTop: 'var(--spacing-1)', 
-      paddingBottom: 'var(--spacing-1)',
-      paddingLeft: 'var(--spacing-3)',
-      paddingRight: 'var(--spacing-3)'
-    }}>
-      {/* Topbar content will go here */}
+    <div className="w-full bg-neutral-2 border-b border-neutral-alpha-4 py-1 px-3">
       <div className="flex items-center justify-between">
-        <div className="flex items-center" style={{ gap: '20px' }}>
+        <div className="flex items-center gap-5">
           {/* Workspace avatar */}
           <DropdownMenu modal={false} open={isWorkspaceDropdownOpen} onOpenChange={handleWorkspaceDropdownChange}>
             <Tooltip open={isWorkspaceDropdownOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <div style={{ height: '40px', width: '40px', display: 'inline-block' }}>
+                  <div className="h-10 w-10 inline-block">
                     <AvatarButton 
                       src={organization?.logoUrl || ""}
                       alt={organization?.name || 'Organization'}
-                      fallback={organization?.name?.charAt(0).toUpperCase() || 'O'} 
+                      fallback={organizationInitial} 
                       variant="workspace"
                       isActive={isWorkspaceDropdownOpen}
                     />
@@ -90,21 +93,20 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
             <DropdownMenuContent align="start" className="w-64">
               {/* Avatar preview with metadata */}
               <div className="flex items-center gap-3 py-3 px-2">
-                <Avatar className="h-10 w-10" style={{ borderRadius: 'var(--spacing-1)' }}>
+                <Avatar className="h-10 w-10 rounded-sm">
                   <AvatarImage 
                     src={organization?.logoUrl || ""} 
                     alt={organization?.name || 'Organization'} 
                   />
-                  <AvatarFallback 
-                    className="bg-[var(--color-neutral-9)] !text-white text-sm-regular"
-                    style={{ borderRadius: 'var(--spacing-1)' }}
-                  >
-                    {organization?.name?.charAt(0).toUpperCase() || 'O'}
+                  <AvatarFallback className="bg-neutral-9 text-white text-sm-regular rounded-sm">
+                    {organizationInitial}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">{organization?.name || 'Organization'}</span>
-                  <span className="text-xs text-muted-foreground">0 members</span>
+                  <span className="text-xs text-muted-foreground">
+                    {organization?.memberCount || 0} {organization?.memberCount === 1 ? 'member' : 'members'}
+                  </span>
                 </div>
               </div>
               <DropdownMenuSeparator />
@@ -134,7 +136,7 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
             </TooltipContent>
           </Tooltip>
         </div>
-        <div className="flex items-center" style={{ gap: 'var(--spacing-2)' }}>
+        <div className="flex items-center gap-2">
           {/* User actions area */}
           <DropdownMenu open={isHelpDropdownOpen} onOpenChange={handleHelpDropdownChange} modal={false}>
             <Tooltip open={isHelpDropdownOpen ? false : undefined}>
@@ -144,16 +146,13 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
                     <Button 
                       variant="ghost"
                       size="icon"
-                      className={`h-10 w-10 cursor-pointer transition-all duration-75 ${isHelpDropdownOpen ? 'bg-[var(--color-interactive-surface-hover)]' : 'hover:bg-[var(--color-interactive-surface-hover)]'}`}
-                      style={{ 
-                        borderRadius: '6px',
-                        ...(isHelpDropdownOpen && { 
-                          backgroundColor: 'var(--color-interactive-surface-hover)',
-                          pointerEvents: 'none'
-                        })
-                      }}
+                      className={`h-10 w-10 cursor-pointer transition-all duration-75 rounded-md ${
+                        isHelpDropdownOpen 
+                          ? 'bg-interactive-surface-hover pointer-events-none' 
+                          : 'hover:bg-interactive-surface-hover'
+                      }`}
                     >
-                      <Question style={{ width: 18, height: 18, fill: 'var(--color-base-icons-primary)' }} />
+                      <Question className="w-[18px] h-[18px] fill-base-icons-primary" />
                     </Button>
                   </div>
                 </DropdownMenuTrigger>
@@ -166,12 +165,7 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
               {/* Section 1: Help & support */}
               <div className="p-3">
                 <div className="text-sm font-normal text-muted-foreground mb-2">Help & support</div>
-                <div 
-                  className="rounded-md p-3"
-                  style={{
-                    border: '1px solid var(--color-neutral-alpha-5, rgba(0, 9, 50, 0.12))'
-                  }}
-                >
+                <div className="rounded-md p-3 border border-neutral-alpha-5">
                   <div className="text-sm font-normal text-gray-900 mb-1">support@fiive.co</div>
                   <div className="text-xs text-gray-600">We&apos;re here for support, questions, or anything else</div>
                 </div>
@@ -181,7 +175,7 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
               <div className="px-3 pb-3">
                 <div className="text-sm font-normal text-muted-foreground mb-2">Explore further</div>
                 <DropdownMenuItem>
-                  <BookOpen size={16} style={{ color: 'inherit' }} />
+                  <BookOpen size={16} className="text-inherit" />
                   Release notes
                 </DropdownMenuItem>
               </div>
@@ -191,11 +185,11 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
             <Tooltip open={isUserDropdownOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <div style={{ height: '40px', width: '40px', display: 'inline-block' }}>
+                  <div className="h-10 w-10 inline-block">
                     <AvatarButton 
                       src={profile?.avatar_url || ""}
                       alt={`${profile?.firstName || ''} ${profile?.lastName || ''}`}
-                      fallback={`${profile?.firstName?.charAt(0) || ''}${profile?.lastName?.charAt(0) || ''}`} 
+                      fallback={userInitials} 
                       isActive={isUserDropdownOpen}
                     />
                   </div>
@@ -211,9 +205,10 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
                 <Avatar className="h-10 w-10 rounded-full">
                   <AvatarImage src={profile?.avatar_url || ""} alt={`${profile?.firstName || ''} ${profile?.lastName || ''}`} />
                   <AvatarFallback 
-                    className="bg-[var(--color-neutral-9)] !text-white text-sm-regular rounded-full"
+                    className="bg-neutral-9 text-sm-regular rounded-full"
+                    style={{ color: 'var(--color-base-text-inverse)' }}
                   >
-                    {`${profile?.firstName?.charAt(0) || ''}${profile?.lastName?.charAt(0) || ''}`}
+                    {userInitials}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
@@ -224,13 +219,13 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
                 <Link href="/settings/account/profile" className="flex items-center w-full">
-                  <UserGear size={16} style={{ color: 'inherit' }} />
+                  <UserGear size={16} className="text-inherit" />
                   Account settings
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem>
-                <SignOut size={16} style={{ color: 'inherit' }} />
+                <SignOut size={16} className="text-inherit" />
                 Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>

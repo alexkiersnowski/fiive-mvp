@@ -52,6 +52,16 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       return null
     }
 
+    // Get member count for the organization
+    const { count: memberCount, error: memberCountError } = await supabase
+      .from('memberships')
+      .select('*', { count: 'exact', head: true })
+      .eq('org_id', organization.id)
+
+    if (memberCountError) {
+      console.error('Error fetching member count:', memberCountError)
+    }
+
     return {
       user: {
         id: user.id,
@@ -67,7 +77,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         type: organization.type,
         industry: organization.industry || undefined,
         logoUrl: organization.logo_url || undefined,
-        memberCount: 1 // Simplified - we can add member count later if needed
+        memberCount: memberCount || 0
       }
     }
   } catch (error) {

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from 'next/link'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState, useMemo } from 'react'
 import { SquaresFour } from '@phosphor-icons/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 
@@ -14,7 +14,7 @@ interface NavItemProps {
   isCollapsed?: boolean
 }
 
-export default function NavItem({ href, children, icon, className = '', isSelected = false, isCollapsed = false }: NavItemProps) {
+function NavItem({ href, children, icon, className = '', isSelected = false, isCollapsed = false }: NavItemProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [showText, setShowText] = useState(!isCollapsed)
 
@@ -32,51 +32,35 @@ export default function NavItem({ href, children, icon, className = '', isSelect
     }
   }, [isCollapsed])
 
-  const getBackgroundColor = () => {
-    if (isSelected) return 'var(--color-interactive-surface-selected)'
-    if (isHovered) return 'var(--color-interactive-surface-hover)'
-    return 'transparent'
-  }
+  // Memoize background color class to prevent recalculation
+  const backgroundColorClass = useMemo(() => {
+    if (isSelected) return 'bg-interactive-surface-selected'
+    if (isHovered) return 'bg-interactive-surface-hover'
+    return 'bg-transparent'
+  }, [isSelected, isHovered])
 
   const linkElement = (
     <Link 
       href={href}
       prefetch={true}
-      className={`block w-full flex items-center text-left rounded-md transition-all duration-75 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] text-nav-regular ${className}`}
-              style={{
-                padding: isCollapsed ? '9px' : '9px',
-        height: '36px',
-        width: isCollapsed ? '36px' : '100%',
-        backgroundColor: getBackgroundColor(),
-        color: 'var(--color-base-text-primary, #1C2024)',
-        justifyContent: isCollapsed ? 'center' : 'flex-start'
+      className={`block w-full flex items-center text-left rounded-md transition-all duration-75 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] text-nav-regular ${backgroundColorClass} ${className}`}
+      style={{
+        color: 'var(--color-base-text-primary)',
+        height: 'auto', // Remove fixed height
+        padding: 'var(--spacing-2)', // 8px
+        justifyContent: 'flex-start' // Always keep content left-aligned
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {isCollapsed ? (
-        <div className="flex items-center justify-center w-full h-full">
-          {icon || <SquaresFour size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />}
-        </div>
-      ) : (
-        <span className="flex-shrink-0 flex items-center justify-center" style={{ 
-          width: '18px', 
-          height: '18px', 
-          marginRight: '12px'
-        }}>
-          {icon || <SquaresFour size={18} style={{ fill: 'var(--color-base-icons-primary, #1C2024)' }} />}
-        </span>
-      )}
-      {!isCollapsed && (
-        <span 
-          style={{ 
-            opacity: showText ? 1 : 0,
-            transition: showText ? 'opacity 0.1s ease-in-out' : 'none'
-          }}
-        >
-          {children}
-        </span>
-      )}
+      <span className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] mr-3">
+        {icon || <SquaresFour size={18} className="fill-base-icons-primary" />}
+      </span>
+      <span 
+        className={`transition-opacity duration-100 ${showText ? 'opacity-100' : 'opacity-0'}`}
+      >
+        {children}
+      </span>
     </Link>
   )
 
@@ -95,3 +79,5 @@ export default function NavItem({ href, children, icon, className = '', isSelect
 
   return linkElement
 }
+
+export default NavItem
