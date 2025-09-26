@@ -3,7 +3,7 @@
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { createClient } from '@/lib/supabase/server'
-import { uploadAvatar } from '@/lib/supabase/storage'
+import { uploadAvatar, uploadLogo } from '@/lib/supabase/storage'
 
 const ProfileSchema = z.object({
   userId: z.string().uuid(),
@@ -154,6 +154,117 @@ export async function requestEmailChange(data: {
     ok: true, 
     pendingEmail: email 
   }
+}
+
+const OrganizationSchema = z.object({
+  organizationId: z.string().uuid(),
+  name: z.string().min(1, "Organization name is required"),
+  website: z.string().url("Please enter a valid website URL").optional().or(z.literal("")),
+  description: z.string().optional(),
+  industry: z.string().min(1, "Industry is required"),
+  currency_code: z.string().min(1, "Currency is required"),
+  logo_file: z.instanceof(File).optional(),
+})
+
+export async function updateOrganizationDetails(data: {
+  organizationId: string
+  name: string
+  website?: string
+  description?: string
+  industry: string
+  currency_code: string
+  logo_file?: File
+}) {
+  // Validate input data
+  const parsed = OrganizationSchema.safeParse(data)
+  if (!parsed.success) {
+    return { 
+      ok: false, 
+      errors: parsed.error.flatten().fieldErrors 
+    }
+  }
+
+  const { organizationId, logo_file, ...values } = parsed.data
+
+  const supabase = await createClient()
+
+  // Verify the user is authenticated
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  // Verify the user has access to this organization through memberships
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .select(`
+      id,
+      memberships!inner(user_id)
+    `)
+    .eq("id", organizationId)
+    .eq("memberships.user_id", user.id)
+    .single()
+
+  if (orgError || !organization) {
+    return { 
+      ok: false, 
+      message: "Organization not found or access denied" 
+    }
+  }
+
+  // Prepare update data
+  const updateData: {
+    name: string
+    website?: string | null
+    description?: string | null
+    industry: string
+    currency_code: string
+    updated_at: string
+    logo_url?: string
+  } = {
+    name: values.name,
+    website: values.website || null,
+    description: values.description || null,
+    industry: values.industry,
+    currency_code: values.currency_code,
+    updated_at: new Date().toISOString()
+  }
+
+  // Handle logo upload if provided
+  if (logo_file) {
+    try {
+      const logoUrl = await uploadLogo(logo_file, organizationId)
+      updateData.logo_url = logoUrl
+    } catch (error) {
+      console.error('Logo upload error:', error)
+      return {
+        ok: false,
+        message: `Logo upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      }
+    }
+  }
+
+  // Update the organization
+  const { error } = await supabase
+    .from("organizations")
+    .update(updateData)
+    .eq("id", organizationId)
+
+  if (error) {
+    console.error('Organization update error:', error)
+    return { 
+      ok: false, 
+      message: error.message 
+    }
+  }
+
+  // Revalidate the organization details page to show fresh data
+  revalidatePath("/settings/organization/details")
+  
+  return { ok: true }
 }
 
 export async function signOut() {

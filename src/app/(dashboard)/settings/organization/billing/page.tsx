@@ -6,8 +6,18 @@ import { Button } from '@/components/ui/button'
 
 export default function BillingPage() {
   return (
-    <>
-    <div style={{ marginTop: 'var(--spacing-7, 40px)', display: 'flex', gap: 'var(--spacing-4, 16px)', alignItems: 'flex-start' }}>
+    <div className="space-y-8">
+      {/* Page Header */}
+      <div>
+        <h1 className="display-9-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)', marginBottom: '0.75rem' }}>
+          Billing & subscription
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
+          Manage your subscription and billing details
+        </p>
+      </div>
+
+      <div style={{ marginTop: 'var(--spacing-7, 40px)', display: 'flex', gap: 'var(--spacing-4, 16px)', alignItems: 'flex-start' }}>
       {/* First card - Founding member */}
       <div
         style={{
@@ -200,6 +210,6 @@ export default function BillingPage() {
         To permanently delete your agency and all associated data, contact Fiive support.
       </p>
     </div>
-  </>
+    </div>
   )
 }

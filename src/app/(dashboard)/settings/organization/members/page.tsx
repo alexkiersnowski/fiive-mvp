@@ -187,7 +187,18 @@ export default function UserManagementPage() {
   }
 
   return (
-    <div className="w-full">
+    <div className="space-y-8">
+      {/* Page Header */}
+      <div>
+        <h1 className="display-9-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)', marginBottom: '0.75rem' }}>
+          User management
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
+          Manage your team and system owner
+        </p>
+      </div>
+
+      <div className="w-full">
       {/* Search section */}
       <div style={{ marginTop: '40px' }}>
         <div className="flex items-center justify-between w-full">
@@ -458,6 +469,7 @@ export default function UserManagementPage() {
           }}
         />
       )}
+      </div>
     </div>
   )
 }
