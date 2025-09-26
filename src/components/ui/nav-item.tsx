@@ -12,9 +12,10 @@ interface NavItemProps {
   className?: string
   isSelected?: boolean
   isCollapsed?: boolean
+  disableTextAnimation?: boolean
 }
 
-function NavItem({ href, children, icon, className = '', isSelected = false, isCollapsed = false }: NavItemProps) {
+function NavItem({ href, children, icon, className = '', isSelected = false, isCollapsed = false, disableTextAnimation = false }: NavItemProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [showText, setShowText] = useState(!isCollapsed)
 
@@ -23,14 +24,19 @@ function NavItem({ href, children, icon, className = '', isSelected = false, isC
       // Hide text immediately when collapsing
       setShowText(false)
     } else {
-      // Show text with 50ms delay when expanding
-      const timer = setTimeout(() => {
+      if (disableTextAnimation) {
+        // Snap immediately, no flicker
         setShowText(true)
-      }, 50)
-      
-      return () => clearTimeout(timer)
+      } else {
+        // Show text with 50ms delay when expanding
+        const timer = setTimeout(() => {
+          setShowText(true)
+        }, 50)
+        
+        return () => clearTimeout(timer)
+      }
     }
-  }, [isCollapsed])
+  }, [isCollapsed, disableTextAnimation])
 
   // Memoize background color class to prevent recalculation
   const backgroundColorClass = useMemo(() => {
@@ -57,7 +63,10 @@ function NavItem({ href, children, icon, className = '', isSelected = false, isC
         {icon || <SquaresFour size={18} className="fill-base-icons-primary" />}
       </span>
       <span 
-        className={`transition-opacity duration-100 ${showText ? 'opacity-100' : 'opacity-0'}`}
+        className={disableTextAnimation 
+          ? (showText ? 'opacity-100' : 'opacity-0')
+          : `transition-opacity duration-100 ${showText ? 'opacity-100' : 'opacity-0'}`
+        }
       >
         {children}
       </span>

@@ -21,6 +21,7 @@ interface SidebarProps {
   showTitle?: boolean
   title?: string
   pathname?: string
+  disableTextAnimation?: boolean
   navItems?: Array<{
     href: string
     label: string
@@ -41,6 +42,7 @@ const SidebarComponent = memo(function SidebarComponent({
   showTitle = false,
   title = '',
   pathname = '',
+  disableTextAnimation = false,
   navItems
 }: SidebarProps) {
   const router = useRouter()
@@ -147,7 +149,7 @@ const SidebarComponent = memo(function SidebarComponent({
         />
         Founding member
       </Badge>
-      <AlertDescription className="text-xs-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+      <AlertDescription className="text-xs-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
         You&apos;re one of the Founding 50 defining the future of Fiive
       </AlertDescription>
       <Button 
@@ -167,13 +169,13 @@ const SidebarComponent = memo(function SidebarComponent({
       onMouseLeave={!isSecondary ? handleMouseLeave : undefined}
     >
       <aside
-        className={`flex flex-col h-full border-r border-neutral-alpha-4 bg-neutral-2 py-6 px-3 ${isSecondary ? 'w-60' : ''} ${className}`}
+        className={`flex flex-col h-full border-r border-neutral-alpha-4 bg-neutral-2 py-5 px-3 ${isSecondary ? 'w-60' : ''} ${className}`}
         role="navigation"
         aria-label={isSecondary ? 'Settings navigation' : 'Main navigation'}
       >
         {/* Back button for secondary variant */}
         {isSecondary && showBackButton && (
-          <div className="mb-6">
+          <div className="mb-5">
             <Button
               variant="ghost"
               size="sm"
@@ -188,7 +190,7 @@ const SidebarComponent = memo(function SidebarComponent({
 
         {/* Title for secondary variant */}
         {isSecondary && showTitle && title && (
-          <div className="mb-6 px-2">
+          <div className="mb-5 px-2">
             <h2 className="text-md-medium" style={{ color: 'var(--color-base-text-primary)' }}>
               {title}
             </h2>
@@ -204,6 +206,7 @@ const SidebarComponent = memo(function SidebarComponent({
                 isSelected={item.isSelected} 
                 icon={item.icon} 
                 isCollapsed={isCollapsed}
+                disableTextAnimation={disableTextAnimation}
               >
                 {item.label}
               </NavItem>
@@ -222,7 +225,18 @@ const SidebarComponent = memo(function SidebarComponent({
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                className="w-9 h-9 rounded-lg bg-orange-3 border-none p-0 flex items-center justify-center cursor-pointer transition-colors duration-200 hover:bg-orange-4"
+                className="rounded-lg bg-orange-3 border-none p-0 flex items-center justify-center cursor-pointer transition-colors duration-200"
+                style={{ 
+                  width: '34px', 
+                  height: '34px',
+                  '--hover-bg': '#FFE9DD'
+                } as React.CSSProperties & { '--hover-bg': string }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#FFE9DD'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--color-orange-3)'
+                }}
                 aria-label="Founding 50 feedback"
               >
                 <StarFour 

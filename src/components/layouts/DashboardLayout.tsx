@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, memo } from 'react'
+import { useState, useRef, useEffect, memo } from 'react'
 import { usePathname } from 'next/navigation'
 import Topbar from '@/components/ui/topbar'
 import SidebarComponent from '@/components/ui/sidebar'
@@ -9,15 +9,33 @@ import { DashboardData } from '@/lib/dashboard-data'
 interface DashboardLayoutProps {
   data: DashboardData
   children: React.ReactNode
+  initialIsCollapsed: boolean
 }
 
-export default function DashboardLayout({ data, children }: DashboardLayoutProps) {
+export default function DashboardLayout({ data, children, initialIsCollapsed }: DashboardLayoutProps) {
   const pathname = usePathname()
   const selectedItem = pathname.split('/').pop() || 'home'
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
   const isHomePage = pathname === '/home'
   const isSettingsPage = pathname.startsWith('/settings')
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
+  
+  // Track previous variant to detect context switches
+  const prevIsSettingsRef = useRef(isSettingsPage)
+  const isSameVariant = prevIsSettingsRef.current === isSettingsPage
+  
+  useEffect(() => {
+    prevIsSettingsRef.current = isSettingsPage
+  }, [isSettingsPage])
+  
+  // Derived values - don't override the persisted state
+  const effectiveIsCollapsed = isSettingsPage ? false : isCollapsed
+  
+  const handleToggle = () => {
+    const next = !isCollapsed
+    setIsCollapsed(next)
+    document.cookie = `sidebar=${next ? "collapsed" : "expanded"};path=/;max-age=31536000`
+  }
   
   // Get settings section title
   const getSettingsTitle = () => {
@@ -26,6 +44,9 @@ export default function DashboardLayout({ data, children }: DashboardLayoutProps
     return 'Settings'
   }
   
+  // Determine sidebar width based on variant and collapse state
+  const sidebarWidth = isSettingsPage ? '240px' : (effectiveIsCollapsed ? '60px' : '240px')
+  
   return (
     <div 
       className="h-screen" 
@@ -33,8 +54,8 @@ export default function DashboardLayout({ data, children }: DashboardLayoutProps
         backgroundColor: 'var(--color-neutral-2)',
         display: 'grid',
         gridTemplateRows: 'auto 1fr',
-        gridTemplateColumns: isCollapsed ? '60px 1fr' : '240px 1fr',
-        transition: `grid-template-columns ${isCollapsed ? '0.15s' : '0.1s'} ease-in-out`
+        gridTemplateColumns: `${sidebarWidth} 1fr`,
+        transition: isSameVariant ? `grid-template-columns ${isCollapsed ? '0.15s' : '0.1s'} ease-in-out` : 'none'
       }}
     >
       <div style={{ gridColumn: '1 / -1' }}>
@@ -46,8 +67,8 @@ export default function DashboardLayout({ data, children }: DashboardLayoutProps
       </div>
       <SidebarComponent 
         selectedItem={selectedItem} 
-        isCollapsed={isCollapsed}
-        onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+        isCollapsed={effectiveIsCollapsed}
+        onToggleCollapse={handleToggle}
         variant={sidebarVariant}
         showBackButton={isSettingsPage}
         backHref="/home"
@@ -55,6 +76,7 @@ export default function DashboardLayout({ data, children }: DashboardLayoutProps
         showTitle={isSettingsPage}
         title={isSettingsPage ? getSettingsTitle() : ''}
         pathname={pathname}
+        disableTextAnimation={!isSameVariant}
       />
       <main style={{ 
         padding: isHomePage ? '0' : '16px 16px 24px 16px',

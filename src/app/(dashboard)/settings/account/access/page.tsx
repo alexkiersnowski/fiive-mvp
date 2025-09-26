@@ -94,7 +94,19 @@ export default function AccessPage() {
   }
 
   return (
-    <div className="max-w-[552px] flex flex-col justify-between" style={{ minHeight: 'calc(100vh - 290px)' }}>
+    <div className="space-y-8">
+      {/* Page Header */}
+      <div>
+        <h1 className="display-9-medium mb-2" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
+          Account access
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
+          Manage your access details
+        </p>
+      </div>
+
+      {/* Form Content */}
+      <div className="max-w-[552px] flex flex-col justify-between" style={{ minHeight: 'calc(100vh - 290px)' }}>
       <div>
         <Form {...form}>
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
@@ -242,6 +254,7 @@ export default function AccessPage() {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }
