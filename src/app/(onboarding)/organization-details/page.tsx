@@ -1,5 +1,5 @@
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
-import { LogoUpload } from '@/components/ui/logo-upload'
+import { ImageUpload } from '@/components/ui/image-upload'
 import { handleOrganizationDetails } from '../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getOrganizationData } from '@/lib/onboarding/data'
@@ -34,7 +34,7 @@ export default async function OrganizationDetailsPage({
       showForm={true}
       formType="organization"
       showBackButton={true}
-      logoUpload={<LogoUpload initialLogoUrl={organization?.logo_url || undefined} />}
+      logoUpload={<ImageUpload initialLogoUrl={organization?.logo_url || undefined} />}
       accountType={type as 'agency' | 'client'}
       initialLogoUrl={organization?.logo_url || undefined}
       initialData={{

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Dropzone, DropzoneContent, DropzoneEmptyState } from '@/components/ui/shadcn-io/dropzone'
 import { UploadIcon } from 'lucide-react'
 
-interface LogoUploadProps {
+interface ImageUploadProps {
   onLogoChange?: (file: File | null) => void
   currentLogo?: string
   initialLogoUrl?: string
@@ -13,7 +13,7 @@ interface LogoUploadProps {
   changeText?: string
 }
 
-export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload logo", changeText = "Click to change logo" }: LogoUploadProps) {
+export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload image", changeText = "Click to change image" }: ImageUploadProps) {
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
@@ -137,7 +137,7 @@ export function LogoUpload({ onLogoChange, currentLogo, initialLogoUrl, classNam
               <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none">
                 <img
                   src={logoPreview}
-                  alt="Organization logo"
+                  alt="Image preview"
                   className="h-full w-full object-cover"
                 />
               </div>

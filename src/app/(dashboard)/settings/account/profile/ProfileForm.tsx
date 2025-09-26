@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { LogoUpload } from '@/components/ui/logo-upload'
+import { ImageUpload } from '@/components/ui/image-upload'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { toast } from 'sonner'
 import { updateProfile } from '../../actions'
@@ -77,14 +77,16 @@ export default function ProfileForm({ initialValues, userId }: ProfileFormProps)
         first_name: data.first_name,
         last_name: data.last_name,
         job_title: data.job_title,
+        avatar_file: profilePicture || undefined,
       })
       
       if (result.ok) {
         // Show success toast
         toast.success("Profile updated successfully")
         
-        // Reset form dirty state
+        // Reset form dirty state and clear profile picture
         form.reset(data)
+        setProfilePicture(null)
       } else {
         // Handle validation errors
         if (result.errors) {
@@ -130,7 +132,7 @@ export default function ProfileForm({ initialValues, userId }: ProfileFormProps)
             <label className="text-sm font-medium block mb-2" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
               Avatar
             </label>
-            <LogoUpload
+            <ImageUpload
               onLogoChange={(file) => setProfilePicture(file)}
               initialLogoUrl={initialValues.avatar_url}
               uploadText="Upload photo"
@@ -187,7 +189,7 @@ export default function ProfileForm({ initialValues, userId }: ProfileFormProps)
             render={({ field }) => (
               <FormItem>
                 <FormLabel className="text-sm font-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
-                  Job title / role
+                  Job title
                 </FormLabel>
                 <FormControl>
                   <Input

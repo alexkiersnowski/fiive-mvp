@@ -28,7 +28,7 @@ interface TopbarProps {
     email: string
     firstName: string
     lastName: string
-    avatar_url?: string
+    avatarUrl?: string
   }
   organization: {
     id: string
@@ -187,7 +187,7 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
                 <DropdownMenuTrigger asChild>
                   <div className="h-10 w-10 inline-block">
                     <AvatarButton 
-                      src={profile?.avatar_url || ""}
+                      src={profile?.avatarUrl || ""}
                       alt={`${profile?.firstName || ''} ${profile?.lastName || ''}`}
                       fallback={userInitials} 
                       isActive={isUserDropdownOpen}
@@ -203,7 +203,7 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
               {/* User avatar preview with metadata */}
               <div className="flex items-center gap-3 py-3 px-2">
                 <Avatar className="h-10 w-10 rounded-full">
-                  <AvatarImage src={profile?.avatar_url || ""} alt={`${profile?.firstName || ''} ${profile?.lastName || ''}`} />
+                  <AvatarImage src={profile?.avatarUrl || ""} alt={`${profile?.firstName || ''} ${profile?.lastName || ''}`} />
                   <AvatarFallback 
                     className="bg-neutral-9 text-sm-regular rounded-full"
                     style={{ color: 'var(--color-base-text-inverse)' }}

@@ -37,3 +37,39 @@ export async function uploadLogo(file: File, organizationId: string): Promise<st
 
   return publicUrl.publicUrl
 }
+
+/**
+ * Upload an avatar file to public storage
+ * @param file - The file to upload
+ * @param profileId - The profile ID (UUID)
+ * @returns Promise<string> - The public URL of the uploaded file
+ */
+export async function uploadAvatar(file: File, profileId: string): Promise<string> {
+  const supabase = await createClient()
+
+  // Generate unique filename with timestamp to ensure fresh upload
+  const fileExt = file.name.split('.').pop()
+  const timestamp = Date.now()
+  const fileName = `avatar-${timestamp}.${fileExt}`
+  const filePath = `${profileId}/${fileName}`
+
+  // Upload file to public avatars bucket (unique filename ensures no conflicts)
+  const { data, error } = await supabase.storage
+    .from('avatars')
+    .upload(filePath, file, {
+      cacheControl: '3600',
+      contentType: file.type // Ensure proper content type
+    })
+
+  if (error) {
+    console.error('Avatar upload error:', error)
+    throw new Error(`Avatar upload failed: ${error.message}`)
+  }
+
+  // Return the public URL for the uploaded file
+  const { data: publicUrl } = supabase.storage
+    .from('avatars')
+    .getPublicUrl(filePath)
+
+  return publicUrl.publicUrl
+}

@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { LogoUpload } from '@/components/ui/logo-upload'
+import { ImageUpload } from '@/components/ui/image-upload'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -150,7 +150,7 @@ export default function OrganizationDetailsPage() {
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
           {/* Logo Upload */}
           <div>
-            <LogoUpload
+            <ImageUpload
               onLogoChange={(file) => setLogoFile(file)}
               initialLogoUrl=""
             />
