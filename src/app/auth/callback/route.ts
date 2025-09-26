@@ -1,68 +1,54 @@
+import { type EmailOtpType } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
-  const token_hash = searchParams.get('token_hash')
-  const type = searchParams.get('type')
-  const next = searchParams.get('next') ?? '/'
+  const url = new URL(request.url)
+  const token_hash = url.searchParams.get('token_hash')
+  const type = url.searchParams.get('type') as EmailOtpType | null
+  const next = url.searchParams.get('next') || ''
 
-  if (token_hash && type) {
-    const cookieStore = await cookies()
-    // Validate required environment variables
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
-      return NextResponse.redirect(`${origin}/signin?error=config_error`)
-    }
+  // Helpful local debugging (shows in your dev terminal)
+  console.log('[auth/callback] params:', {
+    type,
+    has_token_hash: !!token_hash,
+    next,
+    full: url.toString(),
+  })
 
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            )
-          },
-        },
-      }
-    )
-
-    // Validate the type parameter for security
-    const validTypes = ['email', 'sms', 'phone_change']
-    if (!type || !validTypes.includes(type)) {
-      return NextResponse.redirect(`${origin}/signin?error=invalid_token`)
-    }
-
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash,
-      type: type as 'email'
-    })
-    
-    if (!error) {
-      // Redirect verified users to the onboarding profile step
-      const forwardedHost = request.headers.get('x-forwarded-host')
-      const isLocalEnv = process.env.NODE_ENV === 'development'
-      const redirectUrl = '/profile'
-      
-      if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${redirectUrl}`)
-      } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${redirectUrl}`)
-      } else {
-        return NextResponse.redirect(`${origin}${redirectUrl}`)
-      }
-    } else {
-      // Log the error for debugging
-      console.error('Auth callback error:', error)
-      return NextResponse.redirect(`${origin}/signin?error=auth_failed&message=${encodeURIComponent(error.message)}`)
-    }
+  if (!token_hash || !type) {
+    redirect(`/signin?error=auth_failed`)
   }
 
-  // return the user to signin page with error
-  return NextResponse.redirect(`${origin}/signin?error=auth_failed`)
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (pairs) => pairs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+      },
+    }
+  )
+
+  const { error } = await supabase.auth.verifyOtp({ type, token_hash })
+  if (error) {
+    console.log('[auth/callback] verifyOtp failed:', error.message)
+    redirect(`/signin?error=auth_failed&reason=${encodeURIComponent(error.message)}`)
+  }
+
+  console.log('[auth/callback] verifyOtp success, redirecting...')
+
+  // Safe redirect
+  const safeNext = next.startsWith('/') ? next : ''
+  const fallback = type === 'email_change' ? '/settings/account/access'
+                 : type === 'signup' || type === 'invite' || type === 'email' ? '/profile'
+                 : '/home'
+
+  redirect(safeNext || fallback)
 }

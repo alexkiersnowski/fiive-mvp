@@ -43,7 +43,13 @@ export async function updateProfile(data: {
   }
 
   // Prepare update data
-  const updateData: any = {
+  const updateData: {
+    first_name: string
+    last_name: string
+    job_title?: string
+    updated_at: string
+    avatar_url?: string
+  } = {
     first_name: values.first_name,
     last_name: values.last_name,
     job_title: values.job_title,
@@ -80,6 +86,88 @@ export async function updateProfile(data: {
 
   // Revalidate the profile page to show fresh data
   revalidatePath("/settings/account/profile")
+  
+  return { ok: true }
+}
+
+const EmailChangeSchema = z.object({
+  userId: z.string().uuid(),
+  email: z.string().email("Enter a valid email"),
+})
+
+export async function requestEmailChange(data: {
+  userId: string
+  email: string
+}) {
+  // Validate input data
+  const parsed = EmailChangeSchema.safeParse(data)
+  if (!parsed.success) {
+    return { 
+      ok: false, 
+      fieldErrors: parsed.error.flatten().fieldErrors 
+    }
+  }
+
+  const { userId, email } = parsed.data
+
+  const supabase = await createClient()
+
+  // Verify the user is authenticated and matches the userId
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user || user.id !== userId) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  // Check if email is already the current email
+  if (user.email === email) {
+    return {
+      ok: false,
+      fieldErrors: {
+        email: ["This is already your current email address"]
+      }
+    }
+  }
+
+  // Request email change via Supabase Auth
+  const { error } = await supabase.auth.updateUser(
+    { email },
+    { 
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/settings/account/access` 
+    }
+  )
+
+  if (error) {
+    console.error('Email change request error:', error)
+    return { 
+      ok: false, 
+      message: error.message 
+    }
+  }
+
+  // Revalidate the access page
+  revalidatePath("/settings/account/access")
+  
+  return { 
+    ok: true, 
+    pendingEmail: email 
+  }
+}
+
+export async function signOut() {
+  const supabase = await createClient()
+  
+  const { error } = await supabase.auth.signOut()
+  
+  if (error) {
+    console.error('Sign out error:', error)
+    return { 
+      ok: false, 
+      message: error.message 
+    }
+  }
   
   return { ok: true }
 }

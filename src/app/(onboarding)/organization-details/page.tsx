@@ -4,6 +4,9 @@ import { handleOrganizationDetails } from '../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getOrganizationData } from '@/lib/onboarding/data'
 
+// Force fresh data on every request to ensure updated user data is shown immediately
+export const revalidate = 0
+
 export default async function OrganizationDetailsPage({ 
   searchParams 
 }: { 
@@ -34,7 +37,7 @@ export default async function OrganizationDetailsPage({
       showForm={true}
       formType="organization"
       showBackButton={true}
-      logoUpload={<ImageUpload initialLogoUrl={organization?.logo_url || undefined} />}
+      logoUpload={<ImageUpload initialLogoUrl={organization?.logo_url || undefined} useSessionStorage={true} />}
       accountType={type as 'agency' | 'client'}
       initialLogoUrl={organization?.logo_url || undefined}
       initialData={{

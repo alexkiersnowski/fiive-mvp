@@ -4,6 +4,9 @@ import { handleProfileCreation } from '../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getProfileData } from '@/lib/onboarding/data'
 
+// Force fresh data on every request to ensure updated user data is shown immediately
+export const revalidate = 0
+
 export default async function ProfilePage() {
   // Check authentication (centralized, DRY)
   const user = await getAuthenticatedUser()

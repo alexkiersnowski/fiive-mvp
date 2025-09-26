@@ -2,6 +2,7 @@
 
 import { useState, memo, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import BrandLink from './brand-link'
 import AvatarButton from './avatar-button'
 import { Avatar, AvatarFallback, AvatarImage } from './avatar'
@@ -15,6 +16,8 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from './dropdown-menu'
+import { signOut } from '@/app/(dashboard)/settings/actions'
+import { toast } from 'sonner'
 
 interface TopbarProps {
   user: {
@@ -40,9 +43,11 @@ interface TopbarProps {
 }
 
 const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps) {
+  const router = useRouter()
   const [isHelpDropdownOpen, setIsHelpDropdownOpen] = useState(false)
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false)
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
 
   // Memoize computed values to prevent recalculation on every render
   const userInitials = useMemo(() => {
@@ -66,6 +71,25 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
   const handleUserDropdownChange = useCallback((open: boolean) => {
     setIsUserDropdownOpen(open)
   }, [])
+
+  const handleSignOut = useCallback(async () => {
+    if (isSigningOut) return
+    
+    setIsSigningOut(true)
+    try {
+      const result = await signOut()
+      if (result.ok) {
+        router.push('/signin')
+      } else {
+        toast.error(result.message || 'Failed to sign out')
+      }
+    } catch (error) {
+      console.error('Sign out error:', error)
+      toast.error('Failed to sign out. Please try again.')
+    } finally {
+      setIsSigningOut(false)
+    }
+  }, [isSigningOut, router])
   return (
     <div className="w-full bg-neutral-2 border-b border-neutral-alpha-4 py-1 px-3">
       <div className="flex items-center justify-between">
@@ -224,9 +248,9 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut}>
                 <SignOut size={16} className="text-inherit" />
-                Sign out
+                {isSigningOut ? 'Signing out...' : 'Sign out'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

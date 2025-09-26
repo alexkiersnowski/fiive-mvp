@@ -2,6 +2,9 @@ import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { handleAccountTypeSelection } from '../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 
+// Force fresh data on every request to ensure updated user data is shown immediately
+export const revalidate = 0
+
 export default async function AccountTypePage({ 
   searchParams 
 }: { 

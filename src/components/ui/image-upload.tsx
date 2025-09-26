@@ -11,9 +11,10 @@ interface ImageUploadProps {
   className?: string
   uploadText?: string
   changeText?: string
+  useSessionStorage?: boolean // Only use sessionStorage during onboarding flows
 }
 
-export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload image", changeText = "Click to change image" }: ImageUploadProps) {
+export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload image", changeText = "Click to change image", useSessionStorage = false }: ImageUploadProps) {
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
@@ -25,16 +26,20 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
   // Rate limiting state
   const [lastUploadTime, setLastUploadTime] = useState<number>(0)
   
-  // Check for stored preview data on mount
+  // Check for stored preview data on mount (only if sessionStorage is enabled)
   useEffect(() => {
-    const storedPreview = sessionStorage.getItem('logoPreview')
-    if (storedPreview) {
-      setLogoPreview(storedPreview)
-      setBase64Preview(storedPreview)
+    if (useSessionStorage) {
+      const storedPreview = sessionStorage.getItem('logoPreview')
+      if (storedPreview) {
+        setLogoPreview(storedPreview)
+        setBase64Preview(storedPreview)
+      } else if (currentLogo) {
+        setLogoPreview(currentLogo)
+      }
     } else if (currentLogo) {
       setLogoPreview(currentLogo)
     }
-  }, [])
+  }, [useSessionStorage, currentLogo])
 
   // Update preview when currentLogo changes (but don't overwrite base64)
   useEffect(() => {
@@ -78,10 +83,12 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
         if (typeof e.target?.result === 'string') {
           setLogoPreview(e.target.result)
           setBase64Preview(e.target.result)
-          // Store in sessionStorage with a unique key for this session
-          const sessionKey = `logoPreview_${Date.now()}`
-          sessionStorage.setItem('logoPreview', e.target.result)
-          sessionStorage.setItem('logoPreviewKey', sessionKey)
+          // Store in sessionStorage only if enabled (for onboarding flows)
+          if (useSessionStorage) {
+            const sessionKey = `logoPreview_${Date.now()}`
+            sessionStorage.setItem('logoPreview', e.target.result)
+            sessionStorage.setItem('logoPreviewKey', sessionKey)
+          }
         }
       }
       reader.readAsDataURL(file)

@@ -30,7 +30,7 @@ async function handleSignUp(data: { email: string }) {
         email: email,
         options: {
           shouldCreateUser: false,
-          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/home`
         }
       })
       
@@ -57,7 +57,7 @@ async function handleSignUp(data: { email: string }) {
         type: 'signup',
         email: email,
         options: {
-          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/profile`
         }
       })
       
@@ -84,7 +84,7 @@ async function handleSignUp(data: { email: string }) {
       email: email,
       password: randomPassword,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/profile`
       }
     })
     
