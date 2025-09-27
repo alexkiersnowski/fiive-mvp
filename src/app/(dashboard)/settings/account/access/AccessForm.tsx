@@ -2,6 +2,8 @@
 
 import * as React from "react"
 import { useForm } from "react-hook-form"
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -26,6 +28,12 @@ const TTL_MINUTES = 60
 const KEY = (uid: string) => `pending-email-change:${uid}`
 
 type Pending = { email: string; ts: number }
+
+const emailSchema = z.object({
+  email: z.string().email("Please enter a valid email address")
+})
+
+type EmailFormData = z.infer<typeof emailSchema>
 
 export default function AccessForm({ userId, currentEmail }: Props) {
   const [pendingEmail, setPendingEmail] = React.useState<string | null>(null)
@@ -61,7 +69,8 @@ export default function AccessForm({ userId, currentEmail }: Props) {
   }, [currentEmail, userId])
 
   // Form defaults to pendingEmail (if any) else currentEmail
-  const form = useForm({
+  const form = useForm<EmailFormData>({
+    resolver: zodResolver(emailSchema),
     defaultValues: { email: pendingEmail ?? currentEmail },
     mode: "onSubmit",
   })
@@ -75,6 +84,11 @@ export default function AccessForm({ userId, currentEmail }: Props) {
   const isSameAsCurrent = watchedEmail === currentEmail
   const isSameAsPending = pendingEmail != null && watchedEmail === pendingEmail
   const isDeleteConfirmed = deleteConfirmation === currentEmail
+
+  // Check if email is valid using Zod schema
+  const emailValidation = emailSchema.safeParse({ email: watchedEmail || '' })
+  const isEmailValid = emailValidation.success
+  const isButtonActive = isEmailValid && !isSameAsCurrent && !isUpdating
 
   const primaryLabel = isSameAsPending ? "Resend" : "Update"
 
@@ -181,7 +195,6 @@ export default function AccessForm({ userId, currentEmail }: Props) {
                         }
                       </p>
                     </div>
-                    <FormMessage />
                   </FormItem>
                 )}
               />
@@ -194,7 +207,7 @@ export default function AccessForm({ userId, currentEmail }: Props) {
                     variant="default"
                     size="lg"
                     className="cursor-pointer text-sm relative"
-                    disabled={isSameAsCurrent || isUpdating}
+                    disabled={!isButtonActive}
                   >
                     <span className={isUpdating ? "invisible" : ""}>{primaryLabel}</span>
                     {isUpdating && (

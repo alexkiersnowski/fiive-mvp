@@ -282,3 +282,312 @@ export async function signOut() {
   
   return { ok: true }
 }
+
+// Member Management Types
+export interface OrganizationMember {
+  id: string
+  membership_id: string
+  first_name: string
+  last_name: string
+  email: string
+  job_title?: string
+  avatar_url?: string
+  role: string
+  effective_role: string
+  created_at: string
+  organization: {
+    id: string
+    name: string
+    logo_url?: string
+  }
+}
+
+// Get organization members
+export async function getOrganizationMembers(organizationId: string): Promise<{
+  ok: boolean
+  data?: OrganizationMember[]
+  message?: string
+}> {
+  const supabase = await createClient()
+
+  // Verify the user is authenticated
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  // Verify the user has access to this organization through memberships
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .select(`
+      id,
+      memberships!inner(user_id)
+    `)
+    .eq("id", organizationId)
+    .eq("memberships.user_id", user.id)
+    .single()
+
+  if (orgError || !organization) {
+    return { 
+      ok: false, 
+      message: "Organization not found or access denied" 
+    }
+  }
+
+  // Fetch members with their profiles and organization info
+  const { data: members, error: membersError } = await supabase
+    .from("memberships")
+    .select(`
+      id,
+      role,
+      created_at,
+      profiles!inner(
+        id,
+        first_name,
+        last_name,
+        email,
+        job_title,
+        avatar_url
+      ),
+      organizations!inner(
+        id,
+        name,
+        logo_url,
+        owner_id
+      )
+    `)
+    .eq("org_id", organizationId)
+    .order("profiles(first_name)")
+
+  if (membersError) {
+    console.error('Error fetching organization members:', membersError)
+    return { 
+      ok: false, 
+      message: "Failed to fetch members" 
+    }
+  }
+
+  // Transform the data to match our interface
+  const transformedMembers: OrganizationMember[] = members?.map(member => {
+    const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles
+    const organization = Array.isArray(member.organizations) ? member.organizations[0] : member.organizations
+    
+    // Compute effective role: if user is owner, show 'owner', otherwise show membership role
+    const effective_role = organization.owner_id === profile.id ? 'owner' : member.role
+    
+    return {
+      id: profile.id,
+      membership_id: member.id,
+      first_name: profile.first_name || '',
+      last_name: profile.last_name || '',
+      email: profile.email || '',
+      job_title: profile.job_title || undefined,
+      avatar_url: profile.avatar_url || undefined,
+      role: member.role,
+      effective_role: effective_role,
+      created_at: member.created_at,
+      organization: {
+        id: organization.id,
+        name: organization.name || '',
+        logo_url: organization.logo_url || undefined
+      }
+    }
+  }) || []
+
+  return { 
+    ok: true, 
+    data: transformedMembers 
+  }
+}
+
+// Update member role
+export async function updateMemberRole(data: {
+  membershipId: string
+  newRole: string
+  organizationId: string
+}) {
+  const supabase = await createClient()
+
+  // Verify the user is authenticated
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  // Verify the user has access to this organization and is an owner
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .select(`
+      id,
+      owner_id,
+      memberships!inner(user_id, role)
+    `)
+    .eq("id", data.organizationId)
+    .eq("memberships.user_id", user.id)
+    .single()
+
+  if (orgError || !organization) {
+    return { 
+      ok: false, 
+      message: "Organization not found or access denied" 
+    }
+  }
+
+  // Check if user is owner
+  const userMembership = organization.memberships.find(m => m.user_id === user.id)
+  if (!userMembership || userMembership.role !== 'owner') {
+    return { 
+      ok: false, 
+      message: "Only organization owners can manage member roles" 
+    }
+  }
+
+  // Handle ownership transfer
+  if (data.newRole === 'owner') {
+    // Get the user_id of the member being promoted
+    const { data: membership, error: membershipError } = await supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("id", data.membershipId)
+      .single()
+
+    if (membershipError || !membership) {
+      return { 
+        ok: false, 
+        message: "Member not found" 
+      }
+    }
+
+    // Update organization owner
+    const { error: ownerError } = await supabase
+      .from("organizations")
+      .update({ 
+        owner_id: membership.user_id,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", data.organizationId)
+
+    if (ownerError) {
+      console.error('Error updating organization owner:', ownerError)
+      return { 
+        ok: false, 
+        message: "Failed to transfer ownership" 
+      }
+    }
+  } else {
+    // For non-owner role changes, update membership role
+    const { error } = await supabase
+      .from("memberships")
+      .update({ 
+        role: data.newRole,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", data.membershipId)
+      .eq("org_id", data.organizationId)
+
+    if (error) {
+      console.error('Error updating member role:', error)
+      return { 
+        ok: false, 
+        message: "Failed to update member role" 
+      }
+    }
+  }
+
+  // Revalidate the members page
+  revalidatePath("/settings/organization/members")
+  
+  return { ok: true }
+}
+
+// Remove member
+export async function removeMember(data: {
+  membershipId: string
+  organizationId: string
+}) {
+  const supabase = await createClient()
+
+  // Verify the user is authenticated
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  // Verify the user has access to this organization and is an owner
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .select(`
+      id,
+      owner_id,
+      memberships!inner(user_id, role)
+    `)
+    .eq("id", data.organizationId)
+    .eq("memberships.user_id", user.id)
+    .single()
+
+  if (orgError || !organization) {
+    return { 
+      ok: false, 
+      message: "Organization not found or access denied" 
+    }
+  }
+
+  // Check if user is owner
+  const userMembership = organization.memberships.find(m => m.user_id === user.id)
+  if (!userMembership || userMembership.role !== 'owner') {
+    return { 
+      ok: false, 
+      message: "Only organization owners can remove members" 
+    }
+  }
+
+  // Prevent removing the owner
+  const { data: targetMembership, error: targetError } = await supabase
+    .from("memberships")
+    .select("user_id, role")
+    .eq("id", data.membershipId)
+    .single()
+
+  if (targetError || !targetMembership) {
+    return { 
+      ok: false, 
+      message: "Member not found" 
+    }
+  }
+
+  if (targetMembership.role === 'owner') {
+    return { 
+      ok: false, 
+      message: "Cannot remove organization owner" 
+    }
+  }
+
+  // Remove the member
+  const { error } = await supabase
+    .from("memberships")
+    .delete()
+    .eq("id", data.membershipId)
+    .eq("org_id", data.organizationId)
+
+  if (error) {
+    console.error('Error removing member:', error)
+    return { 
+      ok: false, 
+      message: "Failed to remove member" 
+    }
+  }
+
+  // Revalidate the members page
+  revalidatePath("/settings/organization/members")
+  
+  return { ok: true }
+}
