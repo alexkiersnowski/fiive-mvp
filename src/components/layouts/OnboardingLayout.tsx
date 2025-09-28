@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { RadioCards, RadioCard, AgencyIcon, ClientIcon } from '@/components/ui/radio-cards'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
+import { ImageUpload } from '@/components/ui/image-upload'
 import { ArrowLeft } from '@phosphor-icons/react'
 import {
   Form,
@@ -99,6 +100,7 @@ interface OnboardingLayoutProps {
   showForm?: boolean
   formType?: 'auth' | 'profile' | 'organization' | 'accountType'
   showBackButton?: boolean
+  showAvatarUpload?: boolean
   logoUpload?: React.ReactNode
   accountType?: 'agency' | 'client'
   urlAccountType?: string // Account type from URL parameter
@@ -111,6 +113,7 @@ interface OnboardingLayoutProps {
     name?: string
     agencyType?: string
     industry?: string
+    avatarUrl?: string
   }
 }
 
@@ -125,6 +128,7 @@ export default function OnboardingLayout({
   showForm = true,
   formType = 'auth',
   showBackButton = false,
+  showAvatarUpload = false,
   logoUpload,
   accountType,
   urlAccountType,
@@ -175,6 +179,9 @@ export default function OnboardingLayout({
   
   // Local loading state that persists until redirect
   const [isRedirecting, setIsRedirecting] = useState(false)
+  
+  // Avatar file state for profile forms
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
   
   // Read session storage after hydration to prevent hydration mismatch
   const [sessionAccountType, setSessionAccountType] = useState<string>('')
@@ -292,6 +299,10 @@ export default function OnboardingLayout({
               sessionStorage.removeItem('onboarding_logo_file')
               sessionStorage.removeItem('logoPreview')
             }
+          } else if (isProfileForm && avatarFile) {
+            // For profile forms, include avatar file
+            const profileData = { ...data, avatarFile: avatarFile }
+            await onSubmit(profileData as unknown as Parameters<typeof onSubmit>[0])
           } else {
             await onSubmit(data)
           }
@@ -368,6 +379,21 @@ export default function OnboardingLayout({
                                 storeLogoFile(file)
                               }
                             })}
+                          </div>
+                        )}
+
+                        {/* Avatar Upload */}
+                        {showAvatarUpload && (
+                          <div className="mb-6">
+                            <label className="text-sm font-medium block mb-2" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
+                              Avatar
+                            </label>
+                            <ImageUpload
+                              onLogoChange={(file) => setAvatarFile(file)}
+                              initialLogoUrl={initialData?.avatarUrl}
+                              uploadText="Upload photo"
+                              changeText="Click to change photo"
+                            />
                           </div>
                         )}
 

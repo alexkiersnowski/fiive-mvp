@@ -10,6 +10,7 @@ export interface ProfileData {
   first_name: string | null
   last_name: string | null
   job_title: string | null
+  avatar_url: string | null
 }
 
 export interface OrganizationData {
@@ -28,7 +29,7 @@ export async function getProfileData(userId: string): Promise<ProfileData | null
   
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('first_name, last_name, job_title')
+    .select('first_name, last_name, job_title, avatar_url')
     .eq('id', userId)
     .maybeSingle() // Better than .single() - handles missing data gracefully
   

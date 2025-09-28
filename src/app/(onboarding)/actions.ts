@@ -23,7 +23,7 @@ function sanitizeInput(input: string): string {
 }
 
 // Profile actions
-export async function handleProfileCreation(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
+export async function handleProfileCreation(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string; avatarFile?: File } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
   // Type guard to ensure we have profile data
   if ('email' in data) {
     throw new Error('This function only handles profile data, not auth data')
@@ -34,7 +34,7 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
     throw new Error('This function only handles profile data')
   }
   
-  const { firstName, lastName, jobTitle } = data
+  const { firstName, lastName, jobTitle, avatarFile } = data
   
   // Sanitize inputs
   const sanitizedFirstName = sanitizeInput(firstName)
@@ -92,6 +92,32 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
     throw new Error(`Failed to update profile: ${profileError instanceof Error ? profileError.message : String(profileError)}`)
   }
   
+  // Upload avatar if provided
+  if (avatarFile) {
+    try {
+      const { uploadAvatar } = await import('@/lib/supabase/storage')
+      const avatarUrl = await uploadAvatar(avatarFile, user.id)
+      
+      // Update profile with avatar URL
+      const avatarResult = await withTimeout(
+        supabase
+          .from('profiles')
+          .update({ avatar_url: avatarUrl })
+          .eq('id', user.id),
+        3000
+      )
+      
+      const { error: avatarError } = avatarResult as { error: unknown }
+      
+      if (avatarError) {
+        console.error('Failed to update profile with avatar URL:', avatarError)
+        // Don't throw error here - profile was updated successfully, avatar is optional
+      }
+    } catch (avatarUploadError) {
+      console.error('Failed to upload avatar:', avatarUploadError)
+      // Don't throw error here - profile was updated successfully, avatar is optional
+    }
+  }
   
   // Redirect to next step (account type selection)
   redirect('/account-type')

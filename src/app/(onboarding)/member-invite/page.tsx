@@ -55,15 +55,17 @@ export default async function MemberInvitePage({ searchParams }: MemberInvitePag
   return (
     <OnboardingLayout
       title={`${organizationName} has invited you to join their team`}
-      buttonText="Join organization"
+      buttonText="Join team"
       onSubmit={handleProfileCreation}
       showForm={true}
       formType="profile"
       showBackButton={false}
+      showAvatarUpload={true}
       initialData={{
         firstName: profile?.first_name || '',
         lastName: profile?.last_name || '',
-        jobTitle: profile?.job_title || ''
+        jobTitle: profile?.job_title || '',
+        avatarUrl: profile?.avatar_url || ''
       }}
     />
   )
