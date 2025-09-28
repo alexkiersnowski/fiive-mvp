@@ -11,10 +11,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { MagnifyingGlass, DotsThree, UserMinus, EnvelopeSimple, XCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateMemberRole, removeMember, OrganizationMember } from '../../actions'
+import { updateMemberRole, removeMember, inviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, OrganizationMember, OrganizationInvitation } from '../../actions'
 
 const roleOptions: ComboboxOption[] = [
   { value: "member", label: "Member" },
@@ -23,12 +22,14 @@ const roleOptions: ComboboxOption[] = [
 
 interface MembersTableProps {
   members: OrganizationMember[]
+  invitations: OrganizationInvitation[]
   organizationId: string
 }
 
-export default function MembersTable({ members, organizationId }: MembersTableProps) {
+export default function MembersTable({ members, invitations, organizationId }: MembersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [localMembers, setLocalMembers] = useState(members)
+  const [localInvitations, setLocalInvitations] = useState(invitations)
   
   // Filter and sort members based on search query
   const filteredAndSortedMembers = localMembers
@@ -48,8 +49,24 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
       const nameB = `${b.first_name} ${b.last_name}`.toLowerCase()
       return nameA.localeCompare(nameB)
     })
+
+  // Filter invitations based on search query
+  const filteredInvitations = localInvitations
+    .filter(invitation => {
+      if (!searchQuery) return true
+      const query = searchQuery.toLowerCase()
+      return (
+        invitation.invited_email.toLowerCase().includes(query) ||
+        invitation.role.toLowerCase().includes(query) ||
+        'invited'.includes(query)
+      )
+    })
+    .sort((a, b) => {
+      // Sort by email
+      return a.invited_email.toLowerCase().localeCompare(b.invited_email.toLowerCase())
+    })
   
-  const memberCount = filteredAndSortedMembers.length
+  const memberCount = filteredAndSortedMembers.length + filteredInvitations.length
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
   const [pendingTransfer, setPendingTransfer] = useState<{membershipId: string, memberName: string} | null>(null)
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
@@ -59,6 +76,42 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [selectedMember, setSelectedMember] = useState<OrganizationMember | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [isInviting, setIsInviting] = useState(false)
+  const [emailValidationError, setEmailValidationError] = useState<string>('')
+
+  // Validate emails against existing invitations and active members
+  const validateEmails = (emails: string[]) => {
+    const existingInvitationEmails = localInvitations.map(inv => inv.invited_email.toLowerCase())
+    const existingMemberEmails = localMembers.map(member => member.email.toLowerCase())
+    
+    const duplicateInvitations = emails.filter(email => 
+      existingInvitationEmails.includes(email.toLowerCase())
+    )
+    
+    const duplicateMembers = emails.filter(email => 
+      existingMemberEmails.includes(email.toLowerCase())
+    )
+    
+    if (duplicateInvitations.length > 0) {
+      setEmailValidationError(`Already invited: ${duplicateInvitations.join(', ')}`)
+      return false
+    }
+    
+    if (duplicateMembers.length > 0) {
+      setEmailValidationError(`Already a member: ${duplicateMembers.join(', ')}`)
+      return false
+    }
+    
+    setEmailValidationError('')
+    return true
+  }
+
+  // Handle email changes (no real-time validation)
+  const handleEmailChange = (emails: string[]) => {
+    setInviteEmails(emails)
+    // Clear any existing validation errors when user changes input
+    setEmailValidationError('')
+  }
 
   const handleRoleChange = async (membershipId: string, newRole: string) => {
     if (newRole === 'owner') {
@@ -183,22 +236,55 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
     setPendingRemove(null)
   }
 
-  const handleResendInvite = (memberId: string) => {
-    // TODO: Implement resend invite logic
-    console.log('Resending invite for member:', memberId)
-    toast.success('Invitation resent')
-  }
-
-  const handleCancelInvite = (memberId: string) => {
-    // TODO: Implement cancel invite logic
-    console.log('Canceling invite for member:', memberId)
-    // Remove the invited member from the list
-    setLocalMembers(prev => prev.filter(member => member.id !== memberId))
-    toast.success('Invitation cancelled')
-  }
 
   const handleInviteClick = () => {
     setInviteDialogOpen(true)
+  }
+
+  const handleResendInvite = async (invitationId: string) => {
+    try {
+      const result = await resendInvitation({
+        invitationId,
+        organizationId
+      })
+
+      if (result.ok) {
+        toast.success('Invitation resent successfully')
+        // Update the local invitation with new expiry date
+        setLocalInvitations(prev => 
+          prev.map(invitation => 
+            invitation.id === invitationId 
+              ? { ...invitation, expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() }
+              : invitation
+          )
+        )
+      } else {
+        toast.error(result.message || 'Failed to resend invitation')
+      }
+    } catch (error) {
+      console.error('Error resending invitation:', error)
+      toast.error('Failed to resend invitation')
+    }
+  }
+
+  const handleCancelInvite = async (invitationId: string) => {
+    try {
+      const result = await cancelInvitation({
+        invitationId,
+        organizationId
+      })
+
+      if (result.ok) {
+        toast.success('Invitation canceled successfully')
+        // Remove the invitation from the local state since it's now expired
+        setLocalInvitations(prev => prev.filter(invitation => invitation.id !== invitationId))
+      } else {
+        toast.error(result.message || 'Failed to cancel invitation')
+      }
+    } catch (error) {
+      console.error('Error canceling invitation:', error)
+      toast.error('Failed to cancel invitation')
+    }
   }
 
   const handleMemberClick = (member: OrganizationMember) => {
@@ -206,19 +292,47 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
     setProfileDialogOpen(true)
   }
 
-  const handleInviteEmails = () => {
-    if (inviteEmails.length > 0) {
-      // TODO: Implement actual invite logic
-      // For now, just show success message
-      const invitationCount = inviteEmails.length
-      const message = invitationCount === 1 
-        ? '1 invitation sent successfully' 
-        : `${invitationCount} invitations sent successfully`
-      
-      toast.success(message)
+  const handleInviteEmails = async () => {
+    if (inviteEmails.length === 0) {
+      toast.error('Please enter at least one email address')
+      return
     }
-    setInviteDialogOpen(false)
-    setInviteEmails([])
+
+    // Validate emails before sending
+    if (!validateEmails(inviteEmails)) {
+      return
+    }
+
+    setIsInviting(true)
+    try {
+      const result = await inviteMembers({
+        organizationId,
+        emails: inviteEmails
+      })
+
+      if (result.ok) {
+        toast.success(result.message || 'Invitations sent successfully')
+        setInviteDialogOpen(false)
+        setInviteEmails([])
+        setEmailValidationError('')
+        // Refresh invitations data from server
+        try {
+          const invitationsResult = await getOrganizationInvitations(organizationId)
+          if (invitationsResult.ok) {
+            setLocalInvitations(invitationsResult.data || [])
+          }
+        } catch (error) {
+          console.error('Failed to refresh invitations:', error)
+        }
+      } else {
+        toast.error(result.message || 'Failed to send invitations')
+      }
+    } catch (error) {
+      console.error('Error sending invitations:', error)
+      toast.error('Failed to send invitations')
+    } finally {
+      setIsInviting(false)
+    }
   }
 
   return (
@@ -274,28 +388,14 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
               return (
                 <TableRow key={member.membership_id} style={{ height: '44px' }} className="[&>*]:h-[44px] hover:bg-transparent">
                   <TableCell className="py-0" style={{ width: '33.33%' }}>
-                    <div 
-                      className="flex items-center p-1 transition-all duration-75 cursor-pointer hover:bg-[var(--color-interactive-surface-hover)]"
-                      style={{ borderRadius: 'calc(var(--radius) - 2px)' }}
+                    <ListRow
+                      avatar={true}
+                      avatarUrl={member.avatar_url}
+                      text={fullName}
+                      actions={false}
+                      variant="stacked"
                       onClick={() => handleMemberClick(member)}
-                    >
-                      {/* Avatar */}
-                      <div className="flex-shrink-0 mr-3">
-                        <Avatar className="h-5 w-5">
-                          <AvatarImage src={member.avatar_url} alt={fullName} />
-                          <AvatarFallback className="text-xs font-medium">
-                            {member.first_name[0]}{member.last_name[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                      </div>
-                      
-                      {/* Name */}
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {fullName}
-                        </span>
-                      </div>
-                    </div>
+                    />
                   </TableCell>
                   <TableCell className="py-0" style={{ width: '33.33%' }}>
                     <div className="flex items-center">
@@ -354,6 +454,88 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
                 </TableRow>
               )
             })}
+            
+            {/* Invited members */}
+            {filteredInvitations.map((invitation) => (
+              <TableRow key={`invitation-${invitation.id}`} style={{ height: '44px' }} className="[&>*]:h-[44px] hover:bg-transparent">
+                <TableCell className="py-0" style={{ width: '33.33%' }}>
+                  <ListRow
+                    avatar={true}
+                    text="—"
+                    actions={false}
+                    variant="stacked"
+                    className="pointer-events-none hover:bg-transparent cursor-default"
+                  />
+                </TableCell>
+                <TableCell className="py-0" style={{ width: '33.33%' }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                      {invitation.invited_email}
+                    </span>
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs border-0"
+                      style={{
+                        borderRadius: 'var(--radius-1-max)',
+                        backgroundColor: 'var(--color-semantic-info-3)',
+                        color: 'var(--color-semantic-info-11)'
+                      }}
+                    >
+                      Invited
+                    </Badge>
+                  </div>
+                </TableCell>
+                <TableCell className="py-0" style={{ width: '33.33%' }}>
+                  <Combobox
+                    options={[{ value: "member", label: "Member" }]}
+                    value={invitation.role}
+                    onValueChange={() => {}} // Disabled for invitations
+                    placeholder="Select role..."
+                    searchPlaceholder=""
+                    emptyText="No role found."
+                    readOnly={true}
+                    className="w-full"
+                    style={{ 
+                      height: '32px',
+                      width: '100%',
+                      minWidth: '100%',
+                      maxWidth: '100%'
+                    }}
+                  />
+                </TableCell>
+                <TableCell className="py-0" style={{ width: 'auto' }}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        className="p-0 cursor-pointer" 
+                        style={{ height: '32px', width: '32px' }}
+                      >
+                        <DotsThree size={16} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => handleResendInvite(invitation.id)}
+                      >
+                        <EnvelopeSimple size={16} />
+                        Resend invite
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleCancelInvite(invitation.id)}
+                        style={{ color: 'var(--color-red-11)' }}
+                      >
+                        <XCircle 
+                          size={16} 
+                          style={{ color: 'var(--color-red-11)' }}
+                        />
+                        Cancel invite
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       </div>
@@ -445,13 +627,22 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
           <div style={{ marginTop: '12px' }}>
             <MultiEmailInput
               placeholder="Enter email addresses..."
-              onChange={setInviteEmails}
+              onChange={handleEmailChange}
             />
+            {emailValidationError && (
+              <p className="text-sm text-red-600 mt-2">
+                {emailValidationError}
+              </p>
+            )}
           </div>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
             <Button 
               variant="ghost" 
-              onClick={() => setInviteDialogOpen(false)}
+              onClick={() => {
+                setInviteDialogOpen(false)
+                setEmailValidationError('')
+                setInviteEmails([])
+              }}
               style={{ height: '40px' }}
               className="cursor-pointer"
             >
@@ -461,8 +652,9 @@ export default function MembersTable({ members, organizationId }: MembersTablePr
               onClick={handleInviteEmails}
               style={{ height: '40px' }}
               className="cursor-pointer"
+              disabled={isInviting}
             >
-              Invite
+              {isInviting ? 'Sending...' : 'Invite'}
             </Button>
           </div>
         </DialogContent>

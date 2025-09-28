@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 export async function createClient() {
@@ -48,4 +49,22 @@ export async function isUserVerified(email: string) {
   }
   
   return data
+}
+
+// Admin client for server-side operations requiring service role key
+export function createAdminClient() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
+    throw new Error('Missing required Supabase environment variables for admin client')
+  }
+
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SECRET_KEY,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    }
+  )
 }

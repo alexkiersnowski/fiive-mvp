@@ -2,8 +2,89 @@
 
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { uploadAvatar, uploadLogo } from '@/lib/supabase/storage'
+import { randomBytes, createHash } from 'crypto'
+
+// Helper types and utilities
+type ActionResult<T = any> = {
+  ok: boolean
+  data?: T
+  message?: string
+}
+
+// Helper function for organization ownership verification
+async function verifyOrganizationOwnership(organizationId: string, userId: string): Promise<ActionResult> {
+  const supabase = await createClient()
+  
+  const { data: organization, error } = await supabase
+    .from("organizations")
+    .select(`
+      id,
+      owner_id,
+      memberships!inner(user_id, role)
+    `)
+    .eq("id", organizationId)
+    .eq("memberships.user_id", userId)
+    .single()
+
+  if (error || !organization) {
+    return { ok: false, message: "Organization not found or access denied" }
+  }
+
+  if (organization.owner_id !== userId) {
+    return { ok: false, message: "Only organization owners can perform this action" }
+  }
+
+  return { ok: true, data: organization }
+}
+
+// Helper function for organization access verification (any member)
+async function verifyOrganizationAccess(organizationId: string, userId: string): Promise<ActionResult> {
+  const supabase = await createClient()
+  
+  const { data: organization, error } = await supabase
+    .from("organizations")
+    .select(`
+      id,
+      memberships!inner(user_id)
+    `)
+    .eq("id", organizationId)
+    .eq("memberships.user_id", userId)
+    .single()
+
+  if (error || !organization) {
+    return { ok: false, message: "Organization not found or access denied" }
+  }
+
+  return { ok: true, data: organization }
+}
+
+// Helper function for authentication
+async function verifyAuth(): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  
+  if (error || !user) {
+    return { ok: false, message: "Unauthorized" }
+  }
+  
+  return { ok: true, data: user }
+}
+
+// Helper function for token generation
+function generateInvitationToken() {
+  const rawToken = randomBytes(32).toString('hex')
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex')
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + 7) // 7 days from now
+  
+  return {
+    rawToken,
+    tokenHash,
+    expiresAt: expiresAt.toISOString()
+  }
+}
 
 const ProfileSchema = z.object({
   userId: z.string().uuid(),
@@ -302,6 +383,29 @@ export interface OrganizationMember {
   }
 }
 
+export interface MembershipInvitation {
+  id: string
+  org_id: string
+  invited_by_user: string
+  invited_email: string
+  role: 'member'
+  token_hash: string
+  status: 'pending' | 'accepted' | 'expired'
+  expires_at: string
+  accepted_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizationInvitation {
+  id: string
+  invited_email: string
+  role: 'member'
+  status: 'pending'
+  created_at: string
+  expires_at: string
+}
+
 // Get organization members
 export async function getOrganizationMembers(organizationId: string): Promise<{
   ok: boolean
@@ -590,4 +694,365 @@ export async function removeMember(data: {
   revalidatePath("/settings/organization/members")
   
   return { ok: true }
+}
+
+// Invite members
+export async function inviteMembers(data: {
+  organizationId: string
+  emails: string[]
+}): Promise<ActionResult> {
+  try {
+    console.log('inviteMembers called with:', { organizationId: data.organizationId, emailCount: data.emails?.length })
+    
+    // Verify authentication
+    const authResult = await verifyAuth()
+    if (!authResult.ok) {
+      console.log('Auth error:', authResult.message)
+      return authResult
+    }
+    const user = authResult.data
+    console.log('User authenticated:', user.id)
+
+    // Verify organization ownership
+    const orgResult = await verifyOrganizationOwnership(data.organizationId, user.id)
+    if (!orgResult.ok) {
+      return orgResult
+    }
+
+    const supabase = await createClient()
+
+  // Validate emails
+  if (!data.emails || data.emails.length === 0) {
+    return {
+      ok: false,
+      message: "Please enter at least one email address"
+    }
+  }
+
+  // Check for existing invitations and handle them appropriately
+  console.log('Checking for existing invitations...')
+  const { data: existingInvitations, error: existingError } = await supabase
+    .from("membership_invitations")
+    .select("invited_email, status")
+    .eq("org_id", data.organizationId)
+    .in("invited_email", data.emails)
+
+  if (existingError) {
+    console.error('Error checking existing invitations:', existingError)
+    return { 
+      ok: false, 
+      message: "Failed to check existing invitations" 
+    }
+  }
+
+  // Separate emails by status
+  const existingEmailsMap = new Map<string, string>()
+  existingInvitations?.forEach((inv: { invited_email: string; status: string }) => {
+    existingEmailsMap.set(inv.invited_email, inv.status)
+  })
+
+  const pendingEmails: string[] = []
+  const expiredEmails: string[] = []
+  const acceptedEmails: string[] = []
+  const newEmails: string[] = []
+
+  data.emails.forEach(email => {
+    const status = existingEmailsMap.get(email)
+    if (status === 'pending') {
+      pendingEmails.push(email)
+    } else if (status === 'expired') {
+      expiredEmails.push(email)
+    } else if (status === 'accepted') {
+      acceptedEmails.push(email)
+    } else {
+      newEmails.push(email)
+    }
+  })
+
+  // Note: Client-side validation now handles checking for active members
+
+  // Handle new emails - create new invitations
+  const newInvitations = newEmails.map(email => {
+    const { tokenHash, expiresAt } = generateInvitationToken()
+    const now = new Date().toISOString()
+
+    return {
+      org_id: data.organizationId,
+      invited_by_user: user.id,
+      invited_email: email.toLowerCase().trim(),
+      role: 'member' as const,
+      token_hash: tokenHash,
+      status: 'pending' as const,
+      expires_at: expiresAt,
+      created_at: now,
+      updated_at: now
+    }
+  })
+
+  // Handle expired emails - reactivate existing invitations
+  const expiredInvitations = expiredEmails.map(email => {
+    const { tokenHash, expiresAt } = generateInvitationToken()
+    const now = new Date().toISOString()
+
+    return {
+      org_id: data.organizationId,
+      invited_by_user: user.id,
+      invited_email: email.toLowerCase().trim(),
+      role: 'member' as const,
+      token_hash: tokenHash,
+      status: 'pending' as const,
+      expires_at: expiresAt,
+      created_at: now,
+      updated_at: now
+    }
+  })
+
+  // Insert new invitations if any
+  if (newInvitations.length > 0) {
+    const { error: insertError } = await supabase
+      .from("membership_invitations")
+      .insert(newInvitations)
+
+    if (insertError) {
+      console.error('Error creating new invitations:', insertError)
+      return { 
+        ok: false, 
+        message: "Failed to create new invitations" 
+      }
+    }
+  }
+
+  // Update expired invitations if any
+  for (const expiredInvitation of expiredInvitations) {
+    const { error: updateError } = await supabase
+      .from("membership_invitations")
+      .update({
+        token_hash: expiredInvitation.token_hash,
+        status: 'pending',
+        expires_at: expiredInvitation.expires_at,
+        updated_at: expiredInvitation.updated_at
+      })
+      .eq("org_id", data.organizationId)
+      .eq("invited_email", expiredInvitation.invited_email)
+      .eq("status", "expired")
+
+    if (updateError) {
+      console.error('Error reactivating expired invitation:', updateError)
+      return { 
+        ok: false, 
+        message: "Failed to reactivate expired invitations" 
+      }
+    }
+  }
+
+  // Fetch organization name for email template
+  const { data: organization, error: orgError } = await supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', data.organizationId)
+    .single()
+
+  const orgName = organization?.name || 'our organization'
+
+  // Send Supabase invite emails for all processed emails
+  const allProcessedEmails = [...newEmails, ...expiredEmails]
+  
+  console.log(`Sending Supabase invites to ${allProcessedEmails.length} emails:`, allProcessedEmails)
+  console.log(`Organization name: ${orgName}`)
+  
+  // Create admin client for invite operations
+  const adminSupabase = createAdminClient()
+  
+  for (const email of allProcessedEmails) {
+    try {
+      console.log(`Attempting to send Supabase invite to: ${email}`)
+      
+      const { error: inviteError, data: inviteData } = await adminSupabase.auth.admin.inviteUserByEmail(
+        email,
+        {
+          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/member-invite-test`,
+          data: {
+            organization_name: orgName,
+            organization_id: data.organizationId
+          }
+        }
+      )
+      
+      if (inviteError) {
+        console.error(`Failed to send invite email to ${email}:`, inviteError)
+        // Continue with other emails even if one fails
+      } else {
+        console.log(`Invite email sent successfully to ${email}:`, inviteData)
+      }
+    } catch (error) {
+      console.error(`Error sending invite email to ${email}:`, error)
+      // Continue with other emails even if one fails
+    }
+  }
+
+  // Revalidate the members page
+  revalidatePath("/settings/organization/members")
+  
+  console.log('Invitations created/reactivated successfully')
+  const totalProcessed = newEmails.length + expiredEmails.length
+  const message = totalProcessed === 1 
+    ? 'Invitation sent successfully' 
+    : `${totalProcessed} invitations sent successfully`
+    
+  return { 
+    ok: true,
+    message
+  }
+  } catch (error) {
+    console.error('Error in inviteMembers:', error)
+    return {
+      ok: false,
+      message: `Failed to send invitations: ${error instanceof Error ? error.message : 'Unknown error'}`
+    }
+  }
+}
+
+// Get organization pending invitations
+export async function getOrganizationInvitations(organizationId: string): Promise<ActionResult<OrganizationInvitation[]>> {
+  // Verify authentication
+  const authResult = await verifyAuth()
+  if (!authResult.ok) {
+    return { ok: false, message: authResult.message }
+  }
+
+  // Verify organization access
+  const orgResult = await verifyOrganizationAccess(organizationId, authResult.data.id)
+  if (!orgResult.ok) {
+    return { ok: false, message: orgResult.message }
+  }
+
+  const supabase = await createClient()
+
+  // Fetch pending invitations
+  const { data: invitations, error: invitationsError } = await supabase
+    .from("membership_invitations")
+    .select(`
+      id,
+      invited_email,
+      role,
+      status,
+      created_at,
+      expires_at
+    `)
+    .eq("org_id", organizationId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+
+  if (invitationsError) {
+    console.error('Error fetching invitations:', invitationsError)
+    return { 
+      ok: false, 
+      message: "Failed to fetch invitations" 
+    }
+  }
+
+  return { 
+    ok: true, 
+    data: invitations || [] 
+  }
+}
+
+// Resend invitation (update same row with new token)
+export async function resendInvitation(data: {
+  invitationId: string
+  organizationId: string
+}): Promise<ActionResult> {
+  // Verify authentication
+  const authResult = await verifyAuth()
+  if (!authResult.ok) {
+    return authResult
+  }
+  const user = authResult.data
+
+  // Verify organization ownership
+  const orgResult = await verifyOrganizationOwnership(data.organizationId, user.id)
+  if (!orgResult.ok) {
+    return orgResult
+  }
+
+  const supabase = await createClient()
+
+  // Generate new token
+  const { tokenHash, expiresAt } = generateInvitationToken()
+  const now = new Date().toISOString()
+
+  // Update the invitation row with new token and expiry
+  const { error } = await supabase
+    .from("membership_invitations")
+    .update({
+      token_hash: tokenHash,
+      expires_at: expiresAt,
+      status: 'pending', // Reactivate if it was expired
+      updated_at: now
+    })
+    .eq("id", data.invitationId)
+    .eq("org_id", data.organizationId)
+
+  if (error) {
+    console.error('Error resending invitation:', error)
+    return { 
+      ok: false, 
+      message: "Failed to resend invitation" 
+    }
+  }
+
+  // Revalidate the members page
+  revalidatePath("/settings/organization/members")
+  
+  return { 
+    ok: true,
+    message: "Invitation resent successfully"
+  }
+}
+
+// Cancel invitation (set status to expired)
+export async function cancelInvitation(data: {
+  invitationId: string
+  organizationId: string
+}): Promise<ActionResult> {
+  // Verify authentication
+  const authResult = await verifyAuth()
+  if (!authResult.ok) {
+    return authResult
+  }
+
+  // Verify organization ownership
+  const orgResult = await verifyOrganizationOwnership(data.organizationId, authResult.data.id)
+  if (!orgResult.ok) {
+    return orgResult
+  }
+
+  const supabase = await createClient()
+  const now = new Date().toISOString()
+
+  // Update the invitation status to expired
+  const { error } = await supabase
+    .from("membership_invitations")
+    .update({
+      status: 'expired',
+      updated_at: now
+    })
+    .eq("id", data.invitationId)
+    .eq("org_id", data.organizationId)
+
+  if (error) {
+    console.error('Error canceling invitation:', error)
+    return { 
+      ok: false, 
+      message: "Failed to cancel invitation" 
+    }
+  }
+
+  // Revalidate the members page
+  revalidatePath("/settings/organization/members")
+  
+  return { 
+    ok: true,
+    message: "Invitation canceled successfully"
+  }
 }

@@ -10,6 +10,7 @@ export interface ListRowProps {
   
   // Avatar/Icon
   avatar?: boolean
+  avatarUrl?: string | null
   iconStart?: boolean | React.ReactNode
   
   // Content
@@ -33,6 +34,7 @@ const ListRow = React.forwardRef<HTMLDivElement, ListRowProps>(
   ({
     state = "default",
     avatar = false,
+    avatarUrl = null,
     iconStart = false,
     text = "Text",
     secondaryText = false,
@@ -47,7 +49,7 @@ const ListRow = React.forwardRef<HTMLDivElement, ListRowProps>(
     // Default icon components
     const getDefaultIcon = () => {
       if (avatar) {
-        // If text is "—", show User icon for invited members
+        // Scenario 1: Invited members (text is "—") - show User icon
         if (text === '—') {
           return (
             <div 
@@ -62,20 +64,42 @@ const ListRow = React.forwardRef<HTMLDivElement, ListRowProps>(
             </div>
           )
         }
-        // Otherwise show initials for active members
-        const initials = text.split(' ').map(n => n[0]).join('').toUpperCase()
-        return (
-          <div 
-            className="rounded-full flex items-center justify-center"
-            style={{ 
-              width: '24px', 
-              height: '24px',
-              background: 'var(--color-neutral-9, #8B8D98)'
-            }}
-          >
-            <span className="text-xs font-medium text-white">{initials}</span>
-          </div>
-        )
+        
+        // Scenario 2 & 3: Active members
+        if (avatarUrl) {
+          // Scenario 3: Active members with profile picture - show avatar image
+          return (
+            <div 
+              className="rounded-full overflow-hidden"
+              style={{ 
+                width: '24px', 
+                height: '24px'
+              }}
+            >
+              <img 
+                src={avatarUrl} 
+                alt={text}
+                className="w-full h-full object-cover"
+                draggable={false}
+              />
+            </div>
+          )
+        } else {
+          // Scenario 2: Active members without profile picture - show initials
+          const initials = text.split(' ').map(n => n[0]).join('').toUpperCase()
+          return (
+            <div 
+              className="rounded-full flex items-center justify-center"
+              style={{ 
+                width: '24px', 
+                height: '24px',
+                background: 'var(--color-neutral-9, #8B8D98)'
+              }}
+            >
+              <span className="text-xs font-medium text-white">{initials}</span>
+            </div>
+          )
+        }
       }
       if (iconStart === true) {
         return <SquaresFour size={16} className="text-neutral-600" />

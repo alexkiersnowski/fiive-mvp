@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getOrganizationMembers } from '../../actions'
+import { getOrganizationMembers, getOrganizationInvitations } from '../../actions'
 import MembersTable from './MembersTable'
 
 // Force fresh data on every request to ensure updated data is shown immediately
@@ -46,11 +46,36 @@ export default async function UserManagementPage() {
     )
   }
 
-  // Fetch organization members
-  const membersResult = await getOrganizationMembers(organization.id)
+  // Fetch organization members and invitations with proper error handling
+  const [membersResult, invitationsResult] = await Promise.allSettled([
+    getOrganizationMembers(organization.id),
+    getOrganizationInvitations(organization.id)
+  ])
   
-  if (!membersResult.ok) {
-    console.error('Error fetching members:', membersResult.message)
+  // Handle members result
+  const members = membersResult.status === 'fulfilled' && membersResult.value.ok 
+    ? membersResult.value.data || []
+    : []
+  
+  if (membersResult.status === 'rejected') {
+    console.error('Error fetching members:', membersResult.reason)
+  } else if (membersResult.status === 'fulfilled' && !membersResult.value.ok) {
+    console.error('Error fetching members:', membersResult.value.message)
+  }
+
+  // Handle invitations result
+  const invitations = invitationsResult.status === 'fulfilled' && invitationsResult.value.ok 
+    ? invitationsResult.value.data || []
+    : []
+  
+  if (invitationsResult.status === 'rejected') {
+    console.error('Error fetching invitations:', invitationsResult.reason)
+  } else if (invitationsResult.status === 'fulfilled' && !invitationsResult.value.ok) {
+    console.error('Error fetching invitations:', invitationsResult.value.message)
+  }
+
+  // If both fail, show error
+  if (members.length === 0 && invitations.length === 0) {
     return (
       <div className="space-y-8">
         <div>
@@ -63,7 +88,7 @@ export default async function UserManagementPage() {
         </div>
         <div className="text-center py-8">
           <p className="text-sm" style={{ color: 'var(--color-base-text-secondary)' }}>
-            Unable to load members. Please try again.
+            Unable to load data. Please try again.
           </p>
         </div>
       </div>
@@ -83,7 +108,8 @@ export default async function UserManagementPage() {
       </div>
 
       <MembersTable
-        members={membersResult.data || []}
+        members={members}
+        invitations={invitations}
         organizationId={organization.id}
       />
     </div>
