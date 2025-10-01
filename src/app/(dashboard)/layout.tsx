@@ -1,4 +1,3 @@
-import { getDashboardData } from '@/lib/dashboard-data'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
@@ -9,10 +8,9 @@ export default async function Layout({
 }: {
   children: React.ReactNode
 }) {
-  const data = await getDashboardData()
   const context = await getActiveContext()
-  
-  if (!data || !context) {
+
+  if (!context) {
     redirect('/signin')
   }
 
@@ -23,7 +21,7 @@ export default async function Layout({
 
   return (
     <DashboardLayout 
-      data={data}
+      data={context}
       context={context}
       initialIsCollapsed={initialIsCollapsed}
     >

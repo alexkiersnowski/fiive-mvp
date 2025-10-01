@@ -4,8 +4,34 @@ import type { Variant, ModeContext } from './types';
 import { isValidVariant } from './types';
 import { deriveCapabilities } from './capabilities';
 
+// Enhanced context that includes dashboard data to eliminate redundancy
+export interface EnhancedModeContext extends ModeContext {
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    jobTitle?: string;
+    avatarUrl?: string;
+  };
+  organization: {
+    id: string;
+    name: string;
+    type: string;
+    industry?: string;
+    logoUrl?: string;
+    memberCount: number;
+    website?: string;
+    description?: string;
+    currencyCode?: string;
+    connectionCode?: string;
+    ownerId: string;
+  };
+  currentUserRole: 'owner' | 'member';
+}
+
 // Cache this function so it only runs once per request, even if called multiple times
-export const getActiveContext = cache(async (): Promise<ModeContext | null> => {
+export const getActiveContext = cache(async (): Promise<EnhancedModeContext | null> => {
   const supabase = await createClient();
 
   try {
@@ -16,10 +42,10 @@ export const getActiveContext = cache(async (): Promise<ModeContext | null> => {
       return null;
     }
 
-    // Get user profile
+    // Get user profile with all needed fields
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('id')
+      .select('first_name, last_name, job_title, avatar_url')
       .eq('id', user.id)
       .single();
 
@@ -27,57 +53,68 @@ export const getActiveContext = cache(async (): Promise<ModeContext | null> => {
       return null;
     }
 
-    // Get organization - try owner first, then member
-    let organization = null;
-    let membership = null;
-    let isOwner = false;
-    
-    // Try as owner first
-    const { data: ownerOrg, error: ownerError } = await supabase
-      .from('organizations')
-      .select('id, type, owner_id')
-      .eq('owner_id', user.id)
+    // Get membership first, then organization (optimized approach)
+    const { data: membershipData, error: membershipError } = await supabase
+      .from('memberships')
+      .select('id, org_id, role')
+      .eq('user_id', user.id)
       .single();
     
-    if (ownerOrg && !ownerError) {
-      organization = ownerOrg;
-      isOwner = true;
+    let organization = null;
+    let isOwner = false;
+    let membership = null;
+    
+    if (membershipData && !membershipError) {
+      membership = membershipData;
       
-      // Get the membership record for owner
-      const { data: ownerMembership } = await supabase
-        .from('memberships')
-        .select('id, role')
-        .eq('user_id', user.id)
-        .eq('org_id', ownerOrg.id)
+      // Get organization data
+      const { data: org, error: orgError } = await supabase
+        .from('organizations')
+        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id')
+        .eq('id', membership.org_id)
         .single();
       
-      membership = ownerMembership || { id: 'owner', role: 'owner' };
+      if (org && !orgError) {
+        organization = org;
+        // Owner is determined by organizations.owner_id, not membership.role
+        isOwner = org.owner_id === user.id;
+      }
     } else {
-      // Try as member
-      const { data: memberMembership, error: membershipError } = await supabase
-        .from('memberships')
-        .select('id, org_id, role')
-        .eq('user_id', user.id)
+      // Fallback: try as owner (for cases where membership might not exist)
+      const { data: ownerOrg, error: ownerError } = await supabase
+        .from('organizations')
+        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id')
+        .eq('owner_id', user.id)
         .single();
       
-      if (memberMembership && !membershipError) {
-        membership = memberMembership;
-        
-        const { data: memberOrg, error: memberOrgError } = await supabase
-          .from('organizations')
-          .select('id, type, owner_id')
-          .eq('id', memberMembership.org_id)
-          .single();
-        
-        if (memberOrg && !memberOrgError) {
-          organization = memberOrg;
-          isOwner = memberMembership.role === 'owner';
-        }
+      if (ownerOrg && !ownerError) {
+        organization = ownerOrg;
+        isOwner = true;
+        membership = { id: 'owner', role: 'owner' };
       }
     }
 
-    if (!organization || !membership) {
+    if (!profile || !organization || !membership) {
+      console.error('Missing required data:', { profile: !!profile, organization: !!organization, membership: !!membership });
       return null;
+    }
+
+
+    // Get member count for the organization (optimized)
+    // Use a more efficient count query with proper indexing
+    let memberCount = 0;
+    try {
+      const { count, error: memberCountError } = await supabase
+        .from('memberships')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', organization.id);
+      
+      if (!memberCountError) {
+        memberCount = count || 0;
+      }
+    } catch (error) {
+      // Silently fail for member count - not critical for most pages
+      console.warn('Could not fetch member count:', error);
     }
 
     // Validate organization type from database matches our Variant type
@@ -90,13 +127,39 @@ export const getActiveContext = cache(async (): Promise<ModeContext | null> => {
     const variant: Variant = organization.type; // Now type-safe!
     const capabilities = deriveCapabilities(variant, isOwner);
 
-    return {
+    const enhancedContextData = {
+      // ModeContext fields
       userId: user.id,
       orgId: organization.id,
       membershipId: typeof membership.id === 'string' ? membership.id : '',
       variant,
       capabilities,
+      // User and organization data
+      user: {
+        id: user.id,
+        email: user.email || '',
+        firstName: profile.first_name || '',
+        lastName: profile.last_name || '',
+        jobTitle: profile.job_title || undefined,
+        avatarUrl: profile.avatar_url || undefined
+      },
+      organization: {
+        id: organization.id,
+        name: organization.name,
+        type: organization.type,
+        industry: organization.industry || undefined,
+        logoUrl: organization.logo_url || undefined,
+        memberCount: memberCount || 0,
+        website: organization.website || undefined,
+        description: organization.description || undefined,
+        currencyCode: organization.currency_code || undefined,
+        connectionCode: organization.connection_code || undefined,
+        ownerId: organization.owner_id
+      },
+      currentUserRole: (isOwner ? 'owner' : 'member') as 'owner' | 'member'
     };
+
+    return enhancedContextData;
   } catch (error) {
     console.error('Error fetching active context:', error);
     return null;

@@ -1,4 +1,3 @@
-import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import DetailsForm from './DetailsForm'
 
@@ -6,38 +5,36 @@ import DetailsForm from './DetailsForm'
 export const revalidate = 0
 
 export default async function OrganizationDetailsPage() {
-  const supabase = await createClient()
   const context = await getActiveContext()
-
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
   
-  if (userError || !user || !context) {
+  if (!context) {
     return null // Layout will handle redirect
   }
 
-  // Get user's organization with owner_id to determine user's role - RLS policies will filter to accessible organizations
-  const { data: organization, error: orgError } = await supabase
-    .from("organizations")
-    .select(`
-      id, 
-      name, 
-      website, 
-      description, 
-      industry, 
-      currency_code, 
-      logo_url, 
-      connection_code,
-      owner_id
-    `)
-    .single()
+  // Use organization data from enhanced context
+  const organization = context.organization
+  const currentUserRole = context.currentUserRole
 
-  if (orgError) {
-    console.error('Error fetching organization:', orgError)
-    // Render empty form or error state
+  // Debug: Log organization data to see what we're getting
+  console.log('Organization data:', organization)
+  console.log('Context variant:', context.variant)
+  console.log('Current user role:', currentUserRole)
+
+  // Check if organization data is missing
+  if (!organization || !organization.id) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="display-9-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)', marginBottom: '0.75rem' }}>
+            Organization Details
+          </h1>
+          <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
+            Unable to load organization data. Please try again.
+          </p>
+        </div>
+      </div>
+    )
   }
-
-  // Determine current user's role
-  const currentUserRole = organization?.owner_id === user.id ? 'owner' : 'member'
 
   // Contextual copy based on organization type
   const isAgency = context.variant === 'agency'
@@ -66,15 +63,15 @@ export default async function OrganizationDetailsPage() {
 
       <DetailsForm
         initialValues={{
-          name: organization?.name ?? "",
-          website: organization?.website ?? "",
-          description: organization?.description ?? "",
-          industry: organization?.industry ?? "",
-          currency_code: organization?.currency_code ?? "",
-          logo_url: organization?.logo_url ?? "",
+          name: organization.name ?? "",
+          website: organization.website ?? "",
+          description: organization.description ?? "",
+          industry: organization.industry ?? "",
+          currency_code: organization.currencyCode ?? "",
+          logo_url: organization.logoUrl ?? "",
         }}
-        connectionCode={organization?.connection_code ?? ""}
-        organizationId={organization?.id ?? ""}
+        connectionCode={organization.connectionCode ?? ""}
+        organizationId={organization.id}
         currentUserRole={currentUserRole}
         variant={context.variant}
       />

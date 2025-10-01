@@ -4,12 +4,11 @@ import { useState, useRef, useEffect, memo } from 'react'
 import { usePathname } from 'next/navigation'
 import Topbar from '@/components/ui/topbar'
 import SidebarComponent from '@/components/ui/sidebar'
-import { DashboardData } from '@/lib/dashboard-data'
-import { ModeContext } from '@/lib/mode/types'
+import { EnhancedModeContext } from '@/lib/mode/getActiveContext'
 
 interface DashboardLayoutProps {
-  data: DashboardData
-  context: ModeContext
+  data: EnhancedModeContext
+  context: EnhancedModeContext
   children: React.ReactNode
   initialIsCollapsed: boolean
 }
