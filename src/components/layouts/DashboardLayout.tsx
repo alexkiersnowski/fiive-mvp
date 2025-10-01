@@ -5,14 +5,16 @@ import { usePathname } from 'next/navigation'
 import Topbar from '@/components/ui/topbar'
 import SidebarComponent from '@/components/ui/sidebar'
 import { DashboardData } from '@/lib/dashboard-data'
+import { ModeContext } from '@/lib/mode/types'
 
 interface DashboardLayoutProps {
   data: DashboardData
+  context: ModeContext
   children: React.ReactNode
   initialIsCollapsed: boolean
 }
 
-export default function DashboardLayout({ data, children, initialIsCollapsed }: DashboardLayoutProps) {
+export default function DashboardLayout({ data, context, children, initialIsCollapsed }: DashboardLayoutProps) {
   const pathname = usePathname()
   const selectedItem = pathname.split('/').pop() || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
@@ -40,7 +42,9 @@ export default function DashboardLayout({ data, children, initialIsCollapsed }: 
   // Get settings section title
   const getSettingsTitle = () => {
     if (pathname.startsWith('/settings/account')) return 'Account settings'
-    if (pathname.startsWith('/settings/organization')) return 'Organization settings'
+    if (pathname.startsWith('/settings/organization')) {
+      return context.variant === 'agency' ? 'Agency details' : 'Company details'
+    }
     return 'Settings'
   }
   
@@ -63,6 +67,7 @@ export default function DashboardLayout({ data, children, initialIsCollapsed }: 
           user={data.user}
           profile={data.user}
           organization={data.organization}
+          variant={context.variant}
         />
       </div>
       <SidebarComponent 
@@ -77,6 +82,8 @@ export default function DashboardLayout({ data, children, initialIsCollapsed }: 
         title={isSettingsPage ? getSettingsTitle() : ''}
         pathname={pathname}
         disableTextAnimation={!isSameVariant}
+        currentUserRole={data.currentUserRole}
+        capabilities={context.capabilities}
       />
       <main style={{ 
         padding: isHomePage ? '0' : '16px 16px 24px 16px',
@@ -87,7 +94,7 @@ export default function DashboardLayout({ data, children, initialIsCollapsed }: 
             borderRadius: isHomePage ? '0' : 'var(--radius-6, 16px)',
             border: isHomePage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
             background: isHomePage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isHomePage ? '0' : (isSettingsPage ? '40px 64px 24px 64px' : '16px'),
+            padding: isHomePage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : '16px'),
             height: '100%',
             overflow: isSettingsPage ? 'auto' : 'visible'
           }}

@@ -48,7 +48,7 @@ export async function getProfileData(userId: string): Promise<ProfileData | null
 export async function getOrganizationData(userId: string): Promise<OrganizationData | null> {
   const supabase = await createClient()
   
-  // Single optimized query using JOIN instead of sequential fallbacks
+  // RLS policies will automatically filter to organizations the user has access to
   const { data: organization, error } = await supabase
     .from('organizations')
     .select(`
@@ -56,10 +56,8 @@ export async function getOrganizationData(userId: string): Promise<OrganizationD
       type, 
       industry, 
       logo_url, 
-      connection_code,
-      memberships!inner(user_id)
+      connection_code
     `)
-    .eq('memberships.user_id', userId)
     .maybeSingle()
   
   if (error) {

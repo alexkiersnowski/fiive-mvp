@@ -12,9 +12,10 @@ interface ImageUploadProps {
   uploadText?: string
   changeText?: string
   useSessionStorage?: boolean // Only use sessionStorage during onboarding flows
+  readOnly?: boolean // When true, shows preview only without upload functionality
 }
 
-export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload image", changeText = "Click to change image", useSessionStorage = false }: ImageUploadProps) {
+export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload image", changeText = "Click to change image", useSessionStorage = false, readOnly = false }: ImageUploadProps) {
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
@@ -110,6 +111,43 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
     } else {
       setError('Upload failed. Please try again.')
     }
+  }
+
+  if (readOnly) {
+    return (
+      <div className={`space-y-4 ${className}`}>
+        <div className="flex items-center gap-6">
+          {/* Read-only Logo Preview */}
+          <div className="flex-shrink-0">
+            <div className="relative">
+              <div className="h-24 w-24 rounded-full border border-gray-200 bg-[var(--color-base-surface-page-background)] flex items-center justify-center overflow-hidden">
+                {logoPreview ? (
+                  <img
+                    src={logoPreview}
+                    alt="Organization logo"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center">
+                    <UploadIcon className="h-8 w-8 text-gray-400" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Read-only Text */}
+          <div className="flex-1 flex flex-col justify-center text-left">
+            <p className="text-sm font-medium text-gray-900">
+              
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              
+            </p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

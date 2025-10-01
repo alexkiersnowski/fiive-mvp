@@ -17,6 +17,7 @@ export interface DashboardData {
     logoUrl?: string
     memberCount: number
   }
+  currentUserRole: 'owner' | 'member'
 }
 
 export async function getDashboardData(): Promise<DashboardData | null> {
@@ -30,25 +31,54 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       return null
     }
 
-    // Fetch user profile and organization data in parallel
-    const [profileResult, organizationResult] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('first_name, last_name, job_title, avatar_url')
-        .eq('id', user.id)
-        .single(),
-      
-      supabase
-        .from('organizations')
-        .select('id, name, type, industry, logo_url')
-        .eq('owner_id', user.id)
+    // First, get user profile
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('first_name, last_name, job_title, avatar_url')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      return null
+    }
+
+    // Get organization - try owner first, then member
+    let organization = null
+    let currentUserRole: 'owner' | 'member' = 'member'
+    
+    // Try as owner first
+    const { data: ownerOrg, error: ownerError } = await supabase
+      .from('organizations')
+      .select('id, name, type, industry, logo_url, owner_id')
+      .eq('owner_id', user.id)
+      .single()
+    
+    if (ownerOrg && !ownerError) {
+      organization = ownerOrg
+      currentUserRole = 'owner'
+    } else {
+      // Try as member
+      const { data: membership, error: membershipError } = await supabase
+        .from('memberships')
+        .select('org_id')
+        .eq('user_id', user.id)
         .single()
-    ])
+      
+      if (membership && !membershipError) {
+        const { data: memberOrg, error: memberOrgError } = await supabase
+          .from('organizations')
+          .select('id, name, type, industry, logo_url, owner_id')
+          .eq('id', membership.org_id)
+          .single()
+        
+        if (memberOrg && !memberOrgError) {
+          organization = memberOrg
+          currentUserRole = 'member'
+        }
+      }
+    }
 
-    const profile = profileResult.data
-    const organization = organizationResult.data
-
-    if (!profile || !organization) {
+    if (!organization) {
       return null
     }
 
@@ -78,7 +108,8 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         industry: organization.industry || undefined,
         logoUrl: organization.logo_url || undefined,
         memberCount: memberCount || 0
-      }
+      },
+      currentUserRole
     }
   } catch (error) {
     console.error('Error fetching dashboard data:', error)

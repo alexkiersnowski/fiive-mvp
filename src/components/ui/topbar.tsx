@@ -40,9 +40,10 @@ interface TopbarProps {
     type: string
     memberCount: number
   }
+  variant?: 'agency' | 'client'
 }
 
-const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps) {
+const Topbar = memo(function Topbar({ user, profile, organization, variant = 'agency' }: TopbarProps) {
   const router = useRouter()
   const [isHelpDropdownOpen, setIsHelpDropdownOpen] = useState(false)
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false)
@@ -137,7 +138,7 @@ const Topbar = memo(function Topbar({ user, profile, organization }: TopbarProps
               <DropdownMenuItem asChild>
                 <Link href="/settings/organization/details" className="flex items-center w-full">
                   <Gear size={16} style={{ color: 'inherit' }} />
-                  Agency admin
+                  {variant === 'agency' ? 'Agency admin' : 'Admin settings'}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>

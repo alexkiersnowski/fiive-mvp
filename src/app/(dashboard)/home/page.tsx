@@ -1,11 +1,17 @@
 import { getDashboardData } from '@/lib/dashboard-data'
+import { getActiveContext } from '@/lib/mode/getActiveContext'
 
 export default async function DashboardHome() {
   const data = await getDashboardData()
+  const context = await getActiveContext()
   
-  if (!data) {
+  if (!data || !context) {
     return null // Layout will handle redirect
   }
+
+  const description = context.variant === 'agency'
+    ? "Here's what's active across your agency"
+    : "Here's what's happening across your agencies"
 
   return (
     <div style={{ padding: '24px 16px 24px 32px' }}>
@@ -14,7 +20,7 @@ export default async function DashboardHome() {
           You&apos;re in, {data.user.firstName}
         </h1>
         <p className="text-sm-regular" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
-          Here&apos;s what&apos;s active across your {data.organization.type}
+          {description}
         </p>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
-import { handleProfileCreation } from '../actions'
+import { handleMemberInviteCompletion } from '../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getProfileData } from '@/lib/onboarding/data'
 import { createClient } from '@/lib/supabase/server'
@@ -56,16 +56,14 @@ export default async function MemberInvitePage({ searchParams }: MemberInvitePag
     <OnboardingLayout
       title={`${organizationName} has invited you to join their team`}
       buttonText="Join team"
-      onSubmit={handleProfileCreation}
+      onSubmit={handleMemberInviteCompletion as any}
       showForm={true}
       formType="profile"
       showBackButton={false}
-      showAvatarUpload={true}
       initialData={{
         firstName: profile?.first_name || '',
         lastName: profile?.last_name || '',
         jobTitle: profile?.job_title || '',
-        avatarUrl: profile?.avatar_url || ''
       }}
     />
   )

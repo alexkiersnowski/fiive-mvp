@@ -13,7 +13,8 @@ import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { MagnifyingGlass, DotsThree, UserMinus, EnvelopeSimple, XCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateMemberRole, removeMember, inviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, OrganizationMember, OrganizationInvitation } from '../../actions'
+import { updateMemberRole, removeMember, inviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
+import { Spinner } from '@/components/ui/shadcn-io/spinner'
 
 const roleOptions: ComboboxOption[] = [
   { value: "member", label: "Member" },
@@ -24,9 +25,10 @@ interface MembersTableProps {
   members: OrganizationMember[]
   invitations: OrganizationInvitation[]
   organizationId: string
+  currentUserRole: 'owner' | 'member'
 }
 
-export default function MembersTable({ members, invitations, organizationId }: MembersTableProps) {
+export default function MembersTable({ members, invitations, organizationId, currentUserRole }: MembersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [localMembers, setLocalMembers] = useState(members)
   const [localInvitations, setLocalInvitations] = useState(invitations)
@@ -78,6 +80,9 @@ export default function MembersTable({ members, invitations, organizationId }: M
   const [isUpdating, setIsUpdating] = useState(false)
   const [isInviting, setIsInviting] = useState(false)
   const [emailValidationError, setEmailValidationError] = useState<string>('')
+
+  // Determine if current user can manage roles (only owners can)
+  const canManageRoles = currentUserRole === 'owner'
 
   // Validate emails against existing invitations and active members
   const validateEmails = (emails: string[]) => {
@@ -219,8 +224,17 @@ export default function MembersTable({ members, invitations, organizationId }: M
         })
         
         if (result.ok) {
-          // Update local state
-          setLocalMembers(prev => prev.filter(member => member.membership_id !== pendingRemove.membershipId))
+          // Refresh members data from server to get updated list
+          try {
+            const membersResult = await getOrganizationMembers(organizationId)
+            if (membersResult.ok) {
+              setLocalMembers(membersResult.data || [])
+            }
+          } catch (error) {
+            console.error('Failed to refresh members:', error)
+            // Fallback to local state update
+            setLocalMembers(prev => prev.filter(member => member.membership_id !== pendingRemove.membershipId))
+          }
           toast.success(`${pendingRemove.memberName} has been removed`)
         } else {
           toast.error(result.message || 'Failed to remove member')
@@ -358,14 +372,16 @@ export default function MembersTable({ members, invitations, organizationId }: M
               {memberCount} {memberCount === 1 ? 'member' : 'members'}
             </span>
           </div>
-          <Button
-            variant="default"
-            size="lg"
-            className="cursor-pointer text-sm"
-            onClick={handleInviteClick}
-          >
-            Invite
-          </Button>
+          {canManageRoles && (
+            <Button
+              variant="default"
+              size="lg"
+              className="cursor-pointer text-sm"
+              onClick={handleInviteClick}
+            >
+              Invite
+            </Button>
+          )}
         </div>
       </div>
 
@@ -374,10 +390,10 @@ export default function MembersTable({ members, invitations, organizationId }: M
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33%' }}>Name</TableHead>
-              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33%' }}>Email</TableHead>
-              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33%' }}>Role</TableHead>
-              <TableHead style={{ width: 'auto' }}></TableHead>
+              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33.33%' }}>Name</TableHead>
+              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33.33%' }}>Email</TableHead>
+              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33.33%' }}>Role</TableHead>
+              {canManageRoles && <TableHead style={{ width: 'auto' }}></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -412,7 +428,7 @@ export default function MembersTable({ members, invitations, organizationId }: M
                       placeholder="Select role..."
                       searchPlaceholder=""
                       emptyText="No role found."
-                      readOnly={isOwner || isUpdating}
+                      readOnly={isOwner || isUpdating || !canManageRoles}
                       className="w-full"
                       style={{ 
                         height: '32px',
@@ -422,35 +438,37 @@ export default function MembersTable({ members, invitations, organizationId }: M
                       }}
                     />
                   </TableCell>
-                  <TableCell className="py-0" style={{ width: 'auto' }}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className="p-0 cursor-pointer" 
-                          style={{ height: '32px', width: '32px' }}
-                          disabled={isOwner || isUpdating}
-                        >
-                          <DotsThree 
-                            size={16} 
-                            style={{ color: isOwner ? '#B5B7C4' : undefined }}
-                          />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => handleRemoveMember(member.membership_id)}
-                          style={{ color: 'var(--color-red-11)' }}
-                        >
-                          <UserMinus 
-                            size={16} 
+                  {canManageRoles && (
+                    <TableCell className="py-0" style={{ width: 'auto' }}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            className="p-0 cursor-pointer" 
+                            style={{ height: '32px', width: '32px' }}
+                            disabled={isOwner || isUpdating}
+                          >
+                            <DotsThree 
+                              size={16} 
+                              style={{ color: isOwner ? '#B5B7C4' : undefined }}
+                            />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleRemoveMember(member.membership_id)}
                             style={{ color: 'var(--color-red-11)' }}
-                          />
-                          Remove member
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+                          >
+                            <UserMinus 
+                              size={16} 
+                              style={{ color: 'var(--color-red-11)' }}
+                            />
+                            Remove member
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  )}
                 </TableRow>
               )
             })}
@@ -503,37 +521,39 @@ export default function MembersTable({ members, invitations, organizationId }: M
                     }}
                   />
                 </TableCell>
-                <TableCell className="py-0" style={{ width: 'auto' }}>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        className="p-0 cursor-pointer" 
-                        style={{ height: '32px', width: '32px' }}
-                      >
-                        <DotsThree size={16} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => handleResendInvite(invitation.id)}
-                      >
-                        <EnvelopeSimple size={16} />
-                        Resend invite
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleCancelInvite(invitation.id)}
-                        style={{ color: 'var(--color-red-11)' }}
-                      >
-                        <XCircle 
-                          size={16} 
+                {canManageRoles && (
+                  <TableCell className="py-0" style={{ width: 'auto' }}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="p-0 cursor-pointer" 
+                          style={{ height: '32px', width: '32px' }}
+                        >
+                          <DotsThree size={16} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => handleResendInvite(invitation.id)}
+                        >
+                          <EnvelopeSimple size={16} />
+                          Resend invite
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleCancelInvite(invitation.id)}
                           style={{ color: 'var(--color-red-11)' }}
-                        />
-                        Cancel invite
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+                        >
+                          <XCircle 
+                            size={16} 
+                            style={{ color: 'var(--color-red-11)' }}
+                          />
+                          Cancel invite
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
@@ -566,10 +586,15 @@ export default function MembersTable({ members, invitations, organizationId }: M
             <Button 
               onClick={confirmOwnershipTransfer}
               style={{ height: '40px' }}
-              className="cursor-pointer"
+              className="cursor-pointer relative"
               disabled={isUpdating}
             >
-              {isUpdating ? 'Transferring...' : 'Transfer'}
+              <span className={isUpdating ? "invisible" : ""}>Transfer</span>
+              {isUpdating && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Spinner size={16} />
+                </div>
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -586,7 +611,7 @@ export default function MembersTable({ members, invitations, organizationId }: M
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            This will immediately revoke their access. They won&apos;t be able to sign in, but any work or activity will remain visible. You can re-invite them at any time.
+            This will permanently remove their account. They won&apos;t be able to sign in, but any work and activity will remain visible. If you invite them back, they&apos;ll need to sign up again.
           </DialogDescription>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
             <Button 
@@ -602,10 +627,15 @@ export default function MembersTable({ members, invitations, organizationId }: M
               variant="destructive"
               onClick={confirmRemoveMember}
               style={{ height: '40px' }}
-              className="cursor-pointer"
+              className="cursor-pointer relative"
               disabled={isUpdating}
             >
-              {isUpdating ? 'Removing...' : 'Remove'}
+              <span className={isUpdating ? "invisible" : ""}>Remove</span>
+              {isUpdating && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Spinner size={16} />
+                </div>
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -651,10 +681,15 @@ export default function MembersTable({ members, invitations, organizationId }: M
             <Button 
               onClick={handleInviteEmails}
               style={{ height: '40px' }}
-              className="cursor-pointer"
+              className="cursor-pointer relative"
               disabled={isInviting}
             >
-              {isInviting ? 'Sending...' : 'Invite'}
+              <span className={isInviting ? "invisible" : ""}>Invite</span>
+              {isInviting && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Spinner size={16} />
+                </div>
+              )}
             </Button>
           </div>
         </DialogContent>

@@ -83,7 +83,7 @@ export async function getUserMemberships(userId: string): Promise<OrganizationMe
         organization:organizations(*),
         user_profile:profiles(*)
       `)
-      .eq('id', userId)
+      .eq('user_id', userId)
 
     if (error) {
       console.error('Error fetching memberships:', error)

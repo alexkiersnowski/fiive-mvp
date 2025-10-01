@@ -8,6 +8,8 @@ import { SquaresFour, Users, ChatCentered, CheckCircle, StarFour, CaretLeft, Car
 import { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 import { useRouter } from 'next/navigation'
+import { buildNav } from '@/lib/mode/buildNav'
+import type { Capabilities } from '@/lib/mode/types'
 
 interface SidebarProps {
   className?: string
@@ -22,6 +24,8 @@ interface SidebarProps {
   title?: string
   pathname?: string
   disableTextAnimation?: boolean
+  currentUserRole?: 'owner' | 'member'
+  capabilities?: Capabilities
   navItems?: Array<{
     href: string
     label: string
@@ -43,6 +47,8 @@ const SidebarComponent = memo(function SidebarComponent({
   title = '',
   pathname = '',
   disableTextAnimation = false,
+  currentUserRole = 'member',
+  capabilities,
   navItems
 }: SidebarProps) {
   const router = useRouter()
@@ -104,12 +110,25 @@ const SidebarComponent = memo(function SidebarComponent({
   }, [])
 
   // Memoize navigation items to prevent recreation on every render
-  const defaultNavItems = useMemo(() => [
-    { href: '/home', label: 'Home', icon: <SquaresFour size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'home' },
-    { href: '/clients', label: 'Clients', icon: <Users size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'clients' },
-    { href: '/requests', label: 'Requests', icon: <ChatCentered size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'requests' },
-    { href: '/tasks', label: 'Tasks', icon: <CheckCircle size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'tasks' }
-  ], [selectedItem])
+  const defaultNavItems = useMemo(() => {
+    if (!capabilities) {
+      // Fallback to basic nav if capabilities not available
+      return [
+        { href: '/home', label: 'Home', icon: <SquaresFour size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'home' },
+        { href: '/requests', label: 'Requests', icon: <ChatCentered size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'requests' },
+        { href: '/tasks', label: 'Tasks', icon: <CheckCircle size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'tasks' }
+      ];
+    }
+    
+    // Build nav from capabilities
+    return buildNav(capabilities, selectedItem).map(item => {
+      const IconComponent = item.icon;
+      return {
+        ...item,
+        icon: <IconComponent size={18} className="fill-base-icons-primary" />
+      };
+    });
+  }, [selectedItem, capabilities])
 
   // Account settings navigation items
   const accountNavItems = useMemo(() => [
@@ -118,11 +137,20 @@ const SidebarComponent = memo(function SidebarComponent({
   ], [selectedItem])
 
   // Organization settings navigation items  
-  const organizationNavItems = useMemo(() => [
-    { href: '/settings/organization/details', label: 'Agency details', icon: <BuildingOffice size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'details' },
-    { href: '/settings/organization/members', label: 'User management', icon: <UsersThree size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'members' },
-    { href: '/settings/organization/billing', label: 'Billing & subscription', icon: <CreditCard size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'billing' }
-  ], [selectedItem])
+  const organizationNavItems = useMemo(() => {
+    const detailsLabel = capabilities?.canSeeClients ? 'Agency details' : 'Company details'
+    const baseItems = [
+      { href: '/settings/organization/details', label: detailsLabel, icon: <BuildingOffice size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'details' },
+      { href: '/settings/organization/members', label: 'User management', icon: <UsersThree size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'members' }
+    ]
+    
+    // Only show billing for owners
+    if (currentUserRole === 'owner') {
+      baseItems.push({ href: '/settings/organization/billing', label: 'Billing & subscription', icon: <CreditCard size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'billing' })
+    }
+    
+    return baseItems
+  }, [selectedItem, currentUserRole])
 
   // Determine which secondary nav items to show based on current path
   const secondaryNavItems = useMemo(() => {

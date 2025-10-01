@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -21,8 +21,9 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 
-const agencyDetailsSchema = z.object({
-  name: z.string().trim().min(1, "Please enter your agency name"),
+// Create schema based on organization type
+const createDetailsSchema = (isAgency: boolean) => z.object({
+  name: z.string().trim().min(1, isAgency ? "Please enter your agency name" : "Please enter your company name"),
   website: z.string().trim().optional().or(z.literal("")).refine((val) => {
     if (!val || val.trim() === '') return true // Empty is allowed
     
@@ -48,7 +49,7 @@ const agencyDetailsSchema = z.object({
     message: "Please enter a valid domain"
   }),
   description: z.string().trim().optional(),
-  industry: z.string().trim().min(1, "Please select an agency type"),
+  industry: z.string().trim().min(1, isAgency ? "Please select an agency type" : "Please select an industry"),
   currency_code: z.string().trim().min(1, "Please select a currency"),
 })
 
@@ -66,13 +67,27 @@ const agencyTypes: ComboboxOption[] = [
   { value: "Web & Digital Agency", label: "Web & Digital Agency" },
 ]
 
+const industryTypes: ComboboxOption[] = [
+  { value: "Education & Training", label: "Education & Training" },
+  { value: "Finance & Insurance", label: "Finance & Insurance" },
+  { value: "Healthcare & Wellness", label: "Healthcare & Wellness" },
+  { value: "Manufacturing & Industrial", label: "Manufacturing & Industrial" },
+  { value: "Media & Entertainment", label: "Media & Entertainment" },
+  { value: "Non-Profit, Public Sector & Government", label: "Non-Profit, Public Sector & Government" },
+  { value: "Real Estate & Construction", label: "Real Estate & Construction" },
+  { value: "Retail & E-Commerce", label: "Retail & E-Commerce" },
+  { value: "Sports & Fitness", label: "Sports & Fitness" },
+  { value: "Technology & Software", label: "Technology & Software" },
+  { value: "Travel, Leisure & Hospitality", label: "Travel, Leisure & Hospitality" },
+]
+
 const currencyOptions: ComboboxOption[] = [
   { value: "EUR", label: "EUR" },
   { value: "USD", label: "USD" },
   { value: "GBP", label: "GBP" },
 ]
 
-type AgencyDetailsFormData = z.infer<typeof agencyDetailsSchema>
+type AgencyDetailsFormData = z.infer<ReturnType<typeof createDetailsSchema>>
 
 interface DetailsFormProps {
   initialValues: {
@@ -85,11 +100,19 @@ interface DetailsFormProps {
   }
   connectionCode: string
   organizationId: string
+  currentUserRole: 'owner' | 'member'
+  variant: 'agency' | 'client'
 }
 
-export default function DetailsForm({ initialValues, connectionCode, organizationId }: DetailsFormProps) {
+export default function DetailsForm({ initialValues, connectionCode, organizationId, currentUserRole, variant }: DetailsFormProps) {
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+
+  // Determine if current user can manage organization details (only owners can)
+  const canManageDetails = currentUserRole === 'owner'
+  
+  // Determine if this is an agency or client
+  const isAgency = variant === 'agency'
 
   // Display website URL without protocol (clean, modern look)
   const displayWebsite = (url: string): string => {
@@ -113,7 +136,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
   }
 
   const form = useForm<AgencyDetailsFormData>({
-    resolver: zodResolver(agencyDetailsSchema),
+    resolver: zodResolver(createDetailsSchema(isAgency)),
     defaultValues: {
       name: initialValues.name,
       website: displayWebsite(initialValues.website || ""),
@@ -254,7 +277,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
         </div>
         
         <p className="text-xs-regular" style={{ color: '#71757E' }}>
-          Share this code with clients on Fiive to connect your accounts
+          {isAgency ? 'Share this code with clients on Fiive to connect your accounts' : 'Share this code with agencies on Fiive to connect your accounts'}
         </p>
       </div>
 
@@ -267,8 +290,9 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
               Logo
             </label>
             <ImageUpload
-              onLogoChange={(file) => setLogoFile(file)}
+              onLogoChange={canManageDetails ? (file) => setLogoFile(file) : undefined}
               initialLogoUrl={initialValues.logo_url}
+              readOnly={!canManageDetails}
             />
           </div>
 
@@ -286,6 +310,20 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                     {...field}
                     placeholder="E.g. exa. studio"
                     className="h-10 px-4 py-2 text-sm"
+                    readOnly={!canManageDetails}
+                    style={!canManageDetails ? {
+                      backgroundColor: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
+                      borderColor: 'var(--color-neutral-4)',
+                      color: 'var(--color-base-text-primary)',
+                      cursor: 'default',
+                      outline: 'none',
+                      boxShadow: 'none'
+                    } : undefined}
+                    onFocus={!canManageDetails ? (e) => {
+                      e.target.style.outline = 'none'
+                      e.target.style.boxShadow = 'none'
+                      e.target.style.borderColor = 'var(--color-neutral-4)'
+                    } : undefined}
                   />
                 </FormControl>
                 <FormMessage />
@@ -305,8 +343,22 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                 <FormControl>
                   <Textarea
                     {...field}
-                    placeholder="Tell clients about your agency..."
+                    placeholder={isAgency ? "Tell clients about your agency..." : "Tell agencies about your company…"}
                     className="h-[120px] resize-none"
+                    readOnly={!canManageDetails}
+                    style={!canManageDetails ? {
+                      backgroundColor: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
+                      borderColor: 'var(--color-neutral-4)',
+                      color: 'var(--color-base-text-primary)',
+                      cursor: 'default',
+                      outline: 'none',
+                      boxShadow: 'none'
+                    } : undefined}
+                    onFocus={!canManageDetails ? (e) => {
+                      e.target.style.outline = 'none'
+                      e.target.style.boxShadow = 'none'
+                      e.target.style.borderColor = 'var(--color-neutral-4)'
+                    } : undefined}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault()
@@ -319,24 +371,25 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
             )}
           />
 
-          {/* Agency Type */}
+          {/* Agency Type / Industry */}
           <FormField
             control={form.control}
             name="industry"
             render={({ field, fieldState }) => (
               <FormItem>
                 <FormLabel className="text-sm font-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
-                  Agency type
+                  {isAgency ? 'Agency type' : 'Industry'}
                 </FormLabel>
                 <FormControl>
                   <Combobox
-                    options={agencyTypes}
+                    options={isAgency ? agencyTypes : industryTypes}
                     value={field.value}
                     onValueChange={field.onChange}
-                    placeholder="Select agency type..."
-                    searchPlaceholder="Search agency types..."
-                    emptyText="No agency type found."
+                    placeholder={isAgency ? "Select agency type..." : "Select industry..."}
+                    searchPlaceholder={isAgency ? "Search agency types..." : "Search industries..."}
+                    emptyText={isAgency ? "No agency type found." : "No industry found."}
                     hasError={!!fieldState.error}
+                    readOnly={!canManageDetails}
                   />
                 </FormControl>
                 <FormMessage />
@@ -357,13 +410,29 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                   <Input
                     {...field}
                     value={field.value || ""}
-                    placeholder="exastudio.com"
+                    placeholder={isAgency ? "exastudio.com" : "fiive.co"}
                     className="h-10 px-4 py-2 text-sm"
+                    readOnly={!canManageDetails}
+                    style={!canManageDetails ? {
+                      backgroundColor: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
+                      borderColor: 'var(--color-neutral-4)',
+                      color: 'var(--color-base-text-primary)',
+                      cursor: 'default',
+                      outline: 'none',
+                      boxShadow: 'none'
+                    } : undefined}
+                    onFocus={!canManageDetails ? (e) => {
+                      e.target.style.outline = 'none'
+                      e.target.style.boxShadow = 'none'
+                      e.target.style.borderColor = 'var(--color-neutral-4)'
+                    } : undefined}
                   />
                 </FormControl>
-                <p className="text-xs-regular" style={{ color: '#71757E' }}>
-                  We format websites for consistency (e.g. exastudio.com)
-                </p>
+                {canManageDetails && (
+                  <p className="text-xs-regular" style={{ color: '#71757E' }}>
+                    We format websites for consistency (e.g. {isAgency ? 'exastudio.com' : 'fiive.co'})
+                  </p>
+                )}
                 <FormMessage />
               </FormItem>
             )}
@@ -387,6 +456,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                     searchPlaceholder=""
                     emptyText="No currency found."
                     hasError={!!fieldState.error}
+                    readOnly={!canManageDetails}
                   />
                 </FormControl>
                 <FormMessage />
@@ -394,23 +464,25 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
             )}
           />
 
-          {/* Save Button */}
-          <div className="pt-4">
-            <Button
-              type="submit"
-              variant="default"
-              size="lg"
-              className="cursor-pointer text-sm relative"
-              disabled={isSaving || !isFormChanged}
-            >
-              <span className={isSaving ? "invisible" : ""}>Save</span>
-              {isSaving && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Spinner size={16} />
-                </div>
-              )}
-            </Button>
-          </div>
+          {/* Save Button - Only show for owners */}
+          {canManageDetails && (
+            <div className="pt-4">
+              <Button
+                type="submit"
+                variant="default"
+                size="lg"
+                className="cursor-pointer text-sm relative"
+                disabled={isSaving || !isFormChanged}
+              >
+                <span className={isSaving ? "invisible" : ""}>Save</span>
+                {isSaving && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Spinner size={16} />
+                  </div>
+                )}
+              </Button>
+            </div>
+          )}
         </form>
       </Form>
     </div>

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getActiveContext } from '@/lib/mode/getActiveContext'
 import DetailsForm from './DetailsForm'
 
 // Force fresh data on every request to ensure updated data is shown immediately
@@ -6,14 +7,15 @@ export const revalidate = 0
 
 export default async function OrganizationDetailsPage() {
   const supabase = await createClient()
+  const context = await getActiveContext()
 
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   
-  if (userError || !user) {
+  if (userError || !user || !context) {
     return null // Layout will handle redirect
   }
 
-  // Get user's organization through memberships table
+  // Get user's organization with owner_id to determine user's role - RLS policies will filter to accessible organizations
   const { data: organization, error: orgError } = await supabase
     .from("organizations")
     .select(`
@@ -25,9 +27,8 @@ export default async function OrganizationDetailsPage() {
       currency_code, 
       logo_url, 
       connection_code,
-      memberships!inner(user_id)
+      owner_id
     `)
-    .eq("memberships.user_id", user.id)
     .single()
 
   if (orgError) {
@@ -35,15 +36,31 @@ export default async function OrganizationDetailsPage() {
     // Render empty form or error state
   }
 
+  // Determine current user's role
+  const currentUserRole = organization?.owner_id === user.id ? 'owner' : 'member'
+
+  // Contextual copy based on organization type
+  const isAgency = context.variant === 'agency'
+  const pageTitle = isAgency ? 'Agency details' : 'Company details'
+  const pageDescription = isAgency 
+    ? (currentUserRole === 'owner' 
+        ? 'Manage how your agency will be seen by clients'
+        : 'How your agency will be seen by clients'
+      )
+    : (currentUserRole === 'owner'
+        ? 'Manage how your company will be seen by agencies'
+        : 'How your company will be seen by agencies'
+      )
+
   return (
     <div className="space-y-8">
       {/* Page Header */}
       <div>
         <h1 className="display-9-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)', marginBottom: '0.75rem' }}>
-          Agency details
+          {pageTitle}
         </h1>
         <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
-          Manage how your agency will be seen by clients
+          {pageDescription}
         </p>
       </div>
 
@@ -58,6 +75,8 @@ export default async function OrganizationDetailsPage() {
         }}
         connectionCode={organization?.connection_code ?? ""}
         organizationId={organization?.id ?? ""}
+        currentUserRole={currentUserRole}
+        variant={context.variant}
       />
     </div>
   )

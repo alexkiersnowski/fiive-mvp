@@ -67,6 +67,10 @@ function NavItem({ href, children, icon, className = '', isSelected = false, isC
           ? (showText ? 'opacity-100' : 'opacity-0')
           : `transition-opacity duration-100 ${showText ? 'opacity-100' : 'opacity-0'}`
         }
+        style={{
+          whiteSpace: 'nowrap',
+          ...(isCollapsed && { position: 'absolute', visibility: 'hidden' })
+        }}
       >
         {children}
       </span>

@@ -1,7 +1,7 @@
 'use server'
 
 import { redirect } from "next/navigation"
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 
 // Timeout wrapper for server actions
 async function withTimeout<T>(query: Promise<T> | T, timeoutMs: number = 5000): Promise<T> {
@@ -121,6 +121,179 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
   
   // Redirect to next step (account type selection)
   redirect('/account-type')
+}
+
+// Member invite completion action
+export async function handleMemberInviteCompletion(data: { firstName: string; lastName: string; jobTitle?: string }) {
+  const { firstName, lastName, jobTitle } = data
+  
+  // Sanitize inputs
+  const sanitizedFirstName = sanitizeInput(firstName)
+  const sanitizedLastName = sanitizeInput(lastName)
+  const sanitizedJobTitle = jobTitle ? sanitizeInput(jobTitle) : null
+  
+  // Basic validation
+  if (!sanitizedFirstName) {
+    throw new Error('First name is required')
+  }
+  
+  if (!sanitizedLastName) {
+    throw new Error('Last name is required')
+  }
+  
+  // Create Supabase client
+  const supabase = await createClient()
+  
+  // Get the current user (centralized auth)
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  
+  if (userError || !user) {
+    console.error('User authentication error:', userError)
+    throw new Error('You must be logged in to complete the invitation')
+  }
+  
+  // Get organization info from user metadata (set by Supabase invite)
+  const organizationId = user.user_metadata?.organization_id
+  const userEmail = user.email
+  
+  if (!organizationId) {
+    throw new Error('Invalid invitation: organization information missing')
+  }
+  
+  if (!userEmail) {
+    throw new Error('Invalid user: email information missing')
+  }
+  
+  console.log('[handleMemberInviteCompletion] Processing invitation for:', {
+    userId: user.id,
+    userEmail,
+    organizationId,
+    firstName: sanitizedFirstName,
+    lastName: sanitizedLastName,
+    jobTitle: sanitizedJobTitle
+  })
+  
+  // Step 1: Update the user profile
+  const profileUpdateData = {
+    first_name: sanitizedFirstName,
+    last_name: sanitizedLastName,
+    job_title: sanitizedJobTitle,
+    updated_at: new Date().toISOString()
+  }
+  
+  const profileResult = await withTimeout(
+    supabase
+      .from('profiles')
+      .update(profileUpdateData)
+      .eq('id', user.id)
+      .select(),
+    3000
+  )
+  
+  const { data: profileData, error: profileError } = profileResult as { data: unknown; error: unknown }
+  
+  if (profileError) {
+    console.error('Profile update error details:', {
+      error: profileError,
+      user: user.id,
+      email: user.email,
+      firstName: sanitizedFirstName,
+      lastName: sanitizedLastName,
+      jobTitle: sanitizedJobTitle
+    })
+    throw new Error(`Failed to update profile: ${profileError instanceof Error ? profileError.message : String(profileError)}`)
+  }
+  
+  console.log('[handleMemberInviteCompletion] Profile updated successfully')
+  
+  // Step 2: Create admin client and verify invitation exists and is valid
+  const adminSupabase = createAdminClient()
+  
+  const { data: validInvitation, error: invitationError } = await adminSupabase
+    .from('membership_invitations')
+    .select('id, org_id, invited_email, status, expires_at')
+    .eq('org_id', organizationId)
+    .eq('invited_email', userEmail)
+    .eq('status', 'pending')
+    .single()
+  
+  if (invitationError || !validInvitation) {
+    console.error('Invalid or expired invitation:', invitationError)
+    throw new Error('Invalid or expired invitation')
+  }
+  
+  // Check if invitation has expired
+  const now = new Date()
+  const expiresAt = new Date(validInvitation.expires_at)
+  if (now > expiresAt) {
+    throw new Error('Invitation has expired')
+  }
+  
+  console.log('[handleMemberInviteCompletion] Valid invitation confirmed:', validInvitation.id)
+  
+  // Step 3: Create memberships table row using admin client (bypasses RLS)
+  const membershipData = {
+    org_id: organizationId,
+    user_id: user.id,
+    role: 'member',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+  
+  const membershipResult = await withTimeout(
+    adminSupabase
+      .from('memberships')
+      .insert(membershipData)
+      .select(),
+    3000
+  )
+  
+  const { data: membershipInsertData, error: membershipError } = membershipResult as { data: unknown; error: unknown }
+  
+  if (membershipError) {
+    console.error('Membership creation error details:', {
+      error: membershipError,
+      membershipData
+    })
+    throw new Error(`Failed to create membership: ${JSON.stringify(membershipError)}`)
+  }
+  
+  console.log('[handleMemberInviteCompletion] Membership created successfully')
+  
+  // Step 4: Update membership_invitations status from 'pending' to 'accepted' using admin client
+  const invitationUpdateResult = await withTimeout(
+    adminSupabase
+      .from('membership_invitations')
+      .update({ 
+        status: 'accepted',
+        accepted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('org_id', organizationId)
+      .eq('invited_email', userEmail)
+      .eq('status', 'pending')
+      .select(),
+    3000
+  )
+  
+  const { data: invitationUpdateData, error: invitationUpdateError } = invitationUpdateResult as { data: unknown; error: unknown }
+  
+  if (invitationUpdateError) {
+    console.error('Invitation status update error details:', {
+      error: invitationUpdateError,
+      organizationId,
+      userEmail
+    })
+    // Don't throw error here - membership was created successfully, invitation status is secondary
+    console.warn('[handleMemberInviteCompletion] Warning: Failed to update invitation status, but membership was created')
+  } else {
+    console.log('[handleMemberInviteCompletion] Invitation status updated to accepted successfully')
+  }
+  
+  console.log('[handleMemberInviteCompletion] Member invite completion successful, redirecting to dashboard')
+  
+  // Step 5: Redirect to dashboard home
+  redirect('/home')
 }
 
 // Account type actions

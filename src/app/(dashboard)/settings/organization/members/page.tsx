@@ -14,15 +14,14 @@ export default async function UserManagementPage() {
     return null // Layout will handle redirect
   }
 
-  // Get user's organization through memberships table
+  // Get user's organization with owner_id to determine user's role - RLS policies will filter to accessible organizations
   const { data: organization, error: orgError } = await supabase
     .from("organizations")
     .select(`
       id, 
-      name, 
-      memberships!inner(user_id)
+      name,
+      owner_id
     `)
-    .eq("memberships.user_id", user.id)
     .single()
 
   if (orgError || !organization) {
@@ -74,6 +73,9 @@ export default async function UserManagementPage() {
     console.error('Error fetching invitations:', invitationsResult.value.message)
   }
 
+  // Determine current user's role
+  const currentUserRole = organization.owner_id === user.id ? 'owner' : 'member'
+
   // If both fail, show error
   if (members.length === 0 && invitations.length === 0) {
     return (
@@ -103,7 +105,10 @@ export default async function UserManagementPage() {
           User management
         </h1>
         <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
-          Manage your team and system owner
+          {currentUserRole === 'owner' 
+            ? 'Manage your team and system owner'
+            : 'Your team and system owner'
+          }
         </p>
       </div>
 
@@ -111,6 +116,7 @@ export default async function UserManagementPage() {
         members={members}
         invitations={invitations}
         organizationId={organization.id}
+        currentUserRole={currentUserRole}
       />
     </div>
   )
