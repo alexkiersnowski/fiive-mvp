@@ -1,18 +1,35 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { notFound } from 'next/navigation';
+import { getClientsSnapshot } from '@/features/clients/server';
+import { ClientsContent } from './ClientsContent';
 
-export default async function ClientsPage() {
-  const ctx = await getActiveContext();
+interface ClientsPageProps {
+  searchParams: {
+    search?: string;
+    sort?: string;
+  };
+}
+
+export default async function ClientsPage({ searchParams }: ClientsPageProps) {
+  const context = await getActiveContext();
   
-  if (!ctx || !ctx.capabilities.canSeeClients) {
+  if (!context || !context.capabilities.canSeeClients) {
     notFound();
   }
 
+  const snapshot = await getClientsSnapshot(context, {
+    search: searchParams.search || '',
+    limit: 50,
+    sort: searchParams.sort || 'newest-first'
+  });
+
   return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-4">Clients</h1>
-      <p className="text-gray-600">Agency view: Manage your client connections</p>
-    </div>
+    <ClientsContent 
+      snapshot={snapshot} 
+      context={context}
+      initialSearchValue={searchParams.search || ''}
+      initialSortValue={searchParams.sort || 'newest-first'}
+    />
   );
 }
 

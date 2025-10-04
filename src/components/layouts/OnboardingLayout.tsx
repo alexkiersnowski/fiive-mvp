@@ -427,7 +427,7 @@ export default function OnboardingLayout({
                                     <Input
                                       {...field}
                                       value={field.value || ""}
-                                      placeholder={accountType === 'agency' ? "E.g. exa. studio" : "E.g. Atlas Supply"}
+                                      placeholder={accountType === 'agency' ? "E.g. exa. studio" : "E.g. Fiive"}
                                       className="h-10 px-4 py-2 text-sm"
                                     />
                                   </FormControl>

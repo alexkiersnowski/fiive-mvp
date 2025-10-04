@@ -767,6 +767,10 @@
     letter-spacing: var(--typography-display-8-letter-spacing);
   }
 
+  .text-primary {
+    color: var(--color-base-text-primary);
+  }
+
   .display-9-medium {
     font: var(--typography-display-9-medium);
     letter-spacing: var(--typography-display-9-letter-spacing);

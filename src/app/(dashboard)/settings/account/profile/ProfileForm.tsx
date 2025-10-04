@@ -10,6 +10,7 @@ import { ImageUpload } from '@/components/ui/image-upload'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { toast } from 'sonner'
 import { updateProfile } from '../../actions'
+import type { EnhancedModeContext } from '@/lib/mode/getActiveContext'
 import {
   Form,
   FormControl,
@@ -37,9 +38,10 @@ interface ProfileFormProps {
     avatar_url: string
   }
   userId: string
+  context: EnhancedModeContext
 }
 
-export default function ProfileForm({ initialValues, userId }: ProfileFormProps) {
+export default function ProfileForm({ initialValues, userId, context }: ProfileFormProps) {
   const [profilePicture, setProfilePicture] = useState<File | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -119,7 +121,10 @@ export default function ProfileForm({ initialValues, userId }: ProfileFormProps)
           Profile
         </h1>
         <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
-          What your clients and team see when they work with you
+          {context.variant === 'agency' 
+            ? 'What your clients and team see when they work with you'
+            : 'What your agencies and team see when they work with you'
+          }
         </p>
       </div>
 

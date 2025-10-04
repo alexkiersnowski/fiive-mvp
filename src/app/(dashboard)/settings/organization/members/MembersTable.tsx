@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { MagnifyingGlass, DotsThree, UserMinus, EnvelopeSimple, XCircle } from '@phosphor-icons/react'
+import { SearchInput } from '@/components/ui/search-input'
+import { DotsThree, UserMinus, EnvelopeSimple, XCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateMemberRole, removeMember, inviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -20,6 +21,104 @@ const roleOptions: ComboboxOption[] = [
   { value: "member", label: "Member" },
   { value: "owner", label: "Owner" }
 ]
+
+// Member actions dropdown component
+function MemberActionsDropdown({ 
+  member, 
+  isOwner, 
+  isUpdating, 
+  onRemoveMember 
+}: { 
+  member: OrganizationMember
+  isOwner: boolean
+  isUpdating: boolean
+  onRemoveMember: (membershipId: string) => void
+}) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+
+  return (
+    <DropdownMenu modal={false} open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          className={`p-0 cursor-pointer transition-colors duration-75 ${
+            isDropdownOpen 
+              ? 'bg-[var(--color-interactive-surface-hover)] pointer-events-none' 
+              : 'hover:bg-[var(--color-interactive-surface-hover)]'
+          }`}
+          style={{ height: '32px', width: '32px' }}
+          disabled={isOwner || isUpdating}
+        >
+          <DotsThree 
+            size={16} 
+            style={{ color: isOwner ? '#B5B7C4' : undefined }}
+          />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={() => onRemoveMember(member.membership_id)}
+          style={{ color: 'var(--color-red-11)' }}
+        >
+          <UserMinus 
+            size={16} 
+            style={{ color: 'var(--color-red-11)' }}
+          />
+          Remove member
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// Invitation actions dropdown component
+function InvitationActionsDropdown({ 
+  invitation, 
+  onResendInvite, 
+  onCancelInvite 
+}: { 
+  invitation: OrganizationInvitation
+  onResendInvite: (invitationId: string) => void
+  onCancelInvite: (invitationId: string) => void
+}) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+
+  return (
+    <DropdownMenu modal={false} open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          className={`p-0 cursor-pointer transition-colors duration-75 ${
+            isDropdownOpen 
+              ? 'bg-[var(--color-interactive-surface-hover)] pointer-events-none' 
+              : 'hover:bg-[var(--color-interactive-surface-hover)]'
+          }`}
+          style={{ height: '32px', width: '32px' }}
+        >
+          <DotsThree size={16} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={() => onResendInvite(invitation.id)}
+        >
+          <EnvelopeSimple size={16} />
+          Resend invite
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => onCancelInvite(invitation.id)}
+          style={{ color: 'var(--color-red-11)' }}
+        >
+          <XCircle 
+            size={16} 
+            style={{ color: 'var(--color-red-11)' }}
+          />
+          Cancel invite
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 interface MembersTableProps {
   members: OrganizationMember[]
@@ -354,24 +453,13 @@ export default function MembersTable({ members, invitations, organizationId, cur
       {/* Search section */}
       <div style={{ marginTop: '40px' }}>
         <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Input 
-                placeholder="Search members"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-[32px] px-4 py-2 text-sm pl-10"
-                style={{ width: '360px' }}
-              />
-              <MagnifyingGlass 
-                size={16} 
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-              />
-            </div>
-            <span className="text-xs-regular" style={{ color: 'var(--color-base-text-tertiary)' }}>
-              {memberCount} {memberCount === 1 ? 'member' : 'members'}
-            </span>
-          </div>
+          <SearchInput
+            placeholder="Search members"
+            value={searchQuery}
+            onChange={setSearchQuery}
+            count={memberCount}
+            countLabel={memberCount === 1 ? 'member' : 'members'}
+          />
           {canManageRoles && (
             <Button
               variant="default"
@@ -440,33 +528,12 @@ export default function MembersTable({ members, invitations, organizationId, cur
                   </TableCell>
                   {canManageRoles && (
                     <TableCell className="py-0" style={{ width: 'auto' }}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            className="p-0 cursor-pointer" 
-                            style={{ height: '32px', width: '32px' }}
-                            disabled={isOwner || isUpdating}
-                          >
-                            <DotsThree 
-                              size={16} 
-                              style={{ color: isOwner ? '#B5B7C4' : undefined }}
-                            />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => handleRemoveMember(member.membership_id)}
-                            style={{ color: 'var(--color-red-11)' }}
-                          >
-                            <UserMinus 
-                              size={16} 
-                              style={{ color: 'var(--color-red-11)' }}
-                            />
-                            Remove member
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <MemberActionsDropdown 
+                        member={member}
+                        isOwner={isOwner}
+                        isUpdating={isUpdating}
+                        onRemoveMember={handleRemoveMember}
+                      />
                     </TableCell>
                   )}
                 </TableRow>
@@ -523,35 +590,11 @@ export default function MembersTable({ members, invitations, organizationId, cur
                 </TableCell>
                 {canManageRoles && (
                   <TableCell className="py-0" style={{ width: 'auto' }}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className="p-0 cursor-pointer" 
-                          style={{ height: '32px', width: '32px' }}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => handleResendInvite(invitation.id)}
-                        >
-                          <EnvelopeSimple size={16} />
-                          Resend invite
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleCancelInvite(invitation.id)}
-                          style={{ color: 'var(--color-red-11)' }}
-                        >
-                          <XCircle 
-                            size={16} 
-                            style={{ color: 'var(--color-red-11)' }}
-                          />
-                          Cancel invite
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <InvitationActionsDropdown 
+                      invitation={invitation}
+                      onResendInvite={handleResendInvite}
+                      onCancelInvite={handleCancelInvite}
+                    />
                   </TableCell>
                 )}
               </TableRow>

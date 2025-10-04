@@ -17,7 +17,7 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   const pathname = usePathname()
   const selectedItem = pathname.split('/').pop() || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
-  const isHomePage = pathname === '/home'
+  const isFullWidthPage = ['/home', '/clients'].includes(pathname)
   const isSettingsPage = pathname.startsWith('/settings')
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
   
@@ -85,15 +85,15 @@ export default function DashboardLayout({ data, context, children, initialIsColl
         capabilities={context.capabilities}
       />
       <main style={{ 
-        padding: isHomePage ? '0' : '16px 16px 24px 16px',
-        overflow: 'hidden'
+        padding: isFullWidthPage ? '0' : '16px 16px 24px 16px',
+        overflow: 'auto'
       }}>
         <div 
           style={{
-            borderRadius: isHomePage ? '0' : 'var(--radius-6, 16px)',
-            border: isHomePage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
-            background: isHomePage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isHomePage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : '16px'),
+            borderRadius: isFullWidthPage ? '0' : 'var(--radius-6, 16px)',
+            border: isFullWidthPage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
+            background: isFullWidthPage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
+            padding: isFullWidthPage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : '16px'),
             height: '100%',
             overflow: isSettingsPage ? 'auto' : 'visible'
           }}

@@ -1,8 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
+import { getActiveContext } from '@/lib/mode/getActiveContext'
 import ProfileForm from "./ProfileForm"
 
 export default async function ProfilePage() {
   const supabase = await createClient()
+  const context = await getActiveContext()
+
+  if (!context) {
+    return null // Layout will handle redirect
+  }
 
   const {
     data: { user },
@@ -34,6 +40,7 @@ export default async function ProfilePage() {
         avatar_url: profile?.avatar_url ?? "",
       }}
       userId={user.id}
+      context={context}
     />
   )
 }
