@@ -17,18 +17,20 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
     notFound();
   }
 
+  const resolvedSearchParams = await searchParams;
+
   const snapshot = await getClientsSnapshot(context, {
-    search: searchParams.search || '',
+    search: resolvedSearchParams.search || '',
     limit: 50,
-    sort: searchParams.sort || 'newest-first'
+    sort: resolvedSearchParams.sort || 'newest-first'
   });
 
   return (
     <ClientsContent 
       snapshot={snapshot} 
       context={context}
-      initialSearchValue={searchParams.search || ''}
-      initialSortValue={searchParams.sort || 'newest-first'}
+      initialSearchValue={resolvedSearchParams.search || ''}
+      initialSortValue={resolvedSearchParams.sort || 'newest-first'}
     />
   );
 }

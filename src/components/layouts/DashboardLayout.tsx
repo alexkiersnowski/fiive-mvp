@@ -17,7 +17,7 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   const pathname = usePathname()
   const selectedItem = pathname.split('/').pop() || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
-  const isFullWidthPage = ['/home', '/clients'].includes(pathname)
+  const isFullWidthPage = ['/home', '/clients', '/agencies'].includes(pathname)
   const isSettingsPage = pathname.startsWith('/settings')
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
   

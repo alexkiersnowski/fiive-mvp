@@ -2,13 +2,36 @@
 
 import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus, SortAscending, CaretDown, Check } from '@phosphor-icons/react/ssr';
+import { Plus, SortAscending, CaretDown, Check, Link } from '@phosphor-icons/react/ssr';
 import { SearchInput } from '@/components/ui/search-input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { RadioCards, RadioCard, AgencyIcon, ClientIcon } from '@/components/ui/radio-cards';
+import { Form, FormControl, FormField, FormItem, FormMessage, FormLabel } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
 import { ClientsTable } from '@/features/clients/ClientsTable';
 import { getClientsSnapshot } from '@/features/clients/server';
 import type { ClientsSnapshot, Client } from '@/features/clients/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const accountTypeSchema = z.object({
+  accountType: z.string().min(1, "Please make a selection")
+});
+
+const addNewClientSchema = z.object({
+  clientName: z.string().min(1, "Client name is required")
+});
+
+const connectToClientSchema = z.object({
+  connectionCode: z.string().min(1, "Connection code is required")
+});
+
+type AccountTypeFormData = z.infer<typeof accountTypeSchema>;
+type AddNewClientFormData = z.infer<typeof addNewClientSchema>;
+type ConnectToClientFormData = z.infer<typeof connectToClientSchema>;
 
 interface ClientsContentProps {
   snapshot: ClientsSnapshot;
@@ -32,6 +55,33 @@ export function ClientsContent({
   const [isLoading, setIsLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
+  const [isAddNewClientDialogOpen, setIsAddNewClientDialogOpen] = useState(false);
+  const [isConnectToClientDialogOpen, setIsConnectToClientDialogOpen] = useState(false);
+
+  const selectionForm = useForm<AccountTypeFormData>({
+    resolver: zodResolver(accountTypeSchema),
+    defaultValues: {
+      accountType: ""
+    },
+    mode: "onSubmit",
+  });
+
+  const addNewClientForm = useForm<AddNewClientFormData>({
+    resolver: zodResolver(addNewClientSchema),
+    defaultValues: {
+      clientName: ""
+    },
+    mode: "onSubmit",
+  });
+
+  const connectToClientForm = useForm<ConnectToClientFormData>({
+    resolver: zodResolver(connectToClientSchema),
+    defaultValues: {
+      connectionCode: ""
+    },
+    mode: "onSubmit",
+  });
 
   // Sort options
   const sortOptions = [
@@ -136,6 +186,48 @@ export function ClientsContent({
     });
   };
 
+  const handleAddClientClick = () => {
+    setIsAddClientDialogOpen(true);
+    selectionForm.reset();
+  };
+
+  const handleSelectionDialogClose = () => {
+    setIsAddClientDialogOpen(false);
+    selectionForm.reset();
+  };
+
+  const handleAddNewClientDialogClose = () => {
+    setIsAddNewClientDialogOpen(false);
+    addNewClientForm.reset();
+  };
+
+  const handleConnectToClientDialogClose = () => {
+    setIsConnectToClientDialogOpen(false);
+    connectToClientForm.reset();
+  };
+
+  const handleSelectionSubmit = (data: AccountTypeFormData) => {
+    if (data.accountType === 'agency') {
+      setIsAddClientDialogOpen(false);
+      setIsAddNewClientDialogOpen(true);
+    } else if (data.accountType === 'client') {
+      setIsAddClientDialogOpen(false);
+      setIsConnectToClientDialogOpen(true);
+    }
+  };
+
+  const handleAddNewClientSubmit = (data: AddNewClientFormData) => {
+    // TODO: Add client to database
+    console.log('Adding new client:', data.clientName);
+    handleAddNewClientDialogClose();
+  };
+
+  const handleConnectToClientSubmit = (data: ConnectToClientFormData) => {
+    // TODO: Connect to client using connection code
+    console.log('Connecting to client with code:', data.connectionCode);
+    handleConnectToClientDialogClose();
+  };
+
   return (
     <div className="h-full flex flex-col" style={{ padding: '24px 16px 24px 32px' }}>
       {/* Fixed Header Section */}
@@ -151,6 +243,7 @@ export function ClientsContent({
           variant="default"
           size="lg"
           className="cursor-pointer text-sm flex items-center gap-2"
+          onClick={handleAddClientClick}
         >
           <Plus size={16} />
           Add client
@@ -214,6 +307,173 @@ export function ClientsContent({
           onScroll={handleScroll}
         />
       </div>
+
+      {/* Add Client Dialog */}
+      <Dialog open={isAddClientDialogOpen} onOpenChange={setIsAddClientDialogOpen}>
+        <DialogContent style={{ padding: '24px', width: '664px', maxWidth: '664px', gap: '0.75rem' }} className="[&>button]:hidden h-auto" showCloseButton={false}>
+          <DialogTitle className="sr-only">Add Client</DialogTitle>
+          <Form {...selectionForm}>
+            <form onSubmit={selectionForm.handleSubmit(handleSelectionSubmit)} className="space-y-5">
+              <FormField
+                control={selectionForm.control}
+                name="accountType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <RadioCards
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        className="mt-10 mx-4"
+                      >
+                        <RadioCard value="agency" icon={<Plus size={24} weight="regular" />}>
+                          <h3 className="display-5-medium mb-2">
+                            Add a new client
+                          </h3>
+                          <p className="text-sm-regular text-left" style={{ color: 'var(--color-base-text-secondary)' }}>
+                            Your client isn't on Fiive. Create a shared workspace and invite them when ready.
+                          </p>
+                        </RadioCard>
+                        <RadioCard value="client" icon={<Link size={24} weight="regular" />}>
+                          <h3 className="display-5-medium mb-2">
+                            Connect to a client
+                          </h3>
+                          <p className="text-sm-regular text-left" style={{ color: 'var(--color-base-text-secondary)' }}>
+                            Your client is already on Fiive. Enter their connection code to collaborate.
+                          </p>
+                        </RadioCard>
+                      </RadioCards>
+                    </FormControl>
+                    <FormMessage className="mx-4" />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-3 pt-4">
+                <Button 
+                  type="button"
+                  variant="ghost" 
+                  onClick={handleSelectionDialogClose}
+                  style={{ height: '40px' }}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit"
+                  style={{ height: '40px' }}
+                  className="cursor-pointer"
+                >
+                  Continue
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add New Client Dialog */}
+      <Dialog open={isAddNewClientDialogOpen} onOpenChange={setIsAddNewClientDialogOpen}>
+        <DialogContent style={{ padding: '24px', maxWidth: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto" showCloseButton={false}>
+          <DialogTitle className="display-5-medium" style={{ color: 'var(--color-base-text-primary)' }}>Add a new client</DialogTitle>
+          <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+            Create a shared workspace you can invite your client to later
+          </DialogDescription>
+          <Form {...addNewClientForm}>
+            <form onSubmit={addNewClientForm.handleSubmit(handleAddNewClientSubmit)} className="space-y-5">
+              <div className="mt-3">
+                <FormField
+                  control={addNewClientForm.control}
+                  name="clientName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm font-medium">Client name</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="E.g. Fiive"
+                          className="h-10 px-4 py-2 text-sm"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <Button 
+                  type="button"
+                  variant="ghost" 
+                  onClick={handleAddNewClientDialogClose}
+                  style={{ height: '40px' }}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit"
+                  style={{ height: '40px' }}
+                  className="cursor-pointer"
+                >
+                  Continue
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Connect to Client Dialog */}
+      <Dialog open={isConnectToClientDialogOpen} onOpenChange={setIsConnectToClientDialogOpen}>
+        <DialogContent style={{ padding: '24px', maxWidth: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto" showCloseButton={false}>
+          <DialogTitle className="display-5-medium" style={{ color: 'var(--color-base-text-primary)' }}>Connect to a client</DialogTitle>
+          <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+            Use a connection code to link your workspace with a client who's already on Fiive
+          </DialogDescription>
+          <Form {...connectToClientForm}>
+            <form onSubmit={connectToClientForm.handleSubmit(handleConnectToClientSubmit)} className="space-y-5">
+              <div className="mt-3">
+                <FormField
+                  control={connectToClientForm.control}
+                  name="connectionCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm font-medium">Connection code</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="xxxx-xxxx-xxxx-xxxx-xxxx"
+                          className="h-10 px-4 py-2 text-sm"
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Ask your client to share the connection code in their admin settings
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <Button 
+                  type="button"
+                  variant="ghost" 
+                  onClick={handleConnectToClientDialogClose}
+                  style={{ height: '40px' }}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit"
+                  style={{ height: '40px' }}
+                  className="cursor-pointer"
+                >
+                  Continue
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

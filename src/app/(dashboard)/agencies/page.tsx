@@ -1,17 +1,25 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { notFound } from 'next/navigation';
+import { AgenciesContent } from './AgenciesContent';
 
-export default async function AgenciesPage() {
-  const ctx = await getActiveContext();
+interface AgenciesPageProps {
+  searchParams: {
+    search?: string;
+  };
+}
+
+export default async function AgenciesPage({ searchParams }: AgenciesPageProps) {
+  const context = await getActiveContext();
   
-  if (!ctx || !ctx.capabilities.canSeeAgencies) {
+  if (!context || !context.capabilities.canSeeAgencies) {
     notFound();
   }
 
+  const resolvedSearchParams = await searchParams;
+
   return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-4">Agencies</h1>
-      <p className="text-gray-600">Client view: View your agency connections</p>
-    </div>
+    <AgenciesContent 
+      initialSearchValue={resolvedSearchParams.search || ''}
+    />
   );
 }
