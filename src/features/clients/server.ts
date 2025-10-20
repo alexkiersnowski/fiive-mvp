@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { createClient } from '@/lib/supabase/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ClientsSnapshot, Client, ClientsPaginationOptions } from './types';
 
@@ -25,7 +26,7 @@ function generateMockData(): Client[] {
     return cachedMockData;
   }
 
-  cachedMockData = Array.from({ length: 100 }, (_, i) => {
+  cachedMockData = Array.from({ length: 1 }, (_, i) => {
     const clientId = i + 1;
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
     
@@ -63,13 +64,65 @@ export const getClientsSnapshot = cache(async (
   context: EnhancedModeContext,
   options: ClientsPaginationOptions = {}
 ): Promise<ClientsSnapshot> => {
-  // TODO: Replace with actual data fetching when database is ready
-  // For now, return mock data for scaffolding
-  
   const { search = '', cursor, limit = 50, sort = 'newest-first' } = options;
   
-  // Use cached mock data to prevent regeneration on every request
-  const allClients = generateMockData();
+  // Fetch real data from connections table
+  const supabase = await createClient();
+  
+  // Get connections for this agency with related organization and contact data
+  const { data: connections, error } = await supabase
+    .from('connections')
+    .select(`
+      id,
+      connection_status,
+      engagement_status,
+      health_status,
+      contract_end_on,
+      agency_primary_contact_id,
+      client_id,
+      organizations!connections_client_id_fkey (
+        id,
+        name,
+        logo_url
+      )
+    `)
+    .eq('agency_id', context.orgId)
+    .order('created_at', { ascending: false });
+  
+  if (error) {
+    console.error('Error fetching connections:', error);
+    // Return empty snapshot on error
+    return {
+      clients: [],
+      total: 0,
+      cursor: null,
+      hasNextPage: false,
+    };
+  }
+  
+  // Transform connections to Client format
+  const allClients: Client[] = (connections || []).map(conn => {
+    const org = conn.organizations as any;
+    
+    return {
+      id: conn.id,
+      name: org?.name || 'Unknown Client',
+      logo: org?.logo_url,
+      status: conn.connection_status as any || 'draft', // Used for connection badge color
+      accountManager: conn.agency_primary_contact_id
+        ? { name: 'Loading...', avatar: undefined } // TODO: Fetch from profiles when RLS allows
+        : { name: 'Unassigned', avatar: undefined },
+      contractEnd: conn.contract_end_on 
+        ? new Date(conn.contract_end_on).toLocaleDateString('en-GB', { 
+            day: 'numeric', 
+            month: 'short', 
+            year: 'numeric' 
+          })
+        : undefined,
+      health: conn.health_status || 'unassigned',
+      badge: conn.engagement_status || undefined // Status column shows engagement_status
+    };
+  });
 
   // Apply search filter
   let filteredClients = allClients;

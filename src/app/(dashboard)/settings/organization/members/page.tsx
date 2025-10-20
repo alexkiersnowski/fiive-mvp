@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { getOrganizationMembers, getOrganizationInvitations } from '../../actions'
 import MembersTable from './MembersTable'
 
@@ -6,26 +6,18 @@ import MembersTable from './MembersTable'
 export const revalidate = 0
 
 export default async function UserManagementPage() {
-  const supabase = await createClient()
-
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  const context = await getActiveContext()
   
-  if (userError || !user) {
+  if (!context) {
     return null // Layout will handle redirect
   }
 
-  // Get user's organization with owner_id to determine user's role - RLS policies will filter to accessible organizations
-  const { data: organization, error: orgError } = await supabase
-    .from("organizations")
-    .select(`
-      id, 
-      name,
-      owner_id
-    `)
-    .single()
+  // Use organization data from enhanced context
+  const organization = context.organization
+  const currentUserRole = context.currentUserRole
 
-  if (orgError || !organization) {
-    console.error('Error fetching organization:', orgError)
+  // Check if organization data is missing
+  if (!organization || !organization.id) {
     return (
       <div className="space-y-8">
         <div>
@@ -73,8 +65,6 @@ export default async function UserManagementPage() {
     console.error('Error fetching invitations:', invitationsResult.value.message)
   }
 
-  // Determine current user's role
-  const currentUserRole = organization.owner_id === user.id ? 'owner' : 'member'
 
   // If both fail, show error
   if (members.length === 0 && invitations.length === 0) {

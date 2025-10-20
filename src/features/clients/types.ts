@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 export type Client = {
@@ -26,5 +27,45 @@ export type ClientsPaginationOptions = {
   cursor?: string;
   limit?: number;
   sort?: string;
+};
+
+// Form validation schemas
+export const accountTypeSchema = z.object({
+  accountType: z.string().min(1, "Please make a selection")
+});
+
+export const addNewClientSchema = z.object({
+  clientName: z.string().min(1, "Client name is required")
+});
+
+export const connectToClientSchema = z.object({
+  connectionCode: z.string().min(1, "Connection code is required")
+});
+
+// Form data types
+export type AccountTypeFormData = z.infer<typeof accountTypeSchema>;
+export type AddNewClientFormData = z.infer<typeof addNewClientSchema>;
+export type ConnectToClientFormData = z.infer<typeof connectToClientSchema>;
+
+// Connection types
+export type ConnectionCode = {
+  code: string;
+  organizationId: string;
+  organizationName: string;
+  isActive: boolean;
+};
+
+export type ConnectionResult = {
+  success: boolean;
+  clientName?: string;
+  clientLogo?: string;
+  error?: string;
+};
+
+export type NewClientResult = {
+  success: boolean;
+  clientId?: string;
+  clientName?: string;
+  error?: string;
 };
 

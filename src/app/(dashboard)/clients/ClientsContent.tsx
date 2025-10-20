@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
+import { useState, useTransition, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, SortAscending, CaretDown, Check, Link } from '@phosphor-icons/react/ssr';
 import { SearchInput } from '@/components/ui/search-input';
@@ -9,29 +10,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { RadioCards, RadioCard, AgencyIcon, ClientIcon } from '@/components/ui/radio-cards';
 import { Form, FormControl, FormField, FormItem, FormMessage, FormLabel } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import { ClientsTable } from '@/features/clients/ClientsTable';
-import { getClientsSnapshot } from '@/features/clients/server';
-import type { ClientsSnapshot, Client } from '@/features/clients/types';
+import { createNewClient, connectToExistingClient, refreshClientsData } from '@/features/clients/actions';
+import { 
+  accountTypeSchema, 
+  addNewClientSchema, 
+  connectToClientSchema,
+  type ClientsSnapshot, 
+  type Client,
+  type AccountTypeFormData,
+  type AddNewClientFormData,
+  type ConnectToClientFormData
+} from '@/features/clients/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-
-const accountTypeSchema = z.object({
-  accountType: z.string().min(1, "Please make a selection")
-});
-
-const addNewClientSchema = z.object({
-  clientName: z.string().min(1, "Client name is required")
-});
-
-const connectToClientSchema = z.object({
-  connectionCode: z.string().min(1, "Connection code is required")
-});
-
-type AccountTypeFormData = z.infer<typeof accountTypeSchema>;
-type AddNewClientFormData = z.infer<typeof addNewClientSchema>;
-type ConnectToClientFormData = z.infer<typeof connectToClientSchema>;
 
 interface ClientsContentProps {
   snapshot: ClientsSnapshot;
@@ -46,6 +41,7 @@ export function ClientsContent({
   initialSearchValue = '', 
   initialSortValue = 'newest-first' 
 }: ClientsContentProps) {
+  const router = useRouter();
   const [clients, setClients] = useState<Client[]>(snapshot.clients);
   const [totalCount, setTotalCount] = useState(snapshot.total);
   const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
@@ -58,6 +54,10 @@ export function ClientsContent({
   const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
   const [isAddNewClientDialogOpen, setIsAddNewClientDialogOpen] = useState(false);
   const [isConnectToClientDialogOpen, setIsConnectToClientDialogOpen] = useState(false);
+  const [isConnectSuccess, setIsConnectSuccess] = useState(false);
+  const [connectedClientName, setConnectedClientName] = useState('');
+  const [connectedClientLogo, setConnectedClientLogo] = useState<string | undefined>(undefined);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const selectionForm = useForm<AccountTypeFormData>({
     resolver: zodResolver(accountTypeSchema),
@@ -98,27 +98,9 @@ export function ClientsContent({
 
   // Load more clients when scrolling near bottom
   const loadMore = useCallback(async () => {
-    if (isLoading || !hasNextPage || !cursor) return;
-    
-    setIsLoading(true);
-    try {
-      const newSnapshot = await getClientsSnapshot(context, {
-        search: searchValue,
-        cursor,
-        limit: 50,
-        sort: sortValue
-      });
-      
-      setClients(prev => [...prev, ...newSnapshot.clients]);
-      setCursor(newSnapshot.cursor || null);
-      setHasNextPage(newSnapshot.hasNextPage);
-      setTotalCount(newSnapshot.total);
-    } catch (error) {
-      console.error('Failed to load more clients:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [searchValue, cursor, hasNextPage, isLoading, context]);
+    // TODO: Implement pagination with server actions
+    console.log('Pagination not yet implemented for real data');
+  }, []);
 
   // Handle scroll to detect when to load more
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -136,54 +118,12 @@ export function ClientsContent({
 
   const handleSearchChange = (value: string) => {
     setSearchValue(value);
-    // Reset pagination state when search changes
-    setClients([]);
-    setCursor(null);
-    setHasNextPage(true);
-    setTotalCount(0);
-    
-    startTransition(async () => {
-      try {
-        const newSnapshot = await getClientsSnapshot(context, {
-          search: value,
-          limit: 50,
-          sort: sortValue
-        });
-        
-        setClients(newSnapshot.clients);
-        setCursor(newSnapshot.cursor || null);
-        setHasNextPage(newSnapshot.hasNextPage);
-        setTotalCount(newSnapshot.total);
-      } catch (error) {
-        console.error('Failed to search clients:', error);
-      }
-    });
   };
 
   const handleSortChange = (newSortValue: string) => {
     setSortValue(newSortValue);
-    // Reset pagination state when sort changes
-    setClients([]);
-    setCursor(null);
-    setHasNextPage(true);
-    setTotalCount(0);
-    
-    startTransition(async () => {
-      try {
-        const newSnapshot = await getClientsSnapshot(context, {
-          search: searchValue,
-          limit: 50,
-          sort: newSortValue
-        });
-        
-        setClients(newSnapshot.clients);
-        setCursor(newSnapshot.cursor || null);
-        setHasNextPage(newSnapshot.hasNextPage);
-        setTotalCount(newSnapshot.total);
-      } catch (error) {
-        console.error('Failed to sort clients:', error);
-      }
-    });
+    // TODO: Implement sorting with server actions
+    console.log('Sorting not yet implemented for real data');
   };
 
   const handleAddClientClick = () => {
@@ -203,7 +143,14 @@ export function ClientsContent({
 
   const handleConnectToClientDialogClose = () => {
     setIsConnectToClientDialogOpen(false);
-    connectToClientForm.reset();
+    // Reset success state after modal closes to prevent brief flash
+    setTimeout(() => {
+      setIsConnectSuccess(false);
+      connectToClientForm.reset();
+      setConnectedClientName('');
+      setConnectedClientLogo(undefined);
+      setIsConnecting(false);
+    }, 300); // 300ms delay to allow modal close animation
   };
 
   const handleSelectionSubmit = (data: AccountTypeFormData) => {
@@ -216,16 +163,62 @@ export function ClientsContent({
     }
   };
 
-  const handleAddNewClientSubmit = (data: AddNewClientFormData) => {
-    // TODO: Add client to database
-    console.log('Adding new client:', data.clientName);
-    handleAddNewClientDialogClose();
+  const handleAddNewClientSubmit = async (data: AddNewClientFormData) => {
+    const result = await createNewClient(data.clientName, context);
+    
+    if (result.success) {
+      handleAddNewClientDialogClose();
+      // Optionally: Show success toast or refresh the clients list
+      // TODO: Add toast notification when toast system is implemented
+    } else {
+      // Show error message in form
+      addNewClientForm.setError('clientName', {
+        message: result.error || 'Failed to create client'
+      });
+    }
   };
 
-  const handleConnectToClientSubmit = (data: ConnectToClientFormData) => {
-    // TODO: Connect to client using connection code
-    console.log('Connecting to client with code:', data.connectionCode);
-    handleConnectToClientDialogClose();
+  const handleConnectToClientSubmit = async (data: ConnectToClientFormData) => {
+    console.log('CLIENT: Submitting connection code:', data.connectionCode);
+    console.log('CLIENT: Context:', context);
+    
+    setIsConnecting(true);
+    
+    try {
+      // Start the connection request and a minimum delay in parallel
+      const [result] = await Promise.all([
+        connectToExistingClient(data.connectionCode, context),
+        new Promise(resolve => setTimeout(resolve, 650)) // Minimum 650ms for UX satisfaction
+      ]);
+      
+      console.log('CLIENT: Result received:', result);
+      
+      if (result.success) {
+        setConnectedClientName(result.clientName || '');
+        setConnectedClientLogo(result.clientLogo);
+        
+        // Refresh clients data from server and update local state
+        try {
+          const refreshedSnapshot = await refreshClientsData(context);
+          setClients(refreshedSnapshot.clients);
+          setTotalCount(refreshedSnapshot.total);
+          setCursor(refreshedSnapshot.cursor || null);
+          setHasNextPage(refreshedSnapshot.hasNextPage);
+        } catch (error) {
+          console.error('Failed to refresh clients:', error);
+        }
+        
+        // Show success modal
+        setIsConnectSuccess(true);
+      } else {
+        // Show error message in form
+        connectToClientForm.setError('connectionCode', {
+          message: result.error || 'Invalid connection code'
+        });
+      }
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   return (
@@ -262,7 +255,11 @@ export function ClientsContent({
           <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="cursor-pointer text-sm-regular h-[32px] flex items-center gap-2 shadow-none"
+          className={`cursor-pointer text-sm-regular h-[32px] flex items-center gap-2 shadow-none transition-all duration-75 ${
+            isSortDropdownOpen 
+              ? 'bg-interactive-surface-hover hover:bg-interactive-surface-hover' 
+              : 'hover:bg-interactive-surface-hover'
+          }`}
           disabled={isPending}
         >
           <SortAscending size={16} />
@@ -305,6 +302,7 @@ export function ClientsContent({
           isLoading={isLoading}
           hasNextPage={hasNextPage}
           onScroll={handleScroll}
+          onAddClient={handleAddClientClick}
         />
       </div>
 
@@ -422,58 +420,106 @@ export function ClientsContent({
       </Dialog>
 
       {/* Connect to Client Dialog */}
-      <Dialog open={isConnectToClientDialogOpen} onOpenChange={setIsConnectToClientDialogOpen}>
-        <DialogContent style={{ padding: '24px', maxWidth: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto" showCloseButton={false}>
-          <DialogTitle className="display-5-medium" style={{ color: 'var(--color-base-text-primary)' }}>Connect to a client</DialogTitle>
-          <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-            Use a connection code to link your workspace with a client who's already on Fiive
-          </DialogDescription>
-          <Form {...connectToClientForm}>
-            <form onSubmit={connectToClientForm.handleSubmit(handleConnectToClientSubmit)} className="space-y-5">
-              <div className="mt-3">
-                <FormField
-                  control={connectToClientForm.control}
-                  name="connectionCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm font-medium">Connection code</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="xxxx-xxxx-xxxx-xxxx-xxxx"
-                          className="h-10 px-4 py-2 text-sm"
-                        />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Ask your client to share the connection code in their admin settings
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+      <Dialog open={isConnectToClientDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          handleConnectToClientDialogClose();
+        } else {
+          setIsConnectToClientDialogOpen(true);
+        }
+      }}>
+        <DialogContent style={{ padding: '24px', maxWidth: '460px', height: isConnectSuccess ? '322px' : 'auto', gap: '12px' }} className="[&>button]:hidden" showCloseButton={false}>
+          <div className="flex flex-col h-full">
+            {!isConnectSuccess ? (
+              <>
+                <DialogTitle className="display-5-medium mb-3" style={{ color: 'var(--color-base-text-primary)' }}>Connect to a client</DialogTitle>
+                <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                  Use a connection code to link your workspace with a client who's already on Fiive
+                </DialogDescription>
+                <Form {...connectToClientForm}>
+                  <form onSubmit={connectToClientForm.handleSubmit(handleConnectToClientSubmit)} className="space-y-5 flex-1 flex flex-col">
+                    <div className="mt-5">
+                      <FormField
+                        control={connectToClientForm.control}
+                        name="connectionCode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium">Connection code</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="xxxx-xxxx-xxxx-xxxx-xxxx"
+                                className="h-10 px-4 py-2 text-sm"
+                              />
+                            </FormControl>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Ask your client to share the connection code in their admin settings
+                            </p>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-3 pt-2 mt-auto">
+                      <Button 
+                        type="button"
+                        variant="ghost" 
+                        onClick={handleConnectToClientDialogClose}
+                        style={{ height: '40px' }}
+                        className="cursor-pointer"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="submit"
+                        style={{ height: '40px' }}
+                        className="cursor-pointer relative"
+                        disabled={isConnecting}
+                      >
+                        <span className={isConnecting ? "invisible" : ""}>Continue</span>
+                        {isConnecting && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Spinner size={16} />
+                          </div>
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </>
+            ) : (
+              <div className="flex flex-col h-full">
+                <Avatar className="w-20 h-20 mt-2 mb-4">
+                  <AvatarImage src={connectedClientLogo} alt={connectedClientName} />
+                  <AvatarFallback 
+                    className="text-white text-lg font-medium"
+                    style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
+                  >
+                    {connectedClientName.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                
+                <DialogTitle className="display-5-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>Connected to {connectedClientName}</DialogTitle>
+                <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                  You can now collaborate through your shared workspace
+                </DialogDescription>
+                
+                <div className="flex-1"></div>
+                
+                <div className="flex justify-end pt-2 mt-auto">
+                  <Button 
+                    onClick={handleConnectToClientDialogClose}
+                    style={{ height: '40px' }}
+                    className="cursor-pointer"
+                  >
+                    Continue
+                  </Button>
+                </div>
               </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <Button 
-                  type="button"
-                  variant="ghost" 
-                  onClick={handleConnectToClientDialogClose}
-                  style={{ height: '40px' }}
-                  className="cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  type="submit"
-                  style={{ height: '40px' }}
-                  className="cursor-pointer"
-                >
-                  Continue
-                </Button>
-              </div>
-            </form>
-          </Form>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

@@ -43,7 +43,7 @@ function MemberActionsDropdown({
           variant="ghost"
           className={`p-0 cursor-pointer transition-colors duration-75 ${
             isDropdownOpen 
-              ? 'bg-[var(--color-interactive-surface-hover)] pointer-events-none' 
+              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]' 
               : 'hover:bg-[var(--color-interactive-surface-hover)]'
           }`}
           style={{ height: '32px', width: '32px' }}
@@ -90,7 +90,7 @@ function InvitationActionsDropdown({
           variant="ghost"
           className={`p-0 cursor-pointer transition-colors duration-75 ${
             isDropdownOpen 
-              ? 'bg-[var(--color-interactive-surface-hover)] pointer-events-none' 
+              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]' 
               : 'hover:bg-[var(--color-interactive-surface-hover)]'
           }`}
           style={{ height: '32px', width: '32px' }}

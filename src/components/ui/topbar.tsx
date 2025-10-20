@@ -173,7 +173,7 @@ const Topbar = memo(function Topbar({ user, profile, organization, variant = 'ag
                       size="icon"
                       className={`h-10 w-10 cursor-pointer transition-all duration-75 rounded-md ${
                         isHelpDropdownOpen 
-                          ? 'bg-interactive-surface-hover pointer-events-none' 
+                          ? 'bg-interactive-surface-hover hover:bg-interactive-surface-hover' 
                           : 'hover:bg-interactive-surface-hover'
                       }`}
                     >

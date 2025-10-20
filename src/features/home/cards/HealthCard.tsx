@@ -1,6 +1,8 @@
+import Link from 'next/link';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus } from '@phosphor-icons/react/dist/ssr';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Plus, ArrowRight } from '@phosphor-icons/react/dist/ssr';
 import type { StatsCardProps } from '../types';
 
 export default function HealthCard({ snapshot, context }: StatsCardProps) {
@@ -9,23 +11,25 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
   const description = isAgency 
     ? 'No clients yet. Add clients to start tracking their health and project status.'
     : 'No projects yet. Your agency manages projects. Add an agency to start collaborating on projects.';
-  const buttonText = isAgency ? 'Add client' : 'Add agency';
+  
+  // Check if user has any connections (agencies have clients, clients have agencies)
+  const hasConnections = snapshot.clients.total > 0;
 
   return (
-    <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
+    <Card className={`w-full h-full pt-5 px-5 flex flex-col gap-3 ${hasConnections ? 'pb-5' : 'pb-6'}`}>
       <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
         {title}
       </CardTitle>
       
       {isAgency ? (
         /* Agency: Health Status Rows */
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 mt-3">
           {/* Healthy */}
           <div className="flex items-center gap-4">
             <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></div>
             <div className="flex-1 flex items-center gap-4">
-              <span className="text-sm-regular text-primary flex-1">Healthy</span>
-              <span className="text-sm-regular text-primary flex-1">0</span>
+              <span className="text-sm-regular text-primary flex-[2]">Healthy</span>
+              <span className="text-sm-regular text-primary flex-1">{snapshot.health.healthy}</span>
             </div>
           </div>
           
@@ -33,8 +37,8 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
           <div className="flex items-center gap-4">
             <div className="w-2 h-2 rounded-full bg-yellow-500 flex-shrink-0"></div>
             <div className="flex-1 flex items-center gap-4">
-              <span className="text-sm-regular text-primary flex-1">At risk</span>
-              <span className="text-sm-regular text-primary flex-1">0</span>
+              <span className="text-sm-regular text-primary flex-[2]">At risk</span>
+              <span className="text-sm-regular text-primary flex-1">{snapshot.health.atRisk}</span>
             </div>
           </div>
           
@@ -42,8 +46,8 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
           <div className="flex items-center gap-4">
             <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></div>
             <div className="flex-1 flex items-center gap-4">
-              <span className="text-sm-regular text-primary flex-1">Critical</span>
-              <span className="text-sm-regular text-primary flex-1">0</span>
+              <span className="text-sm-regular text-primary flex-[2]">Critical</span>
+              <span className="text-sm-regular text-primary flex-1">{snapshot.health.critical}</span>
             </div>
           </div>
           
@@ -51,28 +55,66 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
           <div className="flex items-center gap-4">
             <div className="w-2 h-2 rounded-full bg-gray-500 flex-shrink-0"></div>
             <div className="flex-1 flex items-center gap-4">
-              <span className="text-sm-regular text-primary flex-1">Unassigned</span>
-              <span className="text-sm-regular text-primary flex-1">0</span>
+              <span className="text-sm-regular text-primary flex-[2]">Unassigned</span>
+              <span className="text-sm-regular text-primary flex-1">{snapshot.health.unassigned}</span>
             </div>
           </div>
         </div>
       ) : (
-        /* Client: Simple Description */
-        <p className="text-xs-regular text-tertiary">
-          {description}
-        </p>
+        /* Client: Agency Preview List */
+        snapshot.agencies.length > 0 ? (
+          <div className="flex flex-col gap-4 mt-3">
+            {snapshot.agencies.map((agency) => (
+              <div key={agency.id} className="flex items-center gap-4">
+                <Avatar className="w-6 h-6 flex-shrink-0" style={{ width: '24px', height: '24px' }}>
+                  <AvatarImage src={agency.logo} alt={agency.name} />
+                  <AvatarFallback 
+                    className="text-white text-xs font-medium"
+                    style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
+                  >
+                    {agency.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 flex items-center gap-4">
+                  <span className="text-sm-regular text-primary flex-[2] truncate">{agency.name}</span>
+                  <span className="text-sm-regular text-primary flex-1">{agency.projectCount}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* Empty state description */
+          <p className="text-xs-regular text-tertiary">
+            {description}
+          </p>
+        )
       )}
       
       {/* Button */}
       <div className="mt-auto flex justify-end">
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="h-6 shadow-none cursor-pointer transition-all duration-75"
-        >
-          <Plus size={16} weight="regular" />
-          {buttonText}
-        </Button>
+        {hasConnections ? (
+          /* Ghost button with nav when there are connections */
+          <Link href={isAgency ? '/clients' : '/agencies'} className="ml-auto">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto p-2 text-xs-bold cursor-pointer back-button hover:bg-interactive-surface-hover transition-all duration-75"
+            >
+              <span className="mr-1">{isAgency ? 'View all clients' : 'View all agencies'}</span>
+              <ArrowRight size={16} weight="regular" />
+            </Button>
+          </Link>
+        ) : (
+          /* Outline button to add when no connections */
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-6 shadow-none cursor-pointer transition-all duration-75"
+          >
+            <Plus size={16} weight="regular" />
+            {isAgency ? 'Add client' : 'Add agency'}
+          </Button>
+        )}
       </div>
     </Card>
   );

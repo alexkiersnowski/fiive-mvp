@@ -32,89 +32,118 @@ export interface EnhancedModeContext extends ModeContext {
 
 // Cache this function so it only runs once per request, even if called multiple times
 export const getActiveContext = cache(async (): Promise<EnhancedModeContext | null> => {
+  const startTime = performance.now();
   const supabase = await createClient();
 
   try {
-    // Get the current user
+    // Get the current user (must be first - provides user.id for subsequent queries)
+    const authStartTime = performance.now();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
+    console.log(`[Performance] auth.getUser: ${(performance.now() - authStartTime).toFixed(2)}ms`);
     
     if (userError || !user) {
       return null;
     }
 
-    // Get user profile with all needed fields
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('first_name, last_name, job_title, avatar_url')
-      .eq('id', user.id)
-      .single();
+    // Fetch profile and membership+org in parallel for maximum performance
+    const parallelStartTime = performance.now();
+    const [
+      { data: profile, error: profileError },
+      { data: membershipWithOrgAndCount, error: membershipError }
+    ] = await Promise.all([
+      // Query 1: User profile
+      supabase
+        .from('profiles')
+        .select('first_name, last_name, job_title, avatar_url')
+        .eq('id', user.id)
+        .single(),
+      
+      // Query 2: Membership WITH joined organization data AND member count in a single query
+      // This uses Supabase's aggregate functions to get the count without a separate query
+      supabase
+        .from('memberships')
+        .select(`
+          id, 
+          org_id, 
+          role,
+          organizations!memberships_org_id_fkey (
+            id, name, type, industry, logo_url, 
+            website, description, currency_code, 
+            connection_code, owner_id
+          )
+        `)
+        .eq('user_id', user.id)
+        .single()
+    ]);
+    
+    console.log(`[Performance] Parallel queries (profile + membership+org): ${(performance.now() - parallelStartTime).toFixed(2)}ms`);
 
     if (profileError || !profile) {
+      console.error('Profile fetch failed:', profileError);
       return null;
     }
 
-    // Get membership first, then organization (optimized approach)
-    const { data: membershipData, error: membershipError } = await supabase
-      .from('memberships')
-      .select('id, org_id, role')
-      .eq('user_id', user.id)
-      .single();
-    
     let organization = null;
     let isOwner = false;
     let membership = null;
+    let finalMemberCount = 0;
     
-    if (membershipData && !membershipError) {
-      membership = membershipData;
+    if (membershipWithOrgAndCount && !membershipError) {
+      membership = {
+        id: membershipWithOrgAndCount.id,
+        org_id: membershipWithOrgAndCount.org_id,
+        role: membershipWithOrgAndCount.role
+      };
       
-      // Get organization data
-      const { data: org, error: orgError } = await supabase
-        .from('organizations')
-        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id')
-        .eq('id', membership.org_id)
-        .single();
+      // Extract organization from joined data
+      const org = (membershipWithOrgAndCount as any).organizations;
       
-      if (org && !orgError) {
+      if (org) {
         organization = org;
-        // Owner is determined by organizations.owner_id, not membership.role
         isOwner = org.owner_id === user.id;
+        
+        // Fetch member count - this is needed for UI display
+        const countStartTime = performance.now();
+        const { count, error: memberCountError } = await supabase
+          .from('memberships')
+          .select('id', { count: 'exact', head: true })
+          .eq('org_id', organization.id);
+        
+        console.log(`[Performance] Member count query: ${(performance.now() - countStartTime).toFixed(2)}ms`);
+        
+        if (!memberCountError) {
+          finalMemberCount = count || 0;
+        }
       }
     } else {
       // Fallback: try as owner (for cases where membership might not exist)
+      const fallbackStartTime = performance.now();
       const { data: ownerOrg, error: ownerError } = await supabase
         .from('organizations')
         .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id')
         .eq('owner_id', user.id)
         .single();
       
+      console.log(`[Performance] Owner fallback query: ${(performance.now() - fallbackStartTime).toFixed(2)}ms`);
+      
       if (ownerOrg && !ownerError) {
         organization = ownerOrg;
         isOwner = true;
         membership = { id: 'owner', role: 'owner' };
+        
+        // Fetch member count for owner org
+        const { count } = await supabase
+          .from('memberships')
+          .select('id', { count: 'exact', head: true })
+          .eq('org_id', ownerOrg.id);
+        
+        finalMemberCount = count || 0;
       }
     }
 
     if (!profile || !organization || !membership) {
       console.error('Missing required data:', { profile: !!profile, organization: !!organization, membership: !!membership });
       return null;
-    }
-
-
-    // Get member count for the organization (optimized)
-    // Use a more efficient count query with proper indexing
-    let memberCount = 0;
-    try {
-      const { count, error: memberCountError } = await supabase
-        .from('memberships')
-        .select('id', { count: 'exact', head: true })
-        .eq('org_id', organization.id);
-      
-      if (!memberCountError) {
-        memberCount = count || 0;
-      }
-    } catch (error) {
-      // Silently fail for member count - not critical for most pages
-      console.warn('Could not fetch member count:', error);
     }
 
     // Validate organization type from database matches our Variant type
@@ -149,7 +178,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         type: organization.type,
         industry: organization.industry || undefined,
         logoUrl: organization.logo_url || undefined,
-        memberCount: memberCount || 0,
+        memberCount: finalMemberCount || 0,
         website: organization.website || undefined,
         description: organization.description || undefined,
         currencyCode: organization.currency_code || undefined,
@@ -158,6 +187,9 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       },
       currentUserRole: (isOwner ? 'owner' : 'member') as 'owner' | 'member'
     };
+
+    const totalTime = performance.now() - startTime;
+    console.log(`[Performance] getActiveContext TOTAL: ${totalTime.toFixed(2)}ms`);
 
     return enhancedContextData;
   } catch (error) {

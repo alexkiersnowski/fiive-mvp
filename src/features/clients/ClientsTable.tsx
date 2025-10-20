@@ -5,7 +5,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ListRow } from '@/components/ui/list-row';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { Circle, DotsThree, Link } from '@phosphor-icons/react/ssr';
+import { Circle, DotsThree, Link, Plus } from '@phosphor-icons/react/ssr';
+import { StatusBadge } from '@/components/ui/connection-badge';
 import type { Client } from './types';
 
 // Style constants to prevent object recreation on each render
@@ -80,21 +81,27 @@ interface ClientsTableProps {
   isLoading?: boolean;
   hasNextPage?: boolean;
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
+  onAddClient?: () => void;
 }
 
 // Extract column components for better readability and reusability
 const ConnectionCell = React.memo(function ConnectionCell({ client }: { client: Client }) {
-  const isConnected = client.status === 'active' || client.status === 'onboarding';
+  // Map connection_status to badge variant
+  const getVariant = (status: string): "connected" | "invited" | "disconnected" | "draft" => {
+    if (status === 'connected') return 'connected';
+    if (status === 'invited') return 'invited';
+    if (status === 'disconnected') return 'disconnected';
+    return 'draft';
+  };
   
   return (
     <TableCell className="py-0 w-10">
       <div className="w-4 h-4 flex items-center justify-center">
-        <Badge 
-          className="w-4 h-4 p-0 flex items-center justify-center"
-          style={isConnected ? STYLES.connectedBadge : STYLES.disconnectedBadge}
-        >
-          <Circle weight="fill" size={6} style={{ width: '0.375rem', height: '0.375rem' }} />
-        </Badge>
+        <StatusBadge 
+          variant={getVariant(client.status)}
+          className="w-4 h-4 p-0"
+          showTooltip={true}
+        />
       </div>
     </TableCell>
   );
@@ -122,21 +129,29 @@ const ClientCell = React.memo(function ClientCell({ client }: { client: Client }
 });
 
 const AccountManagerCell = React.memo(function AccountManagerCell({ client }: { client: Client }) {
+  const isUnassigned = client.accountManager.name === 'Unassigned';
+  
   return (
     <TableCell className="py-0 w-[18.75%] pl-4">
-      <ListRow
-        avatar={true}
-        avatarUrl={client.accountManager.avatar}
-        text={client.accountManager.name}
-        actions={false}
-        variant="stacked"
-      />
+      {isUnassigned ? (
+        <span className="text-sm-regular" style={STYLES.tertiaryText}>
+          Unassigned
+        </span>
+      ) : (
+        <ListRow
+          avatar={true}
+          avatarUrl={client.accountManager.avatar}
+          text={client.accountManager.name}
+          actions={false}
+          variant="stacked"
+        />
+      )}
     </TableCell>
   );
 });
 
 const StatusCell = React.memo(function StatusCell({ client }: { client: Client }) {
-  const hasStatus = client.status && client.status !== 'draft';
+  const hasStatus = client.badge && client.badge !== '';
   
   return (
     <TableCell className="py-0 w-[18.75%]">
@@ -147,7 +162,7 @@ const StatusCell = React.memo(function StatusCell({ client }: { client: Client }
           style={STYLES.statusBadge}
         >
           <span style={STYLES.statusText}>
-            {client.status.charAt(0).toUpperCase() + client.status.slice(1)}
+            {client.badge}
           </span>
         </Badge>
       ) : (
@@ -207,7 +222,7 @@ const ActionsCell = React.memo(function ActionsCell({ client }: { client: Client
             variant="ghost"
             className={`p-0 cursor-pointer transition-colors duration-75 ${
               isDropdownOpen 
-                ? 'bg-[var(--color-interactive-surface-hover)] pointer-events-none' 
+                ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]' 
                 : 'hover:bg-[var(--color-interactive-surface-hover)]'
             }`}
             style={{ height: '32px', width: '32px' }}
@@ -246,13 +261,38 @@ const ClientRow = React.memo(function ClientRow({ client }: { client: Client }) 
   );
 });
 
-export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabetical', isLoading = false, hasNextPage = false, onScroll }: ClientsTableProps) {
-  // Server handles all sorting, so we just use the clients as-is
-  const sortedClients = clients;
+export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabetical', isLoading = false, hasNextPage = false, onScroll, onAddClient }: ClientsTableProps) {
+  // Client-side filtering for search
+  const filteredClients = React.useMemo(() => {
+    if (!searchValue.trim()) {
+      return clients;
+    }
+
+    const query = searchValue.toLowerCase().trim();
+    const searchTerms = query.split(' ').filter(term => term.length > 0);
+    
+    return clients.filter(client => {
+      if (searchTerms.length === 0) return true;
+      
+      // Create searchable text for the crucial fields: Client name, Account manager name, Status, Health
+      const searchableText = [
+        client.name.toLowerCase(),
+        client.accountManager.name.toLowerCase(),
+        client.status.toLowerCase(),
+        client.health.toLowerCase()
+      ].join(' ');
+      
+      // Check if all search terms are present
+      return searchTerms.every(term => searchableText.includes(term));
+    });
+  }, [clients, searchValue]);
+
+  // Server handles all sorting, so we just use the filtered clients as-is
+  const sortedClients = filteredClients;
 
   return (
     <div 
-      className="rounded-md border overflow-y-auto" 
+      className={`rounded-md border ${sortedClients.length > 0 ? 'overflow-y-auto' : 'overflow-hidden'}`}
       style={STYLES.tableContainer}
       onScroll={onScroll}
     >
@@ -322,17 +362,55 @@ export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabeti
             </TableRow>
           )}
           
-          {/* No results */}
-          {sortedClients.length === 0 && !isLoading && (
+          {/* Empty state - no clients at all */}
+          {clients.length === 0 && !isLoading && (
             <TableRow 
-              className="h-11 hover:bg-transparent"
+              className="hover:bg-transparent"
               style={{ 
                 backgroundColor: 'var(--color-base-surface-page-background)', 
-                borderBottomColor: 'var(--color-neutral-5)' 
+                borderBottomColor: 'var(--color-neutral-5)',
+                height: '100%'
               }}
             >
-              <TableCell colSpan={7} className="h-24 text-center">
-                No results.
+              <TableCell colSpan={7} className="text-left" style={{ height: 'calc(100vh - 200px)', minHeight: '400px', paddingLeft: '120px' }}>
+                <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                  <div className="flex flex-col items-start gap-2">
+                    <h2 className="display-8-medium">Your best work starts here</h2>
+                    <span className="text-sm-regular text-neutral-11">Add your first client and start creating connections that drive success</span>
+                  </div>
+                  {onAddClient && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+                      onClick={onAddClient}
+                    >
+                      <Plus size={16} weight="regular" />
+                      Add client
+                    </Button>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
+
+          {/* No search results */}
+          {clients.length > 0 && sortedClients.length === 0 && !isLoading && (
+            <TableRow 
+              className="hover:bg-transparent"
+              style={{ 
+                backgroundColor: 'var(--color-base-surface-page-background)', 
+                borderBottomColor: 'var(--color-neutral-5)',
+                height: '100%'
+              }}
+            >
+              <TableCell colSpan={7} className="text-left" style={{ height: 'calc(100vh - 200px)', minHeight: '400px', paddingLeft: '120px' }}>
+                <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                  <div className="flex flex-col items-start gap-2">
+                    <h2 className="display-8-medium">No results</h2>
+                    <span className="text-sm-regular text-neutral-11">No clients match your search criteria</span>
+                  </div>
+                </div>
               </TableCell>
             </TableRow>
           )}

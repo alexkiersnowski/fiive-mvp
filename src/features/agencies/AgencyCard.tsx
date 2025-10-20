@@ -2,6 +2,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ListRow } from '@/components/ui/list-row';
 import { StatusBadge, StatusVariant } from '@/components/ui/connection-badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { User } from '@phosphor-icons/react';
 
 interface AgencyCardProps {
   agencyName: string;
@@ -40,7 +42,7 @@ export function AgencyCard({
         {/* Connection Badge - Top Right */}
         {status && (
           <div className="absolute top-5 right-5">
-            <StatusBadge variant={status} />
+            <StatusBadge variant={status} showText={true} />
           </div>
         )}
         
@@ -68,13 +70,42 @@ export function AgencyCard({
           </div>
           {accountManager && (
             <div className="flex-shrink-0">
-              <ListRow
-                avatar={true}
-                avatarUrl={accountManager.avatarUrl}
-                text={accountManager.name}
-                actions={false}
-                variant="stacked"
-              />
+              {accountManager.name === 'Unassigned' ? (
+                <Tooltip delayDuration={400}>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center p-1" style={{ borderRadius: 'calc(var(--radius) - 2px)' }}>
+                      <div className="flex-shrink-0 mr-3">
+                        <div 
+                          className="rounded-full flex items-center justify-center"
+                          style={{ 
+                            width: '24px', 
+                            height: '24px',
+                            background: 'var(--color-neutral-9, #8B8D98)'
+                          }}
+                        >
+                          <User size={16} weight="fill" className="text-white" />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0 flex flex-col">
+                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
+                          {accountManager.name}
+                        </span>
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    <p>Agency Account Manager</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <ListRow
+                  avatar={true}
+                  avatarUrl={accountManager.avatarUrl}
+                  text={accountManager.name}
+                  actions={false}
+                  variant="stacked"
+                />
+              )}
             </div>
           )}
         </div>

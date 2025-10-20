@@ -30,13 +30,13 @@ export default function AvatarButton({
       variant="ghost" 
       size="icon" 
       onClick={onClick}
-      className={`h-10 w-10 p-1 ${isActive ? 'bg-[var(--color-interactive-surface-hover)]' : 'hover:bg-[var(--color-interactive-surface-hover)]'} cursor-pointer transition-all duration-75 ${className}`}
+      className={`h-10 w-10 p-1 ${
+        isActive 
+          ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]' 
+          : 'hover:bg-[var(--color-interactive-surface-hover)]'
+      } cursor-pointer transition-all duration-75 ${className}`}
       style={{ 
-        borderRadius,
-        ...(isActive && { 
-          backgroundColor: 'var(--color-interactive-surface-hover)',
-          pointerEvents: 'none'
-        })
+        borderRadius
       }}
     >
       <Avatar className={`h-6 w-6 ${isWorkspace ? '' : 'rounded-full'}`} style={{ borderRadius }}>

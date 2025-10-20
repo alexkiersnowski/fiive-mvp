@@ -3,6 +3,8 @@ import { getHomeSnapshot } from '@/features/home/loaders';
 import { homeCardRegistry } from '@/features/home/registry';
 
 export default async function DashboardHome() {
+  const pageStartTime = performance.now();
+  
   const context = await getActiveContext();
 
   if (!context) {
@@ -14,8 +16,13 @@ export default async function DashboardHome() {
     : "Here's what's happening across your agencies";
 
   // Await all data on the server for instant rendering
+  const snapshotStartTime = performance.now();
   const snapshot = await getHomeSnapshot(context);
+  console.log(`[Performance] getHomeSnapshot: ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
+  
   const cards = homeCardRegistry(context);
+  
+  console.log(`[Performance] DashboardHome TOTAL: ${(performance.now() - pageStartTime).toFixed(2)}ms`);
 
   return (
     <div style={{ padding: '24px 16px 24px 24px' }}>
