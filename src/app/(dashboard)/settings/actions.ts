@@ -51,6 +51,7 @@ function checkRateLimit(userId: string, action: keyof typeof RATE_LIMITS): { all
 }
 
 // Helper types and utilities
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ActionResult<T = any> = {
   ok: boolean
   data?: T

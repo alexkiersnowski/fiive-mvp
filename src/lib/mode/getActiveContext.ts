@@ -96,6 +96,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       };
       
       // Extract organization from joined data
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const org = (membershipWithOrgAndCount as any).organizations;
       
       if (org) {

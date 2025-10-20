@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   const verifyType: EmailOtpType =
     (rawType === 'invite' ? 'signup' : rawType) as EmailOtpType
 
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,

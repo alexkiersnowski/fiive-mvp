@@ -4,7 +4,7 @@ import NavItem from './nav-item'
 import { Button } from './button'
 import { Alert, AlertDescription } from './alert'
 import { Badge } from './badge'
-import { SquaresFour, Users, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, CreditCard, BuildingOffice, UsersThree, User, Shield } from '@phosphor-icons/react'
+import { SquaresFour, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, CreditCard, BuildingOffice, UsersThree, User, Shield } from '@phosphor-icons/react'
 import { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 import { useRouter } from 'next/navigation'
@@ -150,7 +150,7 @@ const SidebarComponent = memo(function SidebarComponent({
     }
     
     return baseItems
-  }, [selectedItem, currentUserRole])
+  }, [selectedItem, currentUserRole, capabilities?.canSeeClients])
 
   // Determine which secondary nav items to show based on current path
   const secondaryNavItems = useMemo(() => {

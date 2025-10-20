@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, KeyboardEvent } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+// import { Input } from '@/components/ui/input'
 import { X } from 'lucide-react'
 
 interface EmailChip {

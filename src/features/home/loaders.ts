@@ -7,7 +7,7 @@ import { getAgenciesSnapshot } from '@/features/agencies/server';
 export const getHomeSnapshot = cache(async (context: EnhancedModeContext): Promise<HomeSnapshot> => {
   // Get actual connection count and health data based on user type
   let connectionCount = 0;
-  let healthCounts = {
+  const healthCounts = {
     healthy: 0,
     atRisk: 0,
     critical: 0,

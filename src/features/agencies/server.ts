@@ -41,14 +41,14 @@ export const getAgenciesSnapshot = cache(async (
   
   // Transform connections to Agency format
   const allAgencies: Agency[] = (connections || []).map(conn => {
-    const org = conn.organizations as any;
+    const org = conn.organizations as { name?: string; logo_url?: string; industry?: string } | null;
     
     return {
       id: conn.id,
       name: org?.name || 'Unknown Agency',
       logo: org?.logo_url,
       industry: org?.industry,
-      status: conn.connection_status as any || 'draft',
+      status: (conn.connection_status as "connected" | "invited" | "disconnected" | "draft") || 'draft',
       accountManager: conn.agency_primary_contact_id
         ? { name: 'Loading...', avatar: undefined } // TODO: Fetch from profiles when RLS allows
         : { name: 'Unassigned', avatar: undefined }

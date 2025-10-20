@@ -40,7 +40,7 @@ function generateMockData(): Client[] {
       id: `${clientId}`,
       name: `Client ${String(clientId).padStart(3, '0')}`, // Client 001, Client 002, etc.
       logo: undefined,
-      status: ["draft", "onboarding", "active", "offboarded"][clientId % 4] as any,
+      status: (["draft", "onboarding", "active", "offboarded"] as const)[clientId % 4],
       accountManager: { 
         name: `Manager ${String(Math.floor(i / 10) + 1).padStart(2, '0')}`,
         avatar: undefined
@@ -51,7 +51,7 @@ function generateMockData(): Client[] {
         if (clientId <= 10) return "critical";
         if (clientId <= 20) return "at-risk";
         if (clientId <= 30) return "healthy";
-        return ["critical", "at-risk", "healthy", "unassigned"][clientId % 4] as any;
+        return (["critical", "at-risk", "healthy", "unassigned"] as const)[clientId % 4];
       })(),
       badge: ["Draft", "Onboarding", "Active", "Offboarded"][clientId % 4]
     };
@@ -102,13 +102,13 @@ export const getClientsSnapshot = cache(async (
   
   // Transform connections to Client format
   const allClients: Client[] = (connections || []).map(conn => {
-    const org = conn.organizations as any;
+    const org = conn.organizations as { name?: string; logo_url?: string } | null;
     
     return {
       id: conn.id,
       name: org?.name || 'Unknown Client',
       logo: org?.logo_url,
-      status: conn.connection_status as any || 'draft', // Used for connection badge color
+      status: (conn.connection_status as "draft" | "onboarding" | "active" | "offboarded") || 'draft', // Used for connection badge color
       accountManager: conn.agency_primary_contact_id
         ? { name: 'Loading...', avatar: undefined } // TODO: Fetch from profiles when RLS allows
         : { name: 'Unassigned', avatar: undefined },

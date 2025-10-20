@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useTransition, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Plus, Check, Link } from '@phosphor-icons/react/ssr';
+import { Plus, Link } from '@phosphor-icons/react/ssr';
 import { SearchInput } from '@/components/ui/search-input';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { RadioCards, RadioCard } from '@/components/ui/radio-cards';
@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { AgenciesSnapshot } from '@/features/agencies/types';
-import { createNewAgency, connectToExistingAgency, refreshAgenciesData } from '@/features/agencies/actions';
+import { connectToExistingAgency, refreshAgenciesData } from '@/features/agencies/actions';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';

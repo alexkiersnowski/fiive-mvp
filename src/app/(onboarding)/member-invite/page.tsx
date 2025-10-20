@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation"
+// import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { handleMemberInviteCompletion } from '../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
@@ -52,11 +52,26 @@ export default async function MemberInvitePage({ searchParams }: MemberInvitePag
     }
   }
   
+  // Typed submit wrapper: only accept profile form shape
+  const handleSubmit = async (data: unknown) => {
+    if (
+      typeof data === 'object' &&
+      data !== null &&
+      'firstName' in data &&
+      'lastName' in data
+    ) {
+      const typed = data as { firstName: string; lastName: string; jobTitle?: string }
+      await handleMemberInviteCompletion(typed)
+    } else {
+      throw new Error('Invalid data submitted to member invite completion')
+    }
+  }
+  
   return (
     <OnboardingLayout
       title={`${organizationName} has invited you to join their team`}
       buttonText="Join team"
-      onSubmit={handleMemberInviteCompletion as any}
+      onSubmit={handleSubmit}
       showForm={true}
       formType="profile"
       showBackButton={false}

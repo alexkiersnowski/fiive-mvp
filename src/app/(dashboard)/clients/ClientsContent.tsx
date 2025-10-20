@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Plus, SortAscending, CaretDown, Check, Link } from '@phosphor-icons/react/ssr';
 import { SearchInput } from '@/components/ui/search-input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { RadioCards, RadioCard, AgencyIcon, ClientIcon } from '@/components/ui/radio-cards';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { RadioCards, RadioCard } from '@/components/ui/radio-cards';
 import { Form, FormControl, FormField, FormItem, FormMessage, FormLabel } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -328,7 +328,7 @@ export function ClientsContent({
                             Add a new client
                           </h3>
                           <p className="text-sm-regular text-left" style={{ color: 'var(--color-base-text-secondary)' }}>
-                            Your client isn't on Fiive. Create a shared workspace and invite them when ready.
+                            Your client isn&apos;t on Fiive. Create a shared workspace and invite them when ready.
                           </p>
                         </RadioCard>
                         <RadioCard value="client" icon={<Link size={24} weight="regular" />}>
@@ -433,7 +433,7 @@ export function ClientsContent({
               <>
                 <DialogTitle className="display-5-medium mb-3" style={{ color: 'var(--color-base-text-primary)' }}>Connect to a client</DialogTitle>
                 <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-                  Use a connection code to link your workspace with a client who's already on Fiive
+                  Use a connection code to link your workspace with a client who&apos;s already on Fiive
                 </DialogDescription>
                 <Form {...connectToClientForm}>
                   <form onSubmit={connectToClientForm.handleSubmit(handleConnectToClientSubmit)} className="space-y-5 flex-1 flex flex-col">
