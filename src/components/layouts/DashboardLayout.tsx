@@ -15,9 +15,16 @@ interface DashboardLayoutProps {
 
 export default function DashboardLayout({ data, context, children, initialIsCollapsed }: DashboardLayoutProps) {
   const pathname = usePathname()
-  const selectedItem = pathname.split('/').pop() || 'home'
+  // Primary nav selection should stick to top-level sections
+  // e.g. /clients/[id]/requests should still select 'clients'
+  const selectedItem =
+    pathname.startsWith('/clients') ? 'clients' :
+    pathname.startsWith('/agencies') ? 'agencies' :
+    pathname.startsWith('/settings') ? 'settings' :
+    pathname.startsWith('/home') ? 'home' :
+    pathname.split('/')[1] || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
-  const isFullWidthPage = ['/home', '/clients', '/agencies'].includes(pathname)
+  const isFullWidthPage = ['/home', '/clients', '/agencies'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/')
   const isSettingsPage = pathname.startsWith('/settings')
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
   

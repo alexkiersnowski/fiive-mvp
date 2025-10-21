@@ -277,6 +277,7 @@ export function AgenciesContent({
             {filteredAgencies.map((agency) => (
               <AgencyCard
                 key={agency.id}
+                agencyId={agency.id}
                 agencyName={agency.name}
                 agencyType={agency.industry}
                 avatarUrl={agency.logo}

@@ -46,6 +46,8 @@
   --color-interactive-surface-selected: rgba(0, 0, 45, 0.09);
   --color-interactive-surface-hover: rgba(0, 0, 51, 0.06);
   --color-interactive-surface-pressed: rgba(0, 9, 50, 0.12);
+  --color-interactive-neutral-default: #1c2024;
+  --color-interactive-neutral-hover: #44474f;
 
   /* Slate (Neutral) Colors */
   --color-slate-1: #fcfcfd;
@@ -646,6 +648,10 @@
   .text-nav-regular {
     font: var(--typography-text-nav-regular);
     letter-spacing: var(--typography-text-nav-letter-spacing);
+  }
+
+  .text-secondary {
+    color: var(--color-base-text-secondary) !important;
   }
 
   .text-tertiary {

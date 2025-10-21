@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -7,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Button } from '@/components/ui/button';
 import { Circle, DotsThree, Link, Plus } from '@phosphor-icons/react/ssr';
 import { StatusBadge } from '@/components/ui/connection-badge';
+import { EngagementBadge } from '@/components/ui/engagement-badge';
 import type { Client } from './types';
 
 // Style constants to prevent object recreation on each render
@@ -32,15 +34,6 @@ const STYLES = {
   },
   tertiaryText: {
     color: 'var(--color-base-text-tertiary)'
-  },
-  statusBadge: {
-    borderRadius: 'var(--radius-1-max, 3px)',
-    backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-    border: 'none',
-    cursor: 'default'
-  },
-  statusText: {
-    color: 'var(--color-neutral-11, #44474f)'
   },
   healthBadge: {
     borderRadius: 'var(--radius-1-max, 3px)',
@@ -153,18 +146,25 @@ const AccountManagerCell = React.memo(function AccountManagerCell({ client }: { 
 const StatusCell = React.memo(function StatusCell({ client }: { client: Client }) {
   const hasStatus = client.badge && client.badge !== '';
   
+  // Map engagement status string to badge variant
+  const getEngagementVariant = (status: string): "onboarding" | "active" | "paused" | "offboarded" => {
+    const normalized = status.toLowerCase();
+    if (normalized === 'onboarding') return 'onboarding';
+    if (normalized === 'active') return 'active';
+    if (normalized === 'paused') return 'paused';
+    if (normalized === 'offboarded' || normalized === 'draft') return 'offboarded';
+    return 'offboarded'; // Default fallback
+  };
+  
   return (
     <TableCell className="py-0 w-[18.75%]">
       {hasStatus ? (
-        <Badge 
-          variant="outline" 
-          className="text-xs border-0"
-          style={STYLES.statusBadge}
-        >
-          <span style={STYLES.statusText}>
-            {client.badge}
-          </span>
-        </Badge>
+        <EngagementBadge 
+          variant={getEngagementVariant(client.badge!)}
+          size="sm"
+          showText={true}
+          neutral={true}
+        />
       ) : (
         <span className="text-sm-regular" style={STYLES.tertiaryText}>
           No status
@@ -215,7 +215,7 @@ const ActionsCell = React.memo(function ActionsCell({ client }: { client: Client
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   return (
-    <TableCell className="py-0 w-auto">
+    <TableCell className="py-0 w-auto" onClick={(e) => e.stopPropagation()}>
       <DropdownMenu modal={false} open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
         <DropdownMenuTrigger asChild>
           <Button
@@ -242,6 +242,12 @@ const ActionsCell = React.memo(function ActionsCell({ client }: { client: Client
 });
 
 const ClientRow = React.memo(function ClientRow({ client }: { client: Client }) {
+  const router = useRouter();
+  
+  const handleRowClick = () => {
+    router.push(`/clients/${client.id}/overview`);
+  };
+
   return (
     <TableRow 
       key={client.id} 
@@ -249,6 +255,7 @@ const ClientRow = React.memo(function ClientRow({ client }: { client: Client }) 
       style={STYLES.rowStyle}
       onMouseEnter={handleRowMouseEnter}
       onMouseLeave={handleRowMouseLeave}
+      onClick={handleRowClick}
     >
       <ConnectionCell client={client} />
       <ClientCell client={client} />

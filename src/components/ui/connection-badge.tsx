@@ -5,9 +5,11 @@ import { Circle } from "@phosphor-icons/react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 
 export type StatusVariant = "connected" | "invited" | "disconnected" | "draft"
+export type BadgeSize = "sm" | "lg"
 
 interface StatusBadgeProps {
   variant: StatusVariant
+  size?: BadgeSize
   className?: string
   children?: React.ReactNode
   showTooltip?: boolean
@@ -55,17 +57,27 @@ const tooltipLabels = {
   draft: "Draft"
 }
 
-export function StatusBadge({ variant, className, showTooltip = false, showText = false }: StatusBadgeProps) {
+export function StatusBadge({ variant, size = "sm", className, showTooltip = false, showText = false }: StatusBadgeProps) {
   const badgeStyles = statusStyles[variant]
   const circleStyles = iconStyles[variant]
+
+  // Size-specific styles
+  const sizeStyles = size === "lg" 
+    ? { paddingTop: '6px', paddingBottom: '6px', paddingLeft: '12px', paddingRight: '12px' }
+    : {}
+  
+  const textClass = size === "lg" ? "text-sm-medium" : "text-xs"
+  const iconSize = size === "lg" ? 12 : 6
+  const iconWidth = size === "lg" ? '0.625rem' : '0.5rem'
+  const iconHeight = size === "lg" ? '0.625rem' : '0.5rem'
 
   const badge = (
     <Badge
       variant="outline"
-      className={cn("text-xs border-0 flex items-center justify-center gap-1.5", className)}
-      style={badgeStyles}
+      className={cn(textClass, "border-0 flex items-center justify-center gap-1.5", className)}
+      style={{ ...badgeStyles, ...sizeStyles }}
     >
-      <Circle weight="fill" size={6} style={{ width: '0.375rem', height: '0.375rem', ...circleStyles }} />
+      <Circle weight="fill" size={iconSize} style={{ width: iconWidth, height: iconHeight, ...circleStyles }} />
       {showText && (
         <span style={{ color: circleStyles.color }}>
           {tooltipLabels[variant]}

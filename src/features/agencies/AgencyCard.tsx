@@ -4,8 +4,10 @@ import { ListRow } from '@/components/ui/list-row';
 import { StatusBadge, StatusVariant } from '@/components/ui/connection-badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { User } from '@phosphor-icons/react';
+import { useRouter } from 'next/navigation';
 
 interface AgencyCardProps {
+  agencyId: string;
   agencyName: string;
   agencyType?: string;
   avatarUrl?: string;
@@ -18,6 +20,7 @@ interface AgencyCardProps {
 }
 
 export function AgencyCard({ 
+  agencyId,
   agencyName, 
   agencyType,
   avatarUrl, 
@@ -25,6 +28,12 @@ export function AgencyCard({
   status,
   accountManager
 }: AgencyCardProps) {
+  const router = useRouter();
+  
+  const handleCardClick = () => {
+    router.push(`/agencies/${agencyId}/overview`);
+  };
+
   return (
     <Card 
       className="relative h-45 cursor-pointer transition-colors duration-75"
@@ -37,6 +46,7 @@ export function AgencyCard({
       onMouseLeave={(e) => {
         e.currentTarget.style.backgroundColor = 'var(--color-base-surface-page-background)';
       }}
+      onClick={handleCardClick}
     >
       <CardContent className="py-5 px-5 h-full">
         {/* Connection Badge - Top Right */}
