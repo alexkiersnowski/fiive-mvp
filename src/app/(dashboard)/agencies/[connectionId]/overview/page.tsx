@@ -1,4 +1,4 @@
-import { OverviewPage } from '@/features/connection/pages/OverviewPage';
+import { OverviewPage } from '@/features/connections/pages/OverviewPage';
 
 export default function AgencyOverviewPage() {
   return <OverviewPage />;

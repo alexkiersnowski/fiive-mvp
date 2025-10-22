@@ -1,4 +1,4 @@
-import { RequestsPage } from '@/features/connection/pages/RequestsPage';
+import { RequestsPage } from '@/features/connections/pages/RequestsPage';
 
 export default function AgencyRequestsPage() {
   return <RequestsPage />;

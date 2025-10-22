@@ -32,7 +32,7 @@ export default function AboutCard() {
     return () => window.removeEventListener('resize', checkTruncation);
   }, [description]);
   return (
-    <Card className="w-full h-full min-h-[228px] pt-5 pb-5 px-5 flex flex-col gap-3">
+    <Card className="w-full h-full min-h-[232px] pt-5 pb-5 px-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
           About
@@ -55,7 +55,7 @@ export default function AboutCard() {
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
-              Only the client can edit this
+              Only your client can edit this
             </TooltipContent>
           </Tooltip>
         )}

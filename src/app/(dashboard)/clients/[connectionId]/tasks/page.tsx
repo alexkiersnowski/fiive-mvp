@@ -1,4 +1,4 @@
-import { TasksPage } from '@/features/connection/pages/TasksPage';
+import { TasksPage } from '@/features/connections/pages/TasksPage';
 
 export default function ClientTasksPage() {
   return <TasksPage />;

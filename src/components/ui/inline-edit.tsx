@@ -10,6 +10,7 @@ import { Button } from './button'
 import { Calendar } from './calendar'
 import { StatusBadge } from './connection-badge'
 import { EngagementBadge } from './engagement-badge'
+import { HealthBadge } from './health-badge'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './command'
 
@@ -32,7 +33,8 @@ type InlineEditProps =
       className?: string
       searchable?: boolean
       clearable?: boolean
-      badgeComponent?: 'connection' | 'engagement'
+      badgeComponent?: 'connection' | 'engagement' | 'health'
+      placeholder?: string
     }
   | {
       type: 'date'
@@ -119,6 +121,7 @@ export function InlineEdit(props: InlineEditProps) {
     setIsPopoverOpen(false)
   }
 
+
   if (props.type === 'text') {
     const handleNumericChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value
@@ -196,7 +199,7 @@ export function InlineEdit(props: InlineEditProps) {
   // Badge type
   if (props.type === 'badge') {
     const selectedOption = props.options.find(option => option.value === tempValue)
-    const displayLabel = selectedOption?.label || (tempValue ? tempValue : 'Add status')
+    const displayLabel = selectedOption?.label || (tempValue ? tempValue : (props.placeholder || 'Add status'))
     const isEmpty = !tempValue
     
     // Render the appropriate badge component
@@ -221,6 +224,10 @@ export function InlineEdit(props: InlineEditProps) {
       
       if (props.badgeComponent === 'connection') {
         return <StatusBadge {...badgeProps} />
+      }
+      
+      if (props.badgeComponent === 'health') {
+        return <HealthBadge {...badgeProps} />
       }
       
       // Default to regular Badge component
@@ -278,7 +285,7 @@ export function InlineEdit(props: InlineEditProps) {
                     key={option.value}
                     value={option.value}
                     onSelect={() => handleBadgeSelect(option.value)}
-                    className="flex items-center justify-between"
+                    className="flex items-center justify-between cursor-pointer"
                   >
                     {(() => {
                       const badgeProps = {
@@ -293,6 +300,10 @@ export function InlineEdit(props: InlineEditProps) {
                       
                       if (props.badgeComponent === 'connection') {
                         return <StatusBadge {...badgeProps} />
+                      }
+                      
+                      if (props.badgeComponent === 'health') {
+                        return <HealthBadge {...badgeProps} />
                       }
                       
                       return (
@@ -316,7 +327,7 @@ export function InlineEdit(props: InlineEditProps) {
 
   // Date type
   if (props.type === 'date') {
-    const dateFormatString = props.dateFormat || 'dd MMM yyyy' // e.g., '23 Oct 2025'
+    const dateFormatString = props.dateFormat || 'd MMM yyyy' // e.g., '23 Oct 2025'
     
     // Parse the value to a Date object
     const parseDate = (value: string): Date | undefined => {
@@ -346,13 +357,20 @@ export function InlineEdit(props: InlineEditProps) {
       }
       setIsPopoverOpen(false)
     }
+
+    const handleDateClear = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      setSelectedDate(undefined)
+      props.onSave('')
+      setIsPopoverOpen(false)
+    }
     
     return (
       <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
         <PopoverTrigger asChild>
           <div
             className={cn(
-              "py-1 px-2 text-sm-regular rounded-sm transition-colors duration-75",
+              "py-1 px-2 text-sm-regular rounded-sm transition-colors duration-75 flex items-center justify-between gap-2",
               "hover:bg-[var(--color-interactive-surface-hover)]",
               isPopoverOpen && "bg-[var(--color-interactive-surface-hover)]",
               "!cursor-pointer", // Force cursor pointer with !important
@@ -363,7 +381,24 @@ export function InlineEdit(props: InlineEditProps) {
               ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {})
             }}
           >
-            {props.value || props.placeholder || 'Select date'}
+            <span>{props.value || props.placeholder || 'Select date'}</span>
+            {props.value && isPopoverOpen && (
+              <XCircle 
+                size={16} 
+                weight="fill" 
+                className="cursor-pointer transition-colors duration-75"
+                style={{ 
+                  color: 'var(--color-interactive-neutral-default)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--color-interactive-neutral-hover)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--color-interactive-neutral-default)'
+                }}
+                onClick={handleDateClear}
+              />
+            )}
           </div>
         </PopoverTrigger>
         <PopoverContent className="w-auto overflow-hidden p-0" align="center">

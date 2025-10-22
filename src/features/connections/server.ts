@@ -26,6 +26,7 @@ export const getConnectionSnapshot = cache(async (
         contract_end_on,
         contract_value,
         agency_primary_contact_id,
+        client_primary_contact_id,
         agency_id,
         client_id,
         organizations!connections_client_id_fkey (
@@ -56,6 +57,7 @@ export const getConnectionSnapshot = cache(async (
         contract_end_on,
         contract_value,
         agency_primary_contact_id,
+        client_primary_contact_id,
         agency_id,
         client_id,
         organizations!connections_agency_id_fkey (
@@ -88,12 +90,122 @@ export const getConnectionSnapshot = cache(async (
     industry?: string;
   } | null;
   
-  // Fetch agency organization to get currency_code (always from agency, not client)
+  // Fetch agency organization to get currency_code, name, and logo (always from agency, not client)
   const { data: agencyOrg } = await supabase
     .from('organizations')
-    .select('id, currency_code')
+    .select('id, name, logo_url, currency_code')
     .eq('id', connection.agency_id)
     .single();
+  
+  // Fetch client primary contact if it exists
+  let clientPrimaryContact = null;
+  if (connection.client_primary_contact_id) {
+    const { data: contact } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, avatar_url, job_title')
+      .eq('id', connection.client_primary_contact_id)
+      .single();
+    
+    if (contact) {
+      clientPrimaryContact = {
+        id: contact.id,
+        firstName: contact.first_name,
+        lastName: contact.last_name,
+        email: contact.email,
+        avatarUrl: contact.avatar_url,
+        jobTitle: contact.job_title
+      };
+    }
+  }
+  
+  // Fetch client members for the dropdown
+  // When agency views client: use client_id
+  // When client views agency: use current orgId (which is the client)
+  const clientId = currentUserType === 'agency' ? connection.client_id : context.orgId;
+  
+  const { data: members } = await supabase
+    .from('memberships')
+    .select(`
+      profiles!inner(
+        id,
+        first_name,
+        last_name,
+        email,
+        avatar_url,
+        job_title,
+        deleted_at
+      )
+    `)
+    .eq('org_id', clientId)
+    .is('profiles.deleted_at', null)
+    .order('profiles(first_name)');
+  
+  const clientMembers = members?.map(member => {
+    const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+    return {
+      id: profile.id,
+      firstName: profile.first_name || '',
+      lastName: profile.last_name || '',
+      email: profile.email || '',
+      avatarUrl: profile.avatar_url || undefined,
+      jobTitle: profile.job_title || undefined
+    };
+  }) || [];
+  
+  // Fetch agency primary contact if it exists
+  let agencyPrimaryContact = null;
+  if (connection.agency_primary_contact_id) {
+    const { data: contact } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, avatar_url, job_title')
+      .eq('id', connection.agency_primary_contact_id)
+      .single();
+    
+    if (contact) {
+      agencyPrimaryContact = {
+        id: contact.id,
+        firstName: contact.first_name,
+        lastName: contact.last_name,
+        email: contact.email,
+        avatarUrl: contact.avatar_url,
+        jobTitle: contact.job_title
+      };
+    }
+  }
+  
+  // Fetch agency members for the dropdown
+  // When agency views client: use current orgId (which is the agency)
+  // When client views agency: use agency_id
+  const agencyId = currentUserType === 'agency' ? context.orgId : connection.agency_id;
+  
+  const { data: agencyMembersData } = await supabase
+    .from('memberships')
+    .select(`
+      profiles!inner(
+        id,
+        first_name,
+        last_name,
+        email,
+        avatar_url,
+        job_title,
+        deleted_at
+      )
+    `)
+    .eq('org_id', agencyId)
+    .is('profiles.deleted_at', null)
+    .order('profiles(first_name)');
+  
+  const agencyMembers = agencyMembersData?.map(member => {
+    const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+    return {
+      id: profile.id,
+      firstName: profile.first_name || '',
+      lastName: profile.last_name || '',
+      email: profile.email || '',
+      avatarUrl: profile.avatar_url || undefined,
+      jobTitle: profile.job_title || undefined
+    };
+  }) || [];
   
   // Format contract value for display
   let formattedContractValue: string | null = null;
@@ -116,7 +228,7 @@ export const getConnectionSnapshot = cache(async (
       id: connection.id,
       status: connection.connection_status || 'draft',
       engagementStatus: connection.engagement_status,
-      health: connection.health_status || 'unassigned',
+      health: connection.health_status || undefined,
       contractEnd: connection.contract_end_on 
         ? new Date(connection.contract_end_on).toLocaleDateString('en-GB', { 
             day: 'numeric', 
@@ -127,7 +239,9 @@ export const getConnectionSnapshot = cache(async (
       contractValue: formattedContractValue,
       accountManager: connection.agency_primary_contact_id
         ? { name: 'Loading...', avatar: undefined } // TODO: Fetch from profiles when RLS allows
-        : { name: 'Unassigned', avatar: undefined }
+        : { name: 'Unassigned', avatar: undefined },
+      clientPrimaryContact: clientPrimaryContact,
+      agencyPrimaryContact: agencyPrimaryContact
     },
     partner: {
       id: currentUserType === 'agency' ? connection.client_id : connection.agency_id,
@@ -140,9 +254,13 @@ export const getConnectionSnapshot = cache(async (
     },
     agency: {
       id: connection.agency_id,
+      name: agencyOrg?.name || 'Agency',
+      logo: agencyOrg?.logo_url,
       currencyCode: (agencyOrg?.currency_code as 'EUR' | 'USD' | 'GBP') || 'EUR'
     },
-    currentUserType
+    currentUserType,
+    clientMembers,
+    agencyMembers
   };
 });
 

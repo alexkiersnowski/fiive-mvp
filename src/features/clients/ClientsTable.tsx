@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Circle, DotsThree, Link, Plus } from '@phosphor-icons/react/ssr';
 import { StatusBadge } from '@/components/ui/connection-badge';
 import { EngagementBadge } from '@/components/ui/engagement-badge';
+import { HealthBadge } from '@/components/ui/health-badge';
 import type { Client } from './types';
 
 // Style constants to prevent object recreation on each render
@@ -188,20 +189,25 @@ const ContractEndCell = React.memo(function ContractEndCell({ client }: { client
 });
 
 const HealthCell = React.memo(function HealthCell({ client }: { client: Client }) {
-  const hasHealth = client.health && client.health !== 'unassigned' && client.health !== 'n/a';
+  // Map health value to health badge variant
+  const getHealthVariant = (health: string): "healthy" | "at_risk" | "critical" | null => {
+    const normalized = health.toLowerCase().replace('-', '_');
+    if (normalized === 'healthy') return 'healthy';
+    if (normalized === 'at_risk') return 'at_risk';
+    if (normalized === 'critical') return 'critical';
+    return null;
+  };
+  
+  const healthVariant = getHealthVariant(client.health);
   
   return (
     <TableCell className="py-0 w-[18.75%]">
-      {hasHealth ? (
-        <Badge 
-          variant="outline" 
-          className="text-xs border-0"
-          style={STYLES.healthBadge}
-        >
-          <span style={STYLES.healthText}>
-            {client.health.charAt(0).toUpperCase() + client.health.slice(1)}
-          </span>
-        </Badge>
+      {healthVariant ? (
+        <HealthBadge 
+          variant={healthVariant}
+          size="sm"
+          showText={true}
+        />
       ) : (
         <span className="text-sm-regular" style={STYLES.tertiaryText}>
           Unassigned

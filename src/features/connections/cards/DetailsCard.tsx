@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { InlineEdit } from '@/components/ui/inline-edit';
 import { EyeSlash } from '@phosphor-icons/react';
 import { useConnection } from '../ConnectionContext';
-import { updateEngagementStatus, updateContractValue } from '../actions';
+import { updateEngagementStatus, updateContractValue, updateContractEndDate, updateHealthStatus } from '../actions';
 
 // Helper function to map currency code to symbol
 function getCurrencySymbol(currencyCode: 'EUR' | 'USD' | 'GBP'): string {
@@ -23,6 +23,7 @@ export default function DetailsCard() {
   const { snapshot } = useConnection();
   const [contractValue, setContractValue] = useState(snapshot.connection.contractValue || '');
   const [contractEnd, setContractEnd] = useState(snapshot.connection.contractEnd || '');
+  const [healthStatus, setHealthStatus] = useState(snapshot.connection.health || '');
   
   // Update local state if snapshot changes
   useEffect(() => {
@@ -32,6 +33,10 @@ export default function DetailsCard() {
   useEffect(() => {
     setContractEnd(snapshot.connection.contractEnd || '');
   }, [snapshot.connection.contractEnd]);
+  
+  useEffect(() => {
+    setHealthStatus(snapshot.connection.health || '');
+  }, [snapshot.connection.health]);
 
   return (
     <Card className="w-full h-full min-h-[228px] pt-5 pb-5 px-5 flex flex-col gap-3">
@@ -95,7 +100,7 @@ export default function DetailsCard() {
               }}
               clearable={true}
               badgeComponent="engagement"
-              className="h-[28px]"
+              className="h-[28px] truncate"
             />
           </div>
         </div>
@@ -135,7 +140,7 @@ export default function DetailsCard() {
                   // TODO: Add toast notification for error
                 }
               }}
-              className="h-[28px]"
+              className="h-[28px] truncate"
             />
           </div>
         </div>
@@ -150,13 +155,74 @@ export default function DetailsCard() {
               type="date"
               value={contractEnd}
               placeholder="Add date"
-              dateFormat="dd MMM yyyy"
-              onSave={(newValue) => {
+              dateFormat="d MMM yyyy"
+              onSave={async (newValue) => {
                 setContractEnd(newValue);
-                console.log('Contract end saved:', newValue);
-                // TODO: Wire to database
+                
+                try {
+                  const result = await updateContractEndDate(
+                    snapshot.connection.id,
+                    newValue || null
+                  );
+                  
+                  if (!result.success) {
+                    console.error('Failed to update contract end date:', result.error);
+                    // Revert to previous value on error
+                    setContractEnd(snapshot.connection.contractEnd || '');
+                    // TODO: Add toast notification for error
+                  }
+                } catch (error) {
+                  console.error('Error updating contract end date:', error);
+                  // Revert to previous value on error
+                  setContractEnd(snapshot.connection.contractEnd || '');
+                  // TODO: Add toast notification for error
+                }
               }}
-              className="h-[28px] cursor-pointer"
+              className="h-[28px] cursor-pointer truncate"
+            />
+          </div>
+        </div>
+
+        {/* Health Row */}
+        <div className="flex items-center gap-4">
+          <div className="w-2/5 min-w-0">
+            <p className="text-sm-regular text-secondary truncate">Health</p>
+          </div>
+          <div className="w-3/5 min-w-0">
+            <InlineEdit
+              type="badge"
+              value={healthStatus}
+              options={[
+                { value: 'healthy', label: 'Healthy' },
+                { value: 'at_risk', label: 'At risk' },
+                { value: 'critical', label: 'Critical' }
+              ]}
+              onSave={async (newValue) => {
+                setHealthStatus(newValue);
+                
+                try {
+                  const result = await updateHealthStatus(
+                    snapshot.connection.id,
+                    newValue || null
+                  );
+                  
+                  if (!result.success) {
+                    console.error('Failed to update health status:', result.error);
+                    // Revert to previous value on error
+                    setHealthStatus(snapshot.connection.health || '');
+                    // TODO: Add toast notification for error
+                  }
+                } catch (error) {
+                  console.error('Error updating health status:', error);
+                  // Revert to previous value on error
+                  setHealthStatus(snapshot.connection.health || '');
+                  // TODO: Add toast notification for error
+                }
+              }}
+              clearable={true}
+              badgeComponent="health"
+              placeholder="Add health"
+              className="h-[28px] truncate"
             />
           </div>
         </div>

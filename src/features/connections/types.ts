@@ -50,6 +50,22 @@ export type ConnectionSnapshot = {
       name: string;
       avatar?: string;
     };
+    clientPrimaryContact?: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+      avatarUrl?: string;
+      jobTitle?: string;
+    } | null;
+    agencyPrimaryContact?: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+      avatarUrl?: string;
+      jobTitle?: string;
+    } | null;
   };
   partner: {
     id: string;
@@ -62,9 +78,27 @@ export type ConnectionSnapshot = {
   };
   agency: {
     id: string;
+    name: string;
+    logo?: string;
     currencyCode: 'EUR' | 'USD' | 'GBP';
   };
   currentUserType: 'agency' | 'client';
+  clientMembers: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    avatarUrl?: string;
+    jobTitle?: string;
+  }>;
+  agencyMembers: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    avatarUrl?: string;
+    jobTitle?: string;
+  }>;
 };
 
 // Card configuration type (following home pattern)

@@ -68,8 +68,8 @@ export function StatusBadge({ variant, size = "sm", className, showTooltip = fal
   
   const textClass = size === "lg" ? "text-sm-medium" : "text-xs"
   const iconSize = size === "lg" ? 12 : 6
-  const iconWidth = size === "lg" ? '0.625rem' : '0.5rem'
-  const iconHeight = size === "lg" ? '0.625rem' : '0.5rem'
+  const iconWidth = size === "lg" ? '0.5rem' : '0.5rem'
+  const iconHeight = size === "lg" ? '0.5rem' : '0.5rem'
 
   const badge = (
     <Badge

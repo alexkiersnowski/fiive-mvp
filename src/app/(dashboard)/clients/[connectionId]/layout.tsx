@@ -1,7 +1,7 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { notFound } from 'next/navigation';
-import { getConnectionSnapshot } from '@/features/connection/server';
-import { ConnectionLayout } from '@/features/connection/ConnectionLayout';
+import { getConnectionSnapshot } from '@/features/connections/server';
+import { ConnectionLayout } from '@/features/connections/ConnectionLayout';
 
 interface ClientConnectionLayoutProps {
   children: React.ReactNode;
