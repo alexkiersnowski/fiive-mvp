@@ -10,6 +10,7 @@ import { Circle, DotsThree, Link, Plus } from '@phosphor-icons/react/ssr';
 import { StatusBadge } from '@/components/ui/connection-badge';
 import { EngagementBadge } from '@/components/ui/engagement-badge';
 import { HealthBadge } from '@/components/ui/health-badge';
+import { ProfileCard } from '@/components/ui/profile-card';
 import type { Client } from './types';
 
 // Style constants to prevent object recreation on each render
@@ -122,8 +123,20 @@ const ClientCell = React.memo(function ClientCell({ client }: { client: Client }
   );
 });
 
-const AccountManagerCell = React.memo(function AccountManagerCell({ client }: { client: Client }) {
+const AccountManagerCell = React.memo(function AccountManagerCell({ 
+  client, 
+  onAccountManagerClick 
+}: { 
+  client: Client; 
+  onAccountManagerClick: (accountManager: Client['accountManager']) => void;
+}) {
   const isUnassigned = client.accountManager.name === 'Unassigned';
+  
+  const handleClick = () => {
+    if (!isUnassigned) {
+      onAccountManagerClick(client.accountManager);
+    }
+  };
   
   return (
     <TableCell className="py-0 w-[18.75%] pl-4">
@@ -132,13 +145,14 @@ const AccountManagerCell = React.memo(function AccountManagerCell({ client }: { 
           Unassigned
         </span>
       ) : (
-        <ListRow
-          avatar={true}
-          avatarUrl={client.accountManager.avatar}
-          text={client.accountManager.name}
-          actions={false}
-          variant="stacked"
-        />
+                 <ListRow
+                   avatar={true}
+                   avatarUrl={client.accountManager.avatar}
+                   text={client.accountManager.name}
+                   actions={false}
+                   variant="stacked"
+                   onClick={handleClick}
+                 />
       )}
     </TableCell>
   );
@@ -247,7 +261,13 @@ const ActionsCell = React.memo(function ActionsCell({ client }: { client: Client
   );
 });
 
-const ClientRow = React.memo(function ClientRow({ client }: { client: Client }) {
+const ClientRow = React.memo(function ClientRow({ 
+  client, 
+  onAccountManagerClick 
+}: { 
+  client: Client; 
+  onAccountManagerClick: (accountManager: Client['accountManager']) => void;
+}) {
   const router = useRouter();
   
   const handleRowClick = () => {
@@ -265,7 +285,7 @@ const ClientRow = React.memo(function ClientRow({ client }: { client: Client }) 
     >
       <ConnectionCell client={client} />
       <ClientCell client={client} />
-      <AccountManagerCell client={client} />
+      <AccountManagerCell client={client} onAccountManagerClick={onAccountManagerClick} />
       <StatusCell client={client} />
       <ContractEndCell client={client} />
       <HealthCell client={client} />
@@ -275,6 +295,15 @@ const ClientRow = React.memo(function ClientRow({ client }: { client: Client }) 
 });
 
 export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabetical', isLoading = false, hasNextPage = false, onScroll, onAddClient }: ClientsTableProps) {
+  // Profile card state
+  const [selectedAccountManager, setSelectedAccountManager] = useState<Client['accountManager'] | null>(null);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+
+  const handleAccountManagerClick = (accountManager: Client['accountManager']) => {
+    setSelectedAccountManager(accountManager);
+    setProfileDialogOpen(true);
+  };
+
   // Client-side filtering for search
   const filteredClients = React.useMemo(() => {
     if (!searchValue.trim()) {
@@ -354,7 +383,7 @@ export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabeti
         </TableHeader>
         <TableBody>
           {sortedClients.map((client) => (
-            <ClientRow key={client.id} client={client} />
+            <ClientRow key={client.id} client={client} onAccountManagerClick={handleAccountManagerClick} />
           ))}
           
           {/* Loading indicator */}
@@ -429,6 +458,30 @@ export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabeti
           )}
         </TableBody>
       </Table>
+      
+      {/* Profile Card Dialog */}
+      {selectedAccountManager && (
+        <ProfileCard
+                 member={{
+                   id: selectedAccountManager.id,
+                   first_name: selectedAccountManager.firstName,
+                   last_name: selectedAccountManager.lastName,
+                   email: selectedAccountManager.email,
+                   job_title: selectedAccountManager.jobTitle,
+                   avatar_url: selectedAccountManager.avatar,
+                   organization: {
+                     id: selectedAccountManager.organization.id,
+                     name: selectedAccountManager.organization.name,
+                     logo_url: selectedAccountManager.organization.logo_url
+                   }
+                 }}
+          isOpen={profileDialogOpen}
+          onClose={() => {
+            setProfileDialogOpen(false);
+            setSelectedAccountManager(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -29,7 +29,7 @@ export const getAgenciesSnapshot = cache(async (
     `)
     .eq('client_id', context.orgId)  // KEY DIFFERENCE: client_id instead of agency_id
     .order('created_at', { ascending: false });
-  
+
   if (error) {
     console.error('Error fetching agency connections:', error);
     // Return empty snapshot on error
@@ -38,20 +38,72 @@ export const getAgenciesSnapshot = cache(async (
       total: 0,
     };
   }
+
+  // Fetch account manager profiles for connections that have agency_primary_contact_id
+  const agencyContactIds = (connections || [])
+    .map(conn => conn.agency_primary_contact_id)
+    .filter((id): id is string => id !== null);
+
+  let accountManagerProfiles: Record<string, { first_name: string; last_name: string; avatar_url: string | null; email: string; job_title: string | null }> = {};
+
+  if (agencyContactIds.length > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, avatar_url, email, job_title')
+      .in('id', agencyContactIds);
+
+    if (profilesError) {
+      console.error('Error fetching account manager profiles:', profilesError);
+    } else {
+      // Create a lookup map for easy access
+      accountManagerProfiles = (profiles || []).reduce((acc, profile) => {
+        acc[profile.id] = {
+          first_name: profile.first_name || '',
+          last_name: profile.last_name || '',
+          avatar_url: profile.avatar_url,
+          email: profile.email || '',
+          job_title: profile.job_title
+        };
+        return acc;
+      }, {} as Record<string, { first_name: string; last_name: string; avatar_url: string | null; email: string; job_title: string | null }>);
+    }
+  }
   
   // Transform connections to Agency format
   const allAgencies: Agency[] = (connections || []).map(conn => {
     const org = conn.organizations as { name?: string; logo_url?: string; industry?: string } | null;
     
+    // Get account manager data if available
+    let accountManager: { 
+      id: string; 
+      name: string; 
+      avatarUrl?: string | undefined; 
+      email?: string; 
+      jobTitle?: string; 
+    } = { id: '', name: 'Unassigned' };
+    if (conn.agency_primary_contact_id) {
+      const profile = accountManagerProfiles[conn.agency_primary_contact_id];
+      if (profile) {
+        accountManager = {
+          id: conn.agency_primary_contact_id,
+          name: `${profile.first_name} ${profile.last_name}`.trim() || 'Unknown',
+          avatarUrl: profile.avatar_url || undefined,
+          email: profile.email,
+          jobTitle: profile.job_title || undefined
+        };
+      } else {
+        accountManager = { id: conn.agency_primary_contact_id, name: 'Loading...' };
+      }
+    }
+    
     return {
-      id: conn.id,
+      id: conn.agency_id,
+      connectionId: conn.id,
       name: org?.name || 'Unknown Agency',
       logo: org?.logo_url,
       industry: org?.industry,
       status: (conn.connection_status as "connected" | "invited" | "disconnected" | "draft") || 'draft',
-      accountManager: conn.agency_primary_contact_id
-        ? { name: 'Loading...', avatar: undefined } // TODO: Fetch from profiles when RLS allows
-        : { name: 'Unassigned', avatar: undefined }
+      accountManager
     };
   });
 

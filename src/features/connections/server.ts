@@ -9,6 +9,12 @@ export const getConnectionSnapshot = cache(async (
 ): Promise<ConnectionSnapshot | null> => {
   const supabase = await createClient();
   
+  console.log('getConnectionSnapshot called with:', {
+    connectionId,
+    orgId: context.orgId,
+    variant: context.variant
+  });
+  
   let currentUserType: 'agency' | 'client';
   let connection;
   let error;
@@ -78,7 +84,13 @@ export const getConnectionSnapshot = cache(async (
   }
   
   if (error || !connection) {
-    console.error('Error fetching connection snapshot:', error);
+    console.error('Error fetching connection snapshot:', {
+      error,
+      connection,
+      connectionId,
+      orgId: context.orgId,
+      variant: context.variant
+    });
     return null;
   }
   

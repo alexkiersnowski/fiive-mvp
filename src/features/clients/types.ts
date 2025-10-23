@@ -7,8 +7,18 @@ export type Client = {
   logo?: string
   status: "draft" | "onboarding" | "active" | "offboarded"
   accountManager: {
+    id: string
     name: string
+    firstName: string
+    lastName: string
+    email: string
+    jobTitle?: string
     avatar?: string
+    organization: {
+      id: string
+      name: string
+      logo_url?: string
+    }
   }
   contractEnd?: string
   health: "unassigned" | "healthy" | "at-risk" | "critical" | "n/a"

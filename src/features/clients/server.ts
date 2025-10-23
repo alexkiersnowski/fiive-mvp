@@ -42,8 +42,18 @@ function generateMockData(): Client[] {
       logo: undefined,
       status: (["draft", "onboarding", "active", "offboarded"] as const)[clientId % 4],
       accountManager: { 
+        id: `manager-${i}`,
         name: `Manager ${String(Math.floor(i / 10) + 1).padStart(2, '0')}`,
-        avatar: undefined
+        firstName: 'Manager',
+        lastName: `${String(Math.floor(i / 10) + 1).padStart(2, '0')}`,
+        email: `manager${String(Math.floor(i / 10) + 1).padStart(2, '0')}@agency.com`,
+        jobTitle: 'Account Manager',
+        avatar: undefined,
+        organization: {
+          id: 'agency-org',
+          name: 'Agency',
+          logo_url: 'https://api.dicebear.com/7.x/shapes/svg?seed=agency'
+        }
       },
       contractEnd,
       health: (() => {
@@ -57,7 +67,7 @@ function generateMockData(): Client[] {
     };
   });
 
-  return cachedMockData;
+  return cachedMockData || [];
 }
 
 export const getClientsSnapshot = cache(async (
@@ -100,6 +110,79 @@ export const getClientsSnapshot = cache(async (
     };
   }
   
+  // Fetch account manager profiles for connections that have agency_primary_contact_id
+  const connectionsWithContactIds = (connections || []).filter(conn => conn.agency_primary_contact_id);
+  const contactIds = connectionsWithContactIds.map(conn => conn.agency_primary_contact_id);
+  
+  let accountManagerProfiles: { [key: string]: { 
+    id: string; 
+    name: string; 
+    firstName: string; 
+    lastName: string; 
+    email: string; 
+    jobTitle?: string; 
+    avatar?: string;
+    organization: {
+      id: string;
+      name: string;
+      logo_url?: string;
+    }
+  } } = {};
+  
+  if (contactIds.length > 0) {
+    // Fetch agency organization data
+    const { data: agencyOrg, error: agencyError } = await supabase
+      .from('organizations')
+      .select('id, name, logo_url')
+      .eq('id', context.orgId)
+      .single();
+
+    if (agencyError) {
+      console.error('Error fetching agency organization:', agencyError);
+    }
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, job_title, avatar_url')
+      .in('id', contactIds);
+    
+    if (profilesError) {
+      console.error('Error fetching account manager profiles:', profilesError);
+    } else {
+      // Create a map of profile ID to profile data
+      accountManagerProfiles = (profiles || []).reduce((acc, profile) => {
+        acc[profile.id] = {
+          id: profile.id,
+          name: `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
+          firstName: profile.first_name || '',
+          lastName: profile.last_name || '',
+          email: profile.email || '',
+          jobTitle: profile.job_title || undefined,
+          avatar: profile.avatar_url || undefined,
+          organization: {
+            id: agencyOrg?.id || '',
+            name: agencyOrg?.name || 'Agency',
+            logo_url: agencyOrg?.logo_url || undefined
+          }
+        };
+        return acc;
+      }, {} as { [key: string]: { 
+        id: string; 
+        name: string; 
+        firstName: string; 
+        lastName: string; 
+        email: string; 
+        jobTitle?: string; 
+        avatar?: string;
+        organization: {
+          id: string;
+          name: string;
+          logo_url?: string;
+        }
+      } });
+    }
+  }
+
   // Transform connections to Client format
   const allClients: Client[] = (connections || []).map(conn => {
     const org = conn.organizations as { name?: string; logo_url?: string } | null;
@@ -110,8 +193,34 @@ export const getClientsSnapshot = cache(async (
       logo: org?.logo_url,
       status: (conn.connection_status as "draft" | "onboarding" | "active" | "offboarded") || 'draft', // Used for connection badge color
       accountManager: conn.agency_primary_contact_id
-        ? { name: 'Loading...', avatar: undefined } // TODO: Fetch from profiles when RLS allows
-        : { name: 'Unassigned', avatar: undefined },
+        ? (accountManagerProfiles[conn.agency_primary_contact_id] || { 
+            id: '', 
+            name: 'Loading...', 
+            firstName: '', 
+            lastName: '', 
+            email: '', 
+            jobTitle: undefined, 
+            avatar: undefined,
+            organization: {
+              id: '',
+              name: 'Agency',
+              logo_url: undefined
+            }
+          })
+        : { 
+            id: '', 
+            name: 'Unassigned', 
+            firstName: '', 
+            lastName: '', 
+            email: '', 
+            jobTitle: undefined, 
+            avatar: undefined,
+            organization: {
+              id: '',
+              name: 'Agency',
+              logo_url: undefined
+            }
+          },
       contractEnd: conn.contract_end_on 
         ? new Date(conn.contract_end_on).toLocaleDateString('en-GB', { 
             day: 'numeric', 

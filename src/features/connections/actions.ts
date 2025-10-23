@@ -178,6 +178,7 @@ export async function updateHealthStatus(
     revalidatePath(`/agencies/${connectionId}`)
     revalidatePath('/clients')
     revalidatePath('/agencies')
+    revalidatePath('/home')
     
     return { success: true }
   } catch (error) {

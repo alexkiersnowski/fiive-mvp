@@ -288,7 +288,7 @@ const OrganizationSchema = z.object({
   website: z.string().url("Please enter a valid website URL").optional().or(z.literal("")),
   description: z.string().optional(),
   industry: z.string().min(1, "Industry is required"),
-  currency_code: z.string().min(1, "Currency is required"),
+  currency_code: z.string().min(1, "Currency is required").optional(),
   logo_file: z.instanceof(File).optional(),
 })
 
@@ -298,7 +298,7 @@ export async function updateOrganizationDetails(data: {
   website?: string
   description?: string
   industry: string
-  currency_code: string
+  currency_code?: string
   logo_file?: File
 }) {
   // Validate input data
@@ -347,7 +347,7 @@ export async function updateOrganizationDetails(data: {
     website?: string | null
     description?: string | null
     industry: string
-    currency_code: string
+    currency_code?: string
     updated_at: string
     logo_url?: string
   } = {
@@ -355,8 +355,12 @@ export async function updateOrganizationDetails(data: {
     website: values.website || null,
     description: values.description || null,
     industry: values.industry,
-    currency_code: values.currency_code,
     updated_at: new Date().toISOString()
+  }
+
+  // Only include currency_code if it's provided
+  if (values.currency_code) {
+    updateData.currency_code = values.currency_code
   }
 
   // Handle logo upload if provided

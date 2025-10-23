@@ -1,11 +1,16 @@
+"use client"
+
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { ListRow } from '@/components/ui/list-row';
 import { Plus, ArrowRight } from '@phosphor-icons/react/dist/ssr';
 import type { StatsCardProps } from '../types';
 
 export default function HealthCard({ snapshot, context }: StatsCardProps) {
+  const router = useRouter();
   const isAgency = context.variant === 'agency';
   const title = isAgency ? 'Client health' : 'Projects';
   const description = isAgency 
@@ -14,6 +19,15 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
   
   // Check if user has any connections (agencies have clients, clients have agencies)
   const hasConnections = snapshot.clients.total > 0;
+
+  const handleAgencyClick = (connectionId: string) => {
+    console.log('Navigating to connection:', connectionId);
+    if (!connectionId) {
+      console.error('Connection ID is undefined or empty');
+      return;
+    }
+    router.push(`/agencies/${connectionId}/overview`);
+  };
 
   return (
     <Card className={`w-full h-full pt-5 px-5 flex flex-col gap-3 ${hasConnections ? 'pb-5' : 'pb-6'}`}>
@@ -66,18 +80,22 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
           <div className="flex flex-col gap-4 mt-3">
             {snapshot.agencies.map((agency) => (
               <div key={agency.id} className="flex items-center gap-4">
-                <Avatar className="w-6 h-6 flex-shrink-0" style={{ width: '24px', height: '24px' }}>
-                  <AvatarImage src={agency.logo} alt={agency.name} />
-                  <AvatarFallback 
-                    className="text-white text-xs font-medium"
-                    style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                  >
-                    {agency.name.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 flex items-center gap-4">
-                  <span className="text-sm-regular text-primary flex-[2] truncate">{agency.name}</span>
-                  <span className="text-sm-regular text-primary flex-1">{agency.projectCount}</span>
+                <div className="flex-[2] min-w-0">
+                  <ListRow
+                    avatar={true}
+                    avatarUrl={agency.logo}
+                    text={agency.name}
+                    actions={false}
+                    iconButtonEnd={false}
+                    dropdownItems={undefined}
+                    variant="stacked"
+                    onClick={() => handleAgencyClick(agency.connectionId)}
+                  />
+                </div>
+                <div className="flex-[1] min-w-0 flex justify-start">
+                  <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                    {agency.projectCount}
+                  </span>
                 </div>
               </div>
             ))}

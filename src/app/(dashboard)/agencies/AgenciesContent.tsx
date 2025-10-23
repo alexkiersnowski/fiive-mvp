@@ -278,6 +278,7 @@ export function AgenciesContent({
               <AgencyCard
                 key={agency.id}
                 agencyId={agency.id}
+                connectionId={agency.connectionId}
                 agencyName={agency.name}
                 agencyType={agency.industry}
                 avatarUrl={agency.logo}

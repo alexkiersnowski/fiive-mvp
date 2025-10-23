@@ -8,6 +8,7 @@ import { InlineEdit } from '@/components/ui/inline-edit';
 import { EyeSlash } from '@phosphor-icons/react';
 import { useConnection } from '../ConnectionContext';
 import { updateEngagementStatus, updateContractValue, updateContractEndDate, updateHealthStatus } from '../actions';
+import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 // Helper function to map currency code to symbol
 function getCurrencySymbol(currencyCode: 'EUR' | 'USD' | 'GBP'): string {
@@ -19,8 +20,9 @@ function getCurrencySymbol(currencyCode: 'EUR' | 'USD' | 'GBP'): string {
   return symbols[currencyCode] || '€';
 }
 
-export default function DetailsCard() {
+export default function DetailsCard({ context }: { context: EnhancedModeContext }) {
   const { snapshot } = useConnection();
+  const isAgency = context?.variant === 'agency' ?? true; // Default to agency view for SSR
   const [contractValue, setContractValue] = useState(snapshot.connection.contractValue || '');
   const [contractEnd, setContractEnd] = useState(snapshot.connection.contractEnd || '');
   const [healthStatus, setHealthStatus] = useState(snapshot.connection.health || '');
@@ -42,7 +44,7 @@ export default function DetailsCard() {
     <Card className="w-full h-full min-h-[228px] pt-5 pb-5 px-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-          Details
+          Overview
         </CardTitle>
         <Tooltip delayDuration={400}>
           <TooltipTrigger asChild>
@@ -66,164 +68,180 @@ export default function DetailsCard() {
         </Tooltip>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className={`flex flex-col ${isAgency ? 'gap-2' : 'gap-3'}`}>
         {/* Status Row */}
         <div className="flex items-center gap-4">
           <div className="w-2/5 min-w-0">
-            <p className="text-sm-regular text-secondary truncate">Status</p>
+            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Status' : 'Active projects'}</p>
           </div>
           <div className="w-3/5 min-w-0">
-            <InlineEdit
-              type="badge"
-              value={snapshot.connection.engagementStatus || ''}
-              options={[
-                { value: 'onboarding', label: 'Onboarding' },
-                { value: 'active', label: 'Active' },
-                { value: 'paused', label: 'Paused' },
-                { value: 'offboarded', label: 'Offboarded' }
-              ]}
-              onSave={async (newValue) => {
-                try {
-                  const result = await updateEngagementStatus(
-                    snapshot.connection.id,
-                    newValue || null
-                  );
-                  
-                  if (!result.success) {
-                    console.error('Failed to update engagement status:', result.error);
+            {isAgency ? (
+              <InlineEdit
+                type="badge"
+                value={snapshot.connection.engagementStatus || ''}
+                options={[
+                  { value: 'onboarding', label: 'Onboarding' },
+                  { value: 'active', label: 'Active' },
+                  { value: 'paused', label: 'Paused' },
+                  { value: 'offboarded', label: 'Offboarded' }
+                ]}
+                onSave={async (newValue) => {
+                  try {
+                    const result = await updateEngagementStatus(
+                      snapshot.connection.id,
+                      newValue || null
+                    );
+                    
+                    if (!result.success) {
+                      console.error('Failed to update engagement status:', result.error);
+                      // TODO: Add toast notification for error
+                    }
+                  } catch (error) {
+                    console.error('Error updating engagement status:', error);
                     // TODO: Add toast notification for error
                   }
-                } catch (error) {
-                  console.error('Error updating engagement status:', error);
-                  // TODO: Add toast notification for error
-                }
-              }}
-              clearable={true}
-              badgeComponent="engagement"
-              className="h-[28px] truncate"
-            />
+                }}
+                clearable={true}
+                badgeComponent="engagement"
+                className="h-[28px] truncate"
+              />
+            ) : (
+              <p className="text-sm-regular text-tertiary truncate">0</p>
+            )}
           </div>
         </div>
 
         {/* Total Contract Value Row */}
         <div className="flex items-center gap-4">
           <div className="w-2/5 min-w-0">
-            <p className="text-sm-regular text-secondary truncate">Total Contract Value</p>
+            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Total Contract Value' : 'Next delivery'}</p>
           </div>
           <div className="w-3/5 min-w-0">
-            <InlineEdit
-              type="text"
-              value={contractValue}
-              placeholder={`E.g. ${getCurrencySymbol(snapshot.agency.currencyCode)}250,000`}
-              editingPlaceholder="250,000"
-              currency={getCurrencySymbol(snapshot.agency.currencyCode)}
-              numeric={true}
-              onSave={async (newValue) => {
-                setContractValue(newValue);
-                
-                try {
-                  const result = await updateContractValue(
-                    snapshot.connection.id,
-                    newValue || null
-                  );
+            {isAgency ? (
+              <InlineEdit
+                type="text"
+                value={contractValue}
+                placeholder={`E.g. ${getCurrencySymbol(snapshot.agency.currencyCode)}250,000`}
+                editingPlaceholder="250,000"
+                currency={getCurrencySymbol(snapshot.agency.currencyCode)}
+                numeric={true}
+                onSave={async (newValue) => {
+                  setContractValue(newValue);
                   
-                  if (!result.success) {
-                    console.error('Failed to update contract value:', result.error);
+                  try {
+                    const result = await updateContractValue(
+                      snapshot.connection.id,
+                      newValue || null
+                    );
+                    
+                    if (!result.success) {
+                      console.error('Failed to update contract value:', result.error);
+                      // Revert to previous value on error
+                      setContractValue(snapshot.connection.contractValue || '');
+                      // TODO: Add toast notification for error
+                    }
+                  } catch (error) {
+                    console.error('Error updating contract value:', error);
                     // Revert to previous value on error
                     setContractValue(snapshot.connection.contractValue || '');
                     // TODO: Add toast notification for error
                   }
-                } catch (error) {
-                  console.error('Error updating contract value:', error);
-                  // Revert to previous value on error
-                  setContractValue(snapshot.connection.contractValue || '');
-                  // TODO: Add toast notification for error
-                }
-              }}
-              className="h-[28px] truncate"
-            />
+                }}
+                className="h-[28px] truncate"
+              />
+            ) : (
+              <p className="text-sm-regular text-tertiary truncate">No upcoming deliveries</p>
+            )}
           </div>
         </div>
 
         {/* Contract End Row */}
         <div className="flex items-center gap-4">
           <div className="w-2/5 min-w-0">
-            <p className="text-sm-regular text-secondary truncate">Contract end</p>
+            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Contract end' : 'Last update'}</p>
           </div>
-          <div className="w-3/5 min-w-0" style={{ cursor: 'pointer' }}>
-            <InlineEdit
-              type="date"
-              value={contractEnd}
-              placeholder="Add date"
-              dateFormat="d MMM yyyy"
-              onSave={async (newValue) => {
-                setContractEnd(newValue);
-                
-                try {
-                  const result = await updateContractEndDate(
-                    snapshot.connection.id,
-                    newValue || null
-                  );
+          <div className="w-3/5 min-w-0">
+            {isAgency ? (
+              <InlineEdit
+                type="date"
+                value={contractEnd}
+                placeholder="Add date"
+                dateFormat="d MMM yyyy"
+                onSave={async (newValue) => {
+                  setContractEnd(newValue);
                   
-                  if (!result.success) {
-                    console.error('Failed to update contract end date:', result.error);
+                  try {
+                    const result = await updateContractEndDate(
+                      snapshot.connection.id,
+                      newValue || null
+                    );
+                    
+                    if (!result.success) {
+                      console.error('Failed to update contract end date:', result.error);
+                      // Revert to previous value on error
+                      setContractEnd(snapshot.connection.contractEnd || '');
+                      // TODO: Add toast notification for error
+                    }
+                  } catch (error) {
+                    console.error('Error updating contract end date:', error);
                     // Revert to previous value on error
                     setContractEnd(snapshot.connection.contractEnd || '');
                     // TODO: Add toast notification for error
                   }
-                } catch (error) {
-                  console.error('Error updating contract end date:', error);
-                  // Revert to previous value on error
-                  setContractEnd(snapshot.connection.contractEnd || '');
-                  // TODO: Add toast notification for error
-                }
-              }}
-              className="h-[28px] cursor-pointer truncate"
-            />
+                }}
+                className="h-[28px] cursor-pointer truncate"
+              />
+            ) : (
+              <p className="text-sm-regular text-tertiary truncate">No recent updates</p>
+            )}
           </div>
         </div>
 
         {/* Health Row */}
         <div className="flex items-center gap-4">
           <div className="w-2/5 min-w-0">
-            <p className="text-sm-regular text-secondary truncate">Health</p>
+            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Health' : 'Tasks assigned'}</p>
           </div>
           <div className="w-3/5 min-w-0">
-            <InlineEdit
-              type="badge"
-              value={healthStatus}
-              options={[
-                { value: 'healthy', label: 'Healthy' },
-                { value: 'at_risk', label: 'At risk' },
-                { value: 'critical', label: 'Critical' }
-              ]}
-              onSave={async (newValue) => {
-                setHealthStatus(newValue);
-                
-                try {
-                  const result = await updateHealthStatus(
-                    snapshot.connection.id,
-                    newValue || null
-                  );
+            {isAgency ? (
+              <InlineEdit
+                type="badge"
+                value={healthStatus}
+                options={[
+                  { value: 'healthy', label: 'Healthy' },
+                  { value: 'at_risk', label: 'At risk' },
+                  { value: 'critical', label: 'Critical' }
+                ]}
+                onSave={async (newValue) => {
+                  setHealthStatus(newValue);
                   
-                  if (!result.success) {
-                    console.error('Failed to update health status:', result.error);
+                  try {
+                    const result = await updateHealthStatus(
+                      snapshot.connection.id,
+                      newValue || null
+                    );
+                    
+                    if (!result.success) {
+                      console.error('Failed to update health status:', result.error);
+                      // Revert to previous value on error
+                      setHealthStatus(snapshot.connection.health || '');
+                      // TODO: Add toast notification for error
+                    }
+                  } catch (error) {
+                    console.error('Error updating health status:', error);
                     // Revert to previous value on error
                     setHealthStatus(snapshot.connection.health || '');
                     // TODO: Add toast notification for error
                   }
-                } catch (error) {
-                  console.error('Error updating health status:', error);
-                  // Revert to previous value on error
-                  setHealthStatus(snapshot.connection.health || '');
-                  // TODO: Add toast notification for error
-                }
-              }}
-              clearable={true}
-              badgeComponent="health"
-              placeholder="Add health"
-              className="h-[28px] truncate"
-            />
+                }}
+                clearable={true}
+                badgeComponent="health"
+                placeholder="Add health"
+                className="h-[28px] truncate"
+              />
+            ) : (
+              <p className="text-sm-regular text-tertiary truncate">0</p>
+            )}
           </div>
         </div>
       </div>

@@ -9,17 +9,28 @@ import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 export default function TasksCard({ snapshot, context }: { snapshot: ConnectionSnapshot; context: EnhancedModeContext }) {
   const isAgency = context.variant === 'agency';
   const title = isAgency ? 'Tasks' : 'Tasks';
+  
+  // Check if there are any tasks (this would be from actual data when implemented)
+  const hasTasks = false; // TODO: Replace with actual task count from snapshot
+  
   const description = isAgency 
     ? 'No tasks yet. Add client tasks and manage their visibility.'
-    : 'No tasks yet. Your agency manages all tasks. Submit a request to kick things off or share what you need next.';
+    : '';
   const buttonText = isAgency ? 'Add task' : 'View all tasks';
 
   return (
     <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-          {title}
-        </CardTitle>
+        <div>
+          <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
+            {title}
+          </CardTitle>
+          {!isAgency && (
+            <p className="text-sm-regular text-tertiary mt-1">
+              Managed by your agency, some may be assigned to you
+            </p>
+          )}
+        </div>
         {isAgency && (
           <Tooltip delayDuration={400}>
             <TooltipTrigger asChild>
@@ -43,9 +54,11 @@ export default function TasksCard({ snapshot, context }: { snapshot: ConnectionS
           </Tooltip>
         )}
       </div>
-      <p className="text-xs-regular text-tertiary">
-        {description}
-      </p>
+      {description && (
+        <p className="text-xs-regular text-tertiary">
+          {description}
+        </p>
+      )}
       <div className="mt-auto flex justify-end">
         {isAgency ? (
           <Button 

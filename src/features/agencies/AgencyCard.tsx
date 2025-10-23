@@ -2,25 +2,31 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ListRow } from '@/components/ui/list-row';
 import { StatusBadge, StatusVariant } from '@/components/ui/connection-badge';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ProfileCard } from '@/components/ui/profile-card';
 import { User } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 interface AgencyCardProps {
   agencyId: string;
+  connectionId: string;
   agencyName: string;
   agencyType?: string;
   avatarUrl?: string;
   avatarFallback?: string;
   status?: StatusVariant;
   accountManager?: {
+    id: string;
     name: string;
     avatarUrl?: string;
+    email?: string;
+    jobTitle?: string;
   };
 }
 
 export function AgencyCard({ 
   agencyId,
+  connectionId,
   agencyName, 
   agencyType,
   avatarUrl, 
@@ -29,25 +35,64 @@ export function AgencyCard({
   accountManager
 }: AgencyCardProps) {
   const router = useRouter();
+  const [selectedAccountManager, setSelectedAccountManager] = useState<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    avatar_url?: string;
+    job_title?: string;
+    organization: {
+      id: string;
+      name: string;
+      logo_url?: string;
+    };
+  } | null>(null);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   
   const handleCardClick = () => {
-    router.push(`/agencies/${agencyId}/overview`);
+    router.push(`/agencies/${connectionId}/overview`);
+  };
+
+  const handleAccountManagerClick = () => {
+    if (accountManager && accountManager.id) {
+      // Split the name into first and last name
+      const nameParts = accountManager.name.split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      setSelectedAccountManager({
+        id: accountManager.id,
+        first_name: firstName,
+        last_name: lastName,
+        email: accountManager.email || '',
+        avatar_url: accountManager.avatarUrl,
+        job_title: accountManager.jobTitle,
+        organization: {
+          id: agencyId,
+          name: agencyName,
+          logo_url: avatarUrl
+        }
+      });
+      setProfileDialogOpen(true);
+    }
   };
 
   return (
-    <Card 
-      className="relative h-45 cursor-pointer transition-colors duration-75"
-      style={{
-        backgroundColor: 'var(--color-base-surface-page-background)'
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--color-neutral-3)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--color-base-surface-page-background)';
-      }}
-      onClick={handleCardClick}
-    >
+    <>
+      <Card 
+        className="relative h-45 cursor-pointer transition-colors duration-75"
+        style={{
+          backgroundColor: 'var(--color-base-surface-page-background)'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--color-neutral-3)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--color-base-surface-page-background)';
+        }}
+        onClick={handleCardClick}
+      >
       <CardContent className="py-5 px-5 h-full">
         {/* Connection Badge - Top Right */}
         {status && (
@@ -79,47 +124,55 @@ export function AgencyCard({
             </div>
           </div>
           {accountManager && (
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 min-w-0 w-1/3">
               {accountManager.name === 'Unassigned' ? (
-                <Tooltip delayDuration={400}>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center p-1" style={{ borderRadius: 'calc(var(--radius) - 2px)' }}>
-                      <div className="flex-shrink-0 mr-3">
-                        <div 
-                          className="rounded-full flex items-center justify-center"
-                          style={{ 
-                            width: '24px', 
-                            height: '24px',
-                            background: 'var(--color-neutral-9, #8B8D98)'
-                          }}
-                        >
-                          <User size={16} weight="fill" className="text-white" />
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0 flex flex-col">
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {accountManager.name}
-                        </span>
-                      </div>
+                <div className="flex items-center p-1" style={{ borderRadius: 'calc(var(--radius) - 2px)' }}>
+                  <div className="flex-shrink-0 mr-3">
+                    <div 
+                      className="rounded-full flex items-center justify-center"
+                      style={{ 
+                        width: '24px', 
+                        height: '24px',
+                        background: 'var(--color-neutral-9, #8B8D98)'
+                      }}
+                    >
+                      <User size={16} weight="fill" className="text-white" />
                     </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={8}>
-                    <p>Agency Account Manager</p>
-                  </TooltipContent>
-                </Tooltip>
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col">
+                    <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
+                      {accountManager.name}
+                    </span>
+                  </div>
+                </div>
               ) : (
                 <ListRow
                   avatar={true}
                   avatarUrl={accountManager.avatarUrl}
                   text={accountManager.name}
                   actions={false}
+                  iconButtonEnd={false}
+                  dropdownItems={undefined}
                   variant="stacked"
+                  onClick={handleAccountManagerClick}
                 />
               )}
             </div>
           )}
         </div>
       </CardContent>
-    </Card>
+      </Card>
+      
+      {/* Profile Card Modal */}
+      {selectedAccountManager && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <ProfileCard
+            member={selectedAccountManager}
+            isOpen={profileDialogOpen}
+            onClose={() => setProfileDialogOpen(false)}
+          />
+        </div>
+      )}
+    </>
   );
 }

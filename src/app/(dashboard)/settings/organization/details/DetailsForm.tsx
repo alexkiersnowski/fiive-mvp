@@ -50,7 +50,7 @@ const createDetailsSchema = (isAgency: boolean) => z.object({
   }),
   description: z.string().trim().optional(),
   industry: z.string().trim().min(1, isAgency ? "Please select an agency type" : "Please select an industry"),
-  currency_code: z.string().trim().min(1, "Please select a currency"),
+  currency_code: isAgency ? z.string().trim().min(1, "Please select a currency") : z.string().trim().optional(),
 })
 
 const agencyTypes: ComboboxOption[] = [
@@ -142,7 +142,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
       website: displayWebsite(initialValues.website || ""),
       description: initialValues.description || "",
       industry: initialValues.industry,
-      currency_code: initialValues.currency_code,
+      currency_code: isAgency ? initialValues.currency_code : "",
     },
   })
 
@@ -206,7 +206,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
         website: normalizeWebsiteForStorage(data.website || ''),
         description: data.description || undefined,
         industry: data.industry,
-        currency_code: data.currency_code,
+        currency_code: isAgency ? data.currency_code : undefined,
         logo_file: logoFile || undefined,
       })
       
@@ -438,31 +438,33 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
             )}
           />
 
-          {/* Currency */}
-          <FormField
-            control={form.control}
-            name="currency_code"
-            render={({ field, fieldState }) => (
-              <FormItem>
-                <FormLabel className="text-sm font-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
-                  Currency
-                </FormLabel>
-                <FormControl>
-                  <Combobox
-                    options={currencyOptions}
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    placeholder="Select currency..."
-                    searchPlaceholder=""
-                    emptyText="No currency found."
-                    hasError={!!fieldState.error}
-                    readOnly={!canManageDetails}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {/* Currency - Only show for agencies */}
+          {isAgency && (
+            <FormField
+              control={form.control}
+              name="currency_code"
+              render={({ field, fieldState }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
+                    Currency
+                  </FormLabel>
+                  <FormControl>
+                    <Combobox
+                      options={currencyOptions}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      placeholder="Select currency..."
+                      searchPlaceholder=""
+                      emptyText="No currency found."
+                      hasError={!!fieldState.error}
+                      readOnly={!canManageDetails}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
 
           {/* Save Button - Only show for owners */}
           {canManageDetails && (

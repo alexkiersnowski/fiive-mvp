@@ -4,13 +4,14 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ListRow } from '@/components/ui/list-row';
 import { ProfileCard } from '@/components/ui/profile-card';
-import { Eye, ArrowsClockwise, UserMinus } from '@phosphor-icons/react/dist/ssr';
+import { Eye, ArrowsClockwise, UserMinus, User } from '@phosphor-icons/react/dist/ssr';
 import { handleContactSelect, handleUnassignContact, handleAgencyContactSelect, handleUnassignAgencyContact } from '../client-actions';
 import type { ConnectionSnapshot } from '../types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
-export default function ContactsCard({ snapshot }: { snapshot: ConnectionSnapshot; context: EnhancedModeContext }) {
+export default function ContactsCard({ snapshot, context }: { snapshot: ConnectionSnapshot; context: EnhancedModeContext }) {
   const title = 'Contacts';
+  const isAgency = context.variant === 'agency';
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [optimisticPrimaryContact, setOptimisticPrimaryContact] = useState<{
     id: string;
@@ -167,133 +168,252 @@ export default function ContactsCard({ snapshot }: { snapshot: ConnectionSnapsho
   return (
     <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-          {title}
-        </CardTitle>
-        <Tooltip delayDuration={400}>
-          <TooltipTrigger asChild>
-            <Badge 
-              variant="outline" 
-              className="text-xs border-0"
-              style={{
-                borderRadius: 'var(--radius-1-max, 3px)',
-                backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                border: 'none',
-                cursor: 'default'
-              }}
-            >
-              <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client visible</span>
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={8}>
-            Both you and your client can see this
-          </TooltipContent>
-        </Tooltip>
+        <div>
+          <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
+            {title}
+          </CardTitle>
+          {!isAgency && (
+            <p className="text-sm-regular text-tertiary mt-1">
+              Key contacts shared by you and your agency
+            </p>
+          )}
+        </div>
+        {isAgency && (
+          <Tooltip delayDuration={400}>
+            <TooltipTrigger asChild>
+              <Badge 
+                variant="outline" 
+                className="text-xs border-0"
+                style={{
+                  borderRadius: 'var(--radius-1-max, 3px)',
+                  backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                  border: 'none',
+                  cursor: 'default'
+                }}
+              >
+                <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+                <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client visible</span>
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={8}>
+              Both you and your client can see this
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
-      <div className="flex flex-col gap-5">
-        <div>
-          <p className="text-xs-medium text-tertiary">
-            {snapshot.partner.name} (Primary Contact)
-          </p>
-          <div className="mt-3">
-                  {hasPrimaryContact ? (
-                    <ListRow
-                      ref={listRowRef}
-                      avatar={true}
-                      avatarSize={32}
-                      avatarUrl={currentPrimaryContact!.avatarUrl}
-                      text={`${currentPrimaryContact!.firstName} ${currentPrimaryContact!.lastName}`}
-                      secondaryText={currentPrimaryContact!.jobTitle || 'No job title'}
-                      iconEnd={true}
-                      onClick={() => handleContactClick({ 
-                        id: currentPrimaryContact!.id,
-                        first_name: currentPrimaryContact!.firstName, 
-                        last_name: currentPrimaryContact!.lastName,
-                        email: currentPrimaryContact!.email,
-                        avatar_url: currentPrimaryContact!.avatarUrl,
-                        job_title: currentPrimaryContact!.jobTitle,
-                        organization: {
-                          id: snapshot.partner.id,
-                          name: snapshot.partner.name,
-                          logo_url: snapshot.partner.logo
-                        }
-                      })}
-                      dropdownItems={[
-                        { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerReassignCombobox },
-                        { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignContact }
-                      ]}
-                      comboboxOptions={comboboxOptions}
-                      onComboboxSelect={onContactSelect}
-                      comboboxPlaceholder="Search contacts..."
-                      className="min-h-[44px]"
-                    />
-                  ) : (
-              <ListRow
-                avatar={false}
-                text="Assign contact"
-                textColor="var(--color-base-text-tertiary)"
-                secondaryText={false}
-                actions={false}
-                comboboxOptions={comboboxOptions}
-                onComboboxSelect={onContactSelect}
-                comboboxPlaceholder="Search contacts..."
-                className="min-h-[44px]"
-              />
-            )}
-          </div>
-        </div>
-        <div>
-          <p className="text-xs-medium text-tertiary">
-            {snapshot.currentUserType === 'client' ? snapshot.partner.name : snapshot.agency.name} (Account Manager)
-          </p>
-          <div className="mt-3">
-            {hasAgencyContact ? (
-              <ListRow
-                ref={agencyListRowRef}
-                avatar={true}
-                avatarSize={32}
-                avatarUrl={currentAgencyContact!.avatarUrl}
-                text={`${currentAgencyContact!.firstName} ${currentAgencyContact!.lastName}`}
-                secondaryText={currentAgencyContact!.jobTitle || 'No job title'}
-                iconEnd={true}
-                onClick={() => handleContactClick({ 
-                  id: currentAgencyContact!.id,
-                  first_name: currentAgencyContact!.firstName, 
-                  last_name: currentAgencyContact!.lastName,
-                  email: currentAgencyContact!.email,
-                  avatar_url: currentAgencyContact!.avatarUrl,
-                  job_title: currentAgencyContact!.jobTitle,
-                  organization: {
-                    id: snapshot.currentUserType === 'client' ? snapshot.partner.id : snapshot.agency.id,
-                    name: snapshot.currentUserType === 'client' ? snapshot.partner.name : snapshot.agency.name,
-                    logo_url: snapshot.currentUserType === 'client' ? snapshot.partner.logo : snapshot.agency.logo
-                  }
-                })}
-                dropdownItems={[
-                  { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerAgencyReassignCombobox },
-                  { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignAgencyContact }
-                ]}
-                comboboxOptions={agencyComboboxOptions}
-                onComboboxSelect={onAgencyContactSelect}
-                comboboxPlaceholder="Search contacts..."
-                className="min-h-[44px]"
-              />
-            ) : (
-              <ListRow
-                avatar={false}
-                text="Assign contact"
-                textColor="var(--color-base-text-tertiary)"
-                secondaryText={false}
-                actions={false}
-                comboboxOptions={agencyComboboxOptions}
-                onComboboxSelect={onAgencyContactSelect}
-                comboboxPlaceholder="Search contacts..."
-                className="min-h-[44px]"
-              />
-            )}
-          </div>
-        </div>
+      <div className={`flex flex-col gap-5 ${isAgency ? 'mt-1' : 'mt-2'}`}>
+        {/* Agency view: Primary Contact first, Account Manager second */}
+        {/* Client view: Account Manager first, Primary Contact second */}
+        {isAgency ? (
+          <>
+            {/* Primary Contact - Agency view */}
+            <div>
+              <p className="text-xs-medium text-tertiary">
+                {snapshot.partner.name} (Primary Contact)
+              </p>
+              <div className="mt-3">
+                {hasPrimaryContact ? (
+                  <ListRow
+                    ref={listRowRef}
+                    avatar={true}
+                    avatarSize={32}
+                    avatarUrl={currentPrimaryContact!.avatarUrl}
+                    text={`${currentPrimaryContact!.firstName} ${currentPrimaryContact!.lastName}`}
+                    secondaryText={currentPrimaryContact!.jobTitle || 'No job title'}
+                    iconButtonEnd={true}
+                    onClick={() => handleContactClick({ 
+                      id: currentPrimaryContact!.id,
+                      first_name: currentPrimaryContact!.firstName, 
+                      last_name: currentPrimaryContact!.lastName,
+                      email: currentPrimaryContact!.email,
+                      avatar_url: currentPrimaryContact!.avatarUrl,
+                      job_title: currentPrimaryContact!.jobTitle,
+                      organization: {
+                        id: snapshot.partner.id,
+                        name: snapshot.partner.name,
+                        logo_url: snapshot.partner.logo
+                      }
+                    })}
+                    dropdownItems={[
+                      { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerReassignCombobox },
+                      { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignContact }
+                    ]}
+                    comboboxOptions={comboboxOptions}
+                    onComboboxSelect={onContactSelect}
+                    comboboxPlaceholder="Search contacts..."
+                    className="min-h-[44px]"
+                  />
+                ) : (
+                  <ListRow
+                    avatar={true}
+                    avatarFallback={<User size={16} weight="fill" className="text-white" />}
+                    text="Assign contact"
+                    textColor="var(--color-base-text-tertiary)"
+                    secondaryText={false}
+                    actions={false}
+                    comboboxOptions={comboboxOptions}
+                    onComboboxSelect={onContactSelect}
+                    comboboxPlaceholder="Search contacts..."
+                    className="min-h-[44px]"
+                  />
+                )}
+              </div>
+            </div>
+            {/* Account Manager - Agency view */}
+            <div>
+              <p className="text-xs-medium text-tertiary">
+                {snapshot.agency.name} (Account Manager)
+              </p>
+              <div className="mt-3">
+                {hasAgencyContact ? (
+                  <ListRow
+                    ref={agencyListRowRef}
+                    avatar={true}
+                    avatarSize={32}
+                    avatarUrl={currentAgencyContact!.avatarUrl}
+                    text={`${currentAgencyContact!.firstName} ${currentAgencyContact!.lastName}`}
+                    secondaryText={currentAgencyContact!.jobTitle || 'No job title'}
+                    iconButtonEnd={true}
+                    onClick={() => handleContactClick({ 
+                      id: currentAgencyContact!.id,
+                      first_name: currentAgencyContact!.firstName, 
+                      last_name: currentAgencyContact!.lastName,
+                      email: currentAgencyContact!.email,
+                      avatar_url: currentAgencyContact!.avatarUrl,
+                      job_title: currentAgencyContact!.jobTitle,
+                      organization: {
+                        id: snapshot.agency.id,
+                        name: snapshot.agency.name,
+                        logo_url: snapshot.agency.logo
+                      }
+                    })}
+                    dropdownItems={[
+                      { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerAgencyReassignCombobox },
+                      { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignAgencyContact }
+                    ]}
+                    comboboxOptions={agencyComboboxOptions}
+                    onComboboxSelect={onAgencyContactSelect}
+                    comboboxPlaceholder="Search contacts..."
+                    className="min-h-[44px]"
+                  />
+                ) : (
+                  <ListRow
+                    avatar={true}
+                    avatarFallback={<User size={16} weight="fill" className="text-white" />}
+                    text="Assign contact"
+                    textColor="var(--color-base-text-tertiary)"
+                    secondaryText={false}
+                    actions={false}
+                    comboboxOptions={agencyComboboxOptions}
+                    onComboboxSelect={onAgencyContactSelect}
+                    comboboxPlaceholder="Search contacts..."
+                    className="min-h-[44px]"
+                  />
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Account Manager - Client view (first) */}
+            <div>
+              <p className="text-xs-medium text-tertiary">
+                {snapshot.partner.name} (Account Manager)
+              </p>
+              <div className="mt-3">
+                {hasAgencyContact ? (
+                  <ListRow
+                    ref={agencyListRowRef}
+                    avatar={true}
+                    avatarSize={32}
+                    avatarUrl={currentAgencyContact!.avatarUrl}
+                    text={`${currentAgencyContact!.firstName} ${currentAgencyContact!.lastName}`}
+                    secondaryText={currentAgencyContact!.jobTitle || 'No job title'}
+                    iconButtonEnd={false}
+                    onClick={() => handleContactClick({ 
+                      id: currentAgencyContact!.id,
+                      first_name: currentAgencyContact!.firstName, 
+                      last_name: currentAgencyContact!.lastName,
+                      email: currentAgencyContact!.email,
+                      avatar_url: currentAgencyContact!.avatarUrl,
+                      job_title: currentAgencyContact!.jobTitle,
+                      organization: {
+                        id: snapshot.partner.id,
+                        name: snapshot.partner.name,
+                        logo_url: snapshot.partner.logo
+                      }
+                    })}
+                    className="min-h-[44px]"
+                  />
+                ) : (
+                  <ListRow
+                    avatar={true}
+                    avatarFallback={<User size={16} weight="fill" className="text-white" />}
+                    text="Awaiting agency assignment"
+                    textColor="var(--color-base-text-tertiary)"
+                    secondaryText={false}
+                    actions={false}
+                    nonInteractive={true}
+                    className="min-h-[44px]"
+                  />
+                )}
+              </div>
+            </div>
+            {/* Primary Contact - Client view (second) */}
+            <div>
+              <p className="text-xs-medium text-tertiary">
+                {context.organization.name} (Primary Contact)
+              </p>
+              <div className="mt-3">
+                {hasPrimaryContact ? (
+                  <ListRow
+                    ref={listRowRef}
+                    avatar={true}
+                    avatarSize={32}
+                    avatarUrl={currentPrimaryContact!.avatarUrl}
+                    text={`${currentPrimaryContact!.firstName} ${currentPrimaryContact!.lastName}`}
+                    secondaryText={currentPrimaryContact!.jobTitle || 'No job title'}
+                    iconButtonEnd={true}
+                    onClick={() => handleContactClick({ 
+                      id: currentPrimaryContact!.id,
+                      first_name: currentPrimaryContact!.firstName, 
+                      last_name: currentPrimaryContact!.lastName,
+                      email: currentPrimaryContact!.email,
+                      avatar_url: currentPrimaryContact!.avatarUrl,
+                      job_title: currentPrimaryContact!.jobTitle,
+                      organization: {
+                        id: context.organization.id,
+                        name: context.organization.name,
+                        logo_url: context.organization.logoUrl
+                      }
+                    })}
+                    dropdownItems={[
+                      { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerReassignCombobox },
+                      { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignContact }
+                    ]}
+                    comboboxOptions={comboboxOptions}
+                    onComboboxSelect={onContactSelect}
+                    comboboxPlaceholder="Search contacts..."
+                    className="min-h-[44px]"
+                  />
+                ) : (
+                  <ListRow
+                    avatar={true}
+                    avatarFallback={<User size={16} weight="fill" className="text-white" />}
+                    text="Assign contact to represent your team"
+                    textColor="var(--color-base-text-tertiary)"
+                    secondaryText={false}
+                    actions={false}
+                    comboboxOptions={comboboxOptions}
+                    onComboboxSelect={onContactSelect}
+                    comboboxPlaceholder="Search contacts..."
+                    className="min-h-[44px]"
+                  />
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
       
       {/* Profile Card Dialog */}

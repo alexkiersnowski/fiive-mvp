@@ -2,13 +2,17 @@ import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 export type Agency = {
   id: string
+  connectionId: string // Connection ID from connections table
   name: string
   logo?: string
   industry?: string
   status: "connected" | "invited" | "disconnected" | "draft"
   accountManager: {
+    id: string
     name: string
-    avatar?: string
+    avatarUrl?: string | undefined
+    email?: string
+    jobTitle?: string
   }
 }
 

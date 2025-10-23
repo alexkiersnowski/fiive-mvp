@@ -2,6 +2,7 @@ import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 export type AgencyPreview = {
   id: string;
+  connectionId: string;
   name: string;
   logo?: string;
   projectCount: number; // Default to 0 for now

@@ -18,6 +18,7 @@ export interface ListRowProps {
   avatar?: boolean
   avatarUrl?: string | null
   avatarSize?: number // Size in pixels (default: 24)
+  avatarFallback?: React.ReactNode
   iconStart?: boolean | React.ReactNode
   
   // Content
@@ -31,7 +32,7 @@ export interface ListRowProps {
   comboboxPlaceholder?: string
   
   // Actions
-  iconEnd?: boolean | React.ReactNode
+  iconButtonEnd?: boolean | React.ReactNode
   visibility?: boolean
   actions?: boolean
   dropdownItems?: Array<{
@@ -44,6 +45,9 @@ export interface ListRowProps {
   // Layout
   variant?: "stacked" | "inline"
   
+  // Interactivity
+  nonInteractive?: boolean // Disables hover states and click handlers
+  
   // Additional props
   className?: string
   onClick?: () => void
@@ -55,6 +59,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     avatar = false,
     avatarUrl = null,
     avatarSize = 24,
+    avatarFallback,
     iconStart = false,
     text = "Text",
     textColor = 'var(--color-base-text-primary)',
@@ -62,20 +67,23 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     comboboxOptions,
     onComboboxSelect,
     comboboxPlaceholder = "Select...",
-    iconEnd = false,
+    iconButtonEnd = false,
     visibility = false,
     actions = true,
     dropdownItems,
     variant = "stacked",
+    nonInteractive = false,
     className,
     onClick,
     ...props
   }, ref) => {
     const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
     const [isComboboxOpen, setIsComboboxOpen] = React.useState(false);
+    const divRef = React.useRef<HTMLDivElement>(null);
     
     // Expose triggerCombobox function through ref
     React.useImperativeHandle(ref, () => ({
+      ...divRef.current!,
       triggerCombobox: () => {
         if (comboboxOptions) {
           setIsComboboxOpen(true);
@@ -84,7 +92,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     }));
     
     // Only show combobox if it's explicitly triggered (not on regular click)
-    const shouldShowCombobox = comboboxOptions && (isComboboxOpen || !iconEnd);
+    const shouldShowCombobox = comboboxOptions && (isComboboxOpen || !iconButtonEnd);
     // Default icon components
     const getDefaultIcon = () => {
       if (avatar) {
@@ -107,28 +115,8 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
           )
         }
         
-        // Scenario 2 & 3: Active members
-        if (avatarUrl) {
-          // Scenario 3: Active members with profile picture - show avatar image
-          return (
-            <div 
-              className="rounded-full overflow-hidden"
-              style={{ 
-                width: size, 
-                height: size
-              }}
-            >
-              <img 
-                src={avatarUrl} 
-                alt={text}
-                className="w-full h-full object-cover"
-                draggable={false}
-              />
-            </div>
-          )
-        } else {
-          // Scenario 2: Active members without profile picture - show initials
-          const initials = text.split(' ').map(n => n[0]).join('').toUpperCase()
+        // Scenario 2: Custom avatar fallback provided - show custom fallback
+        if (avatarFallback && React.isValidElement(avatarFallback)) {
           return (
             <div 
               className="rounded-full flex items-center justify-center"
@@ -138,10 +126,32 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
                 background: 'var(--color-neutral-9, #8B8D98)'
               }}
             >
-              <span className="text-xs font-medium text-white">{initials}</span>
+              {React.cloneElement(avatarFallback as React.ReactElement<any>, { size: iconSize })}
             </div>
           )
         }
+        
+        // Scenario 3: Active members - use Avatar component
+        const initials = text.split(' ').map(n => n[0]).join('').toUpperCase()
+        return (
+          <Avatar 
+            className="rounded-full"
+            style={{ 
+              width: size, 
+              height: size
+            }}
+          >
+            <AvatarImage src={avatarUrl || undefined} alt={text} />
+            <AvatarFallback 
+              className="text-xs font-medium text-white"
+              style={{ 
+                background: 'var(--color-neutral-9, #8B8D98)'
+              }}
+            >
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+        )
       }
       if (iconStart === true) {
         return <SquaresFour size={16} className="text-neutral-600" />
@@ -153,11 +163,11 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     }
 
     const getEndIcon = () => {
-      if (iconEnd === true) {
+      if (iconButtonEnd === true) {
         return <DotsThree size={16} style={{ color: 'var(--color-base-text-primary)' }} />
       }
-      if (React.isValidElement(iconEnd)) {
-        return iconEnd
+      if (React.isValidElement(iconButtonEnd)) {
+        return iconButtonEnd
       }
       return null
     }
@@ -178,10 +188,10 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
         <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
           <PopoverTrigger asChild>
             <div
-              ref={ref}
+              ref={divRef}
               className={cn(
-                "flex items-center p-1 transition-all duration-75 cursor-pointer",
-                "hover:bg-[var(--color-interactive-surface-hover)]",
+                "flex items-center p-1 transition-colors duration-75",
+                !nonInteractive && "cursor-pointer hover:bg-[var(--color-interactive-surface-hover)]",
                 isComboboxOpen && "bg-[var(--color-interactive-surface-hover)]",
                 getStateStyles(),
                 className
@@ -251,16 +261,19 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
 
     return (
       <div
-        ref={ref}
+        ref={divRef}
         className={cn(
-          "flex items-center p-1 transition-all duration-75 cursor-pointer",
-          "hover:bg-[var(--color-interactive-surface-hover)]",
+          "flex items-center p-1 transition-colors duration-75",
+          !nonInteractive && "cursor-pointer hover:bg-[var(--color-interactive-surface-hover)]",
           isDropdownOpen && "bg-[var(--color-interactive-surface-hover)]",
           getStateStyles(),
           className
         )}
         style={{ borderRadius: 'calc(var(--radius) - 2px)' }}
-        onClick={onClick}
+        onClick={!nonInteractive ? (e) => {
+          e.stopPropagation();
+          onClick?.();
+        } : undefined}
         {...props}
       >
         {/* Start Icon/Avatar */}
@@ -305,7 +318,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
         </div>
 
         {/* End Icon/Actions */}
-        {actions && (
+        {iconButtonEnd && (
           <div className="flex-shrink-0 ml-3 flex items-center" onClick={(e) => e.stopPropagation()}>
             {dropdownItems ? (
               <DropdownMenu modal={false} open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
