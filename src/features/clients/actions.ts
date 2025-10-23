@@ -76,16 +76,22 @@ export async function connectToExistingClient(
   context: EnhancedModeContext
 ): Promise<ConnectionResult> {
   try {
+    console.log('[DEBUG] connectToExistingClient called with:', { connectionCode, contextOrgId: context.orgId });
+    
     // Use admin client to bypass RLS policies when looking up organizations by connection code
     const supabase = createAdminClient();
+    console.log('[DEBUG] Admin client created successfully');
     
     // 1. Look up organization by connection code
+    console.log('[DEBUG] Looking up organization with connection code:', connectionCode);
     const { data: targetOrg, error: orgError } = await supabase
       .from('organizations')
       .select('id, name, type, logo_url, connection_code')
       .eq('connection_code', connectionCode)
       .is('deleted_at', null) // Only active organizations
       .single();
+    
+    console.log('[DEBUG] Organization lookup result:', { targetOrg, orgError });
     
     if (orgError || !targetOrg) {
       console.error('Organization lookup error:', orgError);

@@ -53,11 +53,19 @@ export async function isUserVerified(email: string) {
 
 // Admin client for server-side operations requiring service role key
 export function createAdminClient() {
+  console.log('[DEBUG] Creating admin client...');
+  console.log('[DEBUG] NEXT_PUBLIC_SUPABASE_URL exists:', !!process.env.NEXT_PUBLIC_SUPABASE_URL);
+  console.log('[DEBUG] SUPABASE_SECRET_KEY exists:', !!process.env.SUPABASE_SECRET_KEY);
+  
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
+    console.error('[DEBUG] Missing environment variables:', {
+      hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasSecretKey: !!process.env.SUPABASE_SECRET_KEY
+    });
     throw new Error('Missing required Supabase environment variables for admin client')
   }
 
-  return createSupabaseClient(
+  const client = createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SECRET_KEY,
     {
@@ -66,5 +74,8 @@ export function createAdminClient() {
         persistSession: false
       }
     }
-  )
+  );
+  
+  console.log('[DEBUG] Admin client created successfully');
+  return client;
 }
