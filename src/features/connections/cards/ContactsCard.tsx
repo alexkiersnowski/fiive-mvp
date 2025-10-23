@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ListRow } from '@/components/ui/list-row';
 import { ProfileCard } from '@/components/ui/profile-card';
 import { Eye, ArrowsClockwise, UserMinus, User } from '@phosphor-icons/react/dist/ssr';
+import { toast } from 'sonner';
 import { handleContactSelect, handleUnassignContact, handleAgencyContactSelect, handleUnassignAgencyContact } from '../client-actions';
 import type { ConnectionSnapshot } from '../types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
@@ -41,8 +42,8 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
       logo_url?: string;
     };
   } | null>(null);
-  const listRowRef = useRef<{ triggerCombobox: () => void }>(null);
-  const agencyListRowRef = useRef<{ triggerCombobox: () => void }>(null);
+  const listRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null);
+  const agencyListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null);
   
   // Check if client primary contact exists (use optimistic state if available)
   const currentPrimaryContact = optimisticPrimaryContact === 'unassigning' ? null : (optimisticPrimaryContact || snapshot.connection.clientPrimaryContact);
@@ -77,6 +78,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
     last_name: string;
     email: string;
     avatar_url?: string;
+    job_title?: string;
     organization: {
       id: string;
       name: string;
@@ -103,7 +105,12 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
     }
     
     // Update database in background
-    await handleContactSelect(snapshot.connection.id, memberId);
+    const result = await handleContactSelect(snapshot.connection.id, memberId);
+    if (!result.success) {
+      toast.error('Failed to assign primary contact');
+    } else {
+      toast.success('Primary contact assigned');
+    }
   };
   
   const onUnassignContact = async () => {
@@ -111,7 +118,12 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
     setOptimisticPrimaryContact('unassigning');
     
     // Update database in background
-    await handleUnassignContact(snapshot.connection.id);
+    const result = await handleUnassignContact(snapshot.connection.id);
+    if (!result.success) {
+      toast.error('Failed to unassign primary contact');
+    } else {
+      toast.success('Primary contact unassigned');
+    }
   };
 
   const triggerReassignCombobox = () => {
@@ -138,7 +150,12 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
     }
     
     // Update database in background
-    await handleAgencyContactSelect(snapshot.connection.id, memberId);
+    const result = await handleAgencyContactSelect(snapshot.connection.id, memberId);
+    if (!result.success) {
+      toast.error('Failed to assign account manager');
+    } else {
+      toast.success('Account manager assigned');
+    }
   };
   
   const onUnassignAgencyContact = async () => {
@@ -146,7 +163,12 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
     setOptimisticAgencyContact('unassigning');
     
     // Update database in background
-    await handleUnassignAgencyContact(snapshot.connection.id);
+    const result = await handleUnassignAgencyContact(snapshot.connection.id);
+    if (!result.success) {
+      toast.error('Failed to unassign account manager');
+    } else {
+      toast.success('Account manager unassigned');
+    }
   };
   
   // Transform client members to combobox options
