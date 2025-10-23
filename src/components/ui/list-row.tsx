@@ -126,7 +126,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
                 background: 'var(--color-neutral-9, #8B8D98)'
               }}
             >
-              {React.cloneElement(avatarFallback as React.ReactElement<any>, { size: iconSize })}
+              {React.cloneElement(avatarFallback as React.ReactElement<{ size?: number }>, { size: iconSize })}
             </div>
           )
         }

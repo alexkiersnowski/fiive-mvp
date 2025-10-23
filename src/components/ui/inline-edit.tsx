@@ -8,9 +8,9 @@ import { Input } from './input'
 import { Badge } from './badge'
 import { Button } from './button'
 import { Calendar } from './calendar'
-import { StatusBadge } from './connection-badge'
-import { EngagementBadge } from './engagement-badge'
-import { HealthBadge } from './health-badge'
+import { StatusBadge, StatusVariant } from './connection-badge'
+import { EngagementBadge, EngagementVariant } from './engagement-badge'
+import { HealthBadge, HealthVariant } from './health-badge'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './command'
 
@@ -50,11 +50,38 @@ export function InlineEdit(props: InlineEditProps) {
   const [tempValue, setTempValue] = React.useState(props.value)
   const [isPopoverOpen, setIsPopoverOpen] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  
+  // Date-specific state (moved to top level to avoid conditional hooks)
+  const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(() => {
+    if (props.type === 'date' && props.value) {
+      try {
+        return new Date(props.value)
+      } catch {
+        return undefined
+      }
+    }
+    return undefined
+  })
 
   // Reset temp value when value prop changes
   React.useEffect(() => {
     setTempValue(props.value)
   }, [props.value])
+  
+  // Update selected date when value prop changes (for date type)
+  React.useEffect(() => {
+    if (props.type === 'date') {
+      if (props.value) {
+        try {
+          setSelectedDate(new Date(props.value))
+        } catch {
+          setSelectedDate(undefined)
+        }
+      } else {
+        setSelectedDate(undefined)
+      }
+    }
+  }, [props.value, props.type])
 
   // Focus input when editing starts
   React.useEffect(() => {
@@ -212,22 +239,16 @@ export function InlineEdit(props: InlineEditProps) {
         )
       }
       
-      const badgeProps = {
-        variant: tempValue as any,
-        size: 'sm' as const,
-        showText: true
-      }
-      
       if (props.badgeComponent === 'engagement') {
-        return <EngagementBadge {...badgeProps} />
+        return <EngagementBadge variant={tempValue as EngagementVariant} size="sm" showText={true} />
       }
       
       if (props.badgeComponent === 'connection') {
-        return <StatusBadge {...badgeProps} />
+        return <StatusBadge variant={tempValue as StatusVariant} size="sm" showText={true} />
       }
       
       if (props.badgeComponent === 'health') {
-        return <HealthBadge {...badgeProps} />
+        return <HealthBadge variant={tempValue as HealthVariant} size="sm" showText={true} />
       }
       
       // Default to regular Badge component
@@ -288,22 +309,16 @@ export function InlineEdit(props: InlineEditProps) {
                     className="flex items-center justify-between cursor-pointer"
                   >
                     {(() => {
-                      const badgeProps = {
-                        variant: option.value as any,
-                        size: 'sm' as const,
-                        showText: true
-                      }
-                      
                       if (props.badgeComponent === 'engagement') {
-                        return <EngagementBadge {...badgeProps} />
+                        return <EngagementBadge variant={option.value as EngagementVariant} size="sm" showText={true} />
                       }
                       
                       if (props.badgeComponent === 'connection') {
-                        return <StatusBadge {...badgeProps} />
+                        return <StatusBadge variant={option.value as StatusVariant} size="sm" showText={true} />
                       }
                       
                       if (props.badgeComponent === 'health') {
-                        return <HealthBadge {...badgeProps} />
+                        return <HealthBadge variant={option.value as HealthVariant} size="sm" showText={true} />
                       }
                       
                       return (
@@ -328,23 +343,6 @@ export function InlineEdit(props: InlineEditProps) {
   // Date type
   if (props.type === 'date') {
     const dateFormatString = props.dateFormat || 'd MMM yyyy' // e.g., '23 Oct 2025'
-    
-    // Parse the value to a Date object
-    const parseDate = (value: string): Date | undefined => {
-      if (!value) return undefined
-      try {
-        return new Date(value)
-      } catch {
-        return undefined
-      }
-    }
-    
-    const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(parseDate(props.value))
-    
-    // Update selected date when value prop changes
-    React.useEffect(() => {
-      setSelectedDate(parseDate(props.value))
-    }, [props.value])
     
     const handleDateSelect = (date: Date | undefined) => {
       setSelectedDate(date)
