@@ -304,37 +304,97 @@ export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabeti
     setProfileDialogOpen(true);
   };
 
-  // Client-side filtering for search
-  const filteredClients = React.useMemo(() => {
-    if (!searchValue.trim()) {
-      return clients;
+  // Client-side filtering and sorting for instant response
+  const displayedClients = React.useMemo(() => {
+    // First apply search filter
+    let filtered = clients;
+    if (searchValue.trim()) {
+      const query = searchValue.toLowerCase().trim();
+      const searchTerms = query.split(' ').filter(term => term.length > 0);
+      
+      filtered = clients.filter(client => {
+        if (searchTerms.length === 0) return true;
+        
+        // Create searchable text for the crucial fields
+        const searchableText = [
+          client.name.toLowerCase(),
+          client.accountManager.name.toLowerCase(),
+          client.status.toLowerCase(),
+          client.health.toLowerCase(),
+          client.contractEnd?.toLowerCase() || '',
+          client.badge?.toLowerCase() || ''
+        ].join(' ');
+        
+        // Check if all search terms are present
+        return searchTerms.every(term => searchableText.includes(term));
+      });
     }
-
-    const query = searchValue.toLowerCase().trim();
-    const searchTerms = query.split(' ').filter(term => term.length > 0);
     
-    return clients.filter(client => {
-      if (searchTerms.length === 0) return true;
-      
-      // Create searchable text for the crucial fields: Client name, Account manager name, Status, Health
-      const searchableText = [
-        client.name.toLowerCase(),
-        client.accountManager.name.toLowerCase(),
-        client.status.toLowerCase(),
-        client.health.toLowerCase()
-      ].join(' ');
-      
-      // Check if all search terms are present
-      return searchTerms.every(term => searchableText.includes(term));
+    // Then apply sorting
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortValue) {
+        case 'newest-first':
+          // Sort by ID descending (higher ID = newer)
+          return parseInt(b.id) - parseInt(a.id);
+        
+        case 'alphabetical':
+          return a.name.localeCompare(b.name); // A to Z
+        
+        case 'reverse-alphabetical':
+          return b.name.localeCompare(a.name); // Z to A
+        
+        case 'contract-end-soonest':
+          // Sort by contract end date (soonest first)
+          // Clients without contracts go to the end
+          if (!a.contractEnd && !b.contractEnd) return 0;
+          if (!a.contractEnd) return 1;
+          if (!b.contractEnd) return -1;
+          
+          // Parse dates (format: "DD MMM YYYY")
+          const parseDate = (dateStr: string) => {
+            const [day, month, year] = dateStr.split(' ');
+            const monthMap: { [key: string]: number } = {
+              'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+              'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+            };
+            return new Date(parseInt(year), monthMap[month], parseInt(day));
+          };
+          
+          const dateA = parseDate(a.contractEnd);
+          const dateB = parseDate(b.contractEnd);
+          return dateA.getTime() - dateB.getTime();
+        
+        case 'status-critical-first':
+          // Sort by health priority (critical first), then alphabetically within each category
+          const healthPriority = {
+            'critical': 0,
+            'at-risk': 1,
+            'healthy': 2,
+            'unassigned': 3
+          };
+          
+          const priorityA = healthPriority[a.health as keyof typeof healthPriority] ?? 999;
+          const priorityB = healthPriority[b.health as keyof typeof healthPriority] ?? 999;
+          
+          // If different priorities, sort by priority
+          if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+          }
+          
+          // If same priority, sort alphabetically by name
+          return a.name.localeCompare(b.name);
+        
+        default:
+          return a.name.localeCompare(b.name); // Default to A to Z
+      }
     });
-  }, [clients, searchValue]);
-
-  // Server handles all sorting, so we just use the filtered clients as-is
-  const sortedClients = filteredClients;
+    
+    return sorted;
+  }, [clients, searchValue, sortValue]);
 
   return (
     <div 
-      className={`rounded-md border ${sortedClients.length > 0 ? 'overflow-y-auto' : 'overflow-hidden'}`}
+      className={`rounded-md border ${displayedClients.length > 0 ? 'overflow-y-auto' : 'overflow-hidden'}`}
       style={STYLES.tableContainer}
       onScroll={onScroll}
     >
@@ -382,7 +442,7 @@ export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabeti
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sortedClients.map((client) => (
+          {displayedClients.map((client) => (
             <ClientRow key={client.id} client={client} onAccountManagerClick={handleAccountManagerClick} />
           ))}
           
@@ -437,7 +497,7 @@ export function ClientsTable({ clients, searchValue = '', sortValue = 'alphabeti
           )}
 
           {/* No search results */}
-          {clients.length > 0 && sortedClients.length === 0 && !isLoading && (
+          {clients.length > 0 && displayedClients.length === 0 && !isLoading && (
             <TableRow 
               className="hover:bg-transparent"
               style={{ 

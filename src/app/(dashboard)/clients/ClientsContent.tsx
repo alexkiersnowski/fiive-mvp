@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useCallback } from 'react';
+import { useState, useTransition, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, SortAscending, CaretDown, Check, Link } from '@phosphor-icons/react/ssr';
@@ -58,6 +58,14 @@ export function ClientsContent({
   const [connectedClientName, setConnectedClientName] = useState('');
   const [connectedClientLogo, setConnectedClientLogo] = useState<string | undefined>(undefined);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Sync local state with server snapshot when props change
+  useEffect(() => {
+    setClients(snapshot.clients);
+    setTotalCount(snapshot.total);
+    setCursor(snapshot.cursor || null);
+    setHasNextPage(snapshot.hasNextPage);
+  }, [snapshot]);
 
   const selectionForm = useForm<AccountTypeFormData>({
     resolver: zodResolver(accountTypeSchema),
@@ -118,12 +126,12 @@ export function ClientsContent({
 
   const handleSearchChange = (value: string) => {
     setSearchValue(value);
+    // Search will be applied instantly via useMemo in ClientsTable
   };
 
   const handleSortChange = (newSortValue: string) => {
     setSortValue(newSortValue);
-    // TODO: Implement sorting with server actions
-    console.log('Sorting not yet implemented for real data');
+    // Sort will be applied instantly via useMemo in ClientsTable
   };
 
   const handleAddClientClick = () => {
