@@ -26,13 +26,13 @@ async function handleSignIn(data: { email: string }) {
   if (userStatus?.exists) {
     if (userStatus.is_verified) {
       // User exists and is verified - send magic link
-      const signinResult = await supabase.auth.signInWithOtp({
-        email: email,
-        options: {
-          shouldCreateUser: false,
-          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/home`
-        }
-      })
+        const signinResult = await supabase.auth.signInWithOtp({
+          email: email,
+          options: {
+            shouldCreateUser: false,
+            emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
+          }
+        })
       
       if (!signinResult.error) {
         redirect(`/check-email?mode=signin&email=${encodeURIComponent(email)}&from=signin`)
@@ -57,7 +57,7 @@ async function handleSignIn(data: { email: string }) {
         type: 'signup',
         email: email,
         options: {
-          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/profile`
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
         }
       })
       
@@ -84,7 +84,7 @@ async function handleSignIn(data: { email: string }) {
       email: email,
       password: randomPassword,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/profile`
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
       }
     })
     

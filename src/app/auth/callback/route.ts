@@ -11,13 +11,6 @@ export async function GET(request: NextRequest) {
   const rawType = url.searchParams.get('type') // may be 'invite'
   const next = url.searchParams.get('next') || ''
 
-  // Helpful local debugging (shows in your dev terminal)
-  console.log('[auth/callback] params:', {
-    rawType,
-    has_token_hash: !!token_hash,
-    next,
-    full: url.toString(),
-  })
 
   if (!token_hash || !rawType) {
     return NextResponse.redirect(new URL('/signin?error=auth_failed', url))
@@ -41,27 +34,51 @@ export async function GET(request: NextRequest) {
 
   const { error } = await supabase.auth.verifyOtp({ type: verifyType, token_hash })
   if (error) {
-    console.log('[auth/callback] verifyOtp failed:', error.message)
     return NextResponse.redirect(
       new URL(`/signin?error=auth_failed&reason=${encodeURIComponent(error.message)}`, url)
     )
   }
-
-  console.log('[auth/callback] verifyOtp success, redirecting...')
 
   const safeNext = next && next.startsWith('/') ? next : ''
 
   if (rawType === 'invite') {
     // Don't call getUser(); just bounce the browser so cookies take effect
     const target = safeNext || '/member-invite'
-    console.log('[auth/callback] Redirecting invite user to:', target)
     return NextResponse.redirect(new URL(target, url))
   }
 
-  const fallback =
-    verifyType === 'email_change' ? '/settings/account/access'
-    : verifyType === 'signup' || verifyType === 'email' ? '/profile'
-    : '/home'
+  // Check if user has completed onboarding (is member or owner of an organization)
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.redirect(new URL('/signin?error=auth_failed', url))
+  }
 
-  return NextResponse.redirect(new URL(safeNext || fallback, url))
+  // Check if user is a member of any organization (this is the only check we need)
+  const { data: membership } = await supabase
+    .from('memberships')
+    .select('id')
+    .eq('user_id', user.id)
+    .single()
+
+  const hasMembership = !!membership
+
+  // Determine redirect destination
+  let fallback: string
+  if (verifyType === 'email_change') {
+    fallback = '/settings/account/access'
+  } else if (verifyType === 'signup' || verifyType === 'email') {
+    // New user or email verification - always go to profile for onboarding
+    fallback = '/profile'
+  } else if (hasMembership) {
+    // User has membership - go to home
+    fallback = '/home'
+  } else {
+    // User has no membership - go to profile to complete onboarding
+    fallback = '/profile'
+  }
+
+  // CRITICAL: If user has no membership, always redirect to profile regardless of next parameter
+  const finalDestination = hasMembership ? (safeNext || fallback) : '/profile'
+  
+  return NextResponse.redirect(new URL(finalDestination, url))
 }
