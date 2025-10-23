@@ -16,7 +16,9 @@ export async function updateClientPrimaryContact(
       .eq('id', connectionId)
     
     if (error) {
-      console.error('Error updating client primary contact:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error updating client primary contact:', error)
+      }
       return { success: false, error: error.message }
     }
     
@@ -28,7 +30,9 @@ export async function updateClientPrimaryContact(
     
     return { success: true }
   } catch (error) {
-    console.error('Unexpected error updating client primary contact:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error updating client primary contact:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -46,7 +50,9 @@ export async function updateEngagementStatus(
       .eq('id', connectionId)
     
     if (error) {
-      console.error('Error updating engagement status:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error updating engagement status:', error)
+      }
       return { success: false, error: error.message }
     }
     
@@ -58,7 +64,9 @@ export async function updateEngagementStatus(
     
     return { success: true }
   } catch (error) {
-    console.error('Unexpected error updating engagement status:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error updating engagement status:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -92,7 +100,9 @@ export async function updateContractValue(
       .eq('id', connectionId)
 
     if (error) {
-      console.error('Error updating contract value:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error updating contract value:', error)
+      }
       return { success: false, error: error.message }
     }
 
@@ -104,7 +114,9 @@ export async function updateContractValue(
 
     return { success: true }
   } catch (error) {
-    console.error('Unexpected error updating contract value:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error updating contract value:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -139,7 +151,9 @@ export async function updateContractEndDate(
       .eq('id', connectionId)
 
     if (error) {
-      console.error('Error updating contract end date:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error updating contract end date:', error)
+      }
       return { success: false, error: error.message }
     }
 
@@ -151,7 +165,9 @@ export async function updateContractEndDate(
 
     return { success: true }
   } catch (error) {
-    console.error('Unexpected error updating contract end date:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error updating contract end date:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -169,7 +185,9 @@ export async function updateHealthStatus(
       .eq('id', connectionId)
     
     if (error) {
-      console.error('Error updating health status:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error updating health status:', error)
+      }
       return { success: false, error: error.message }
     }
     
@@ -182,7 +200,9 @@ export async function updateHealthStatus(
     
     return { success: true }
   } catch (error) {
-    console.error('Unexpected error updating health status:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error updating health status:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -200,7 +220,9 @@ export async function updateAgencyPrimaryContact(
       .eq('id', connectionId)
     
     if (error) {
-      console.error('Error updating agency primary contact:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error updating agency primary contact:', error)
+      }
       return { success: false, error: error.message }
     }
     
@@ -212,7 +234,9 @@ export async function updateAgencyPrimaryContact(
     
     return { success: true }
   } catch (error) {
-    console.error('Unexpected error updating agency primary contact:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error updating agency primary contact:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

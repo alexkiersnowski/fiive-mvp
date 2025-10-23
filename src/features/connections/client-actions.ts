@@ -11,11 +11,15 @@ export async function handleContactSelect(
     if (result.success) {
       // The page will revalidate and show the updated contact
     } else {
-      console.error('Failed to update primary contact:', result.error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to update primary contact:', result.error)
+      }
     }
     return result
   } catch (error) {
-    console.error('Error updating primary contact:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error updating primary contact:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -26,11 +30,15 @@ export async function handleUnassignContact(connectionId: string) {
     if (result.success) {
       // Primary contact unassigned successfully
     } else {
-      console.error('Failed to unassign primary contact:', result.error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to unassign primary contact:', result.error)
+      }
     }
     return result
   } catch (error) {
-    console.error('Error unassigning primary contact:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error unassigning primary contact:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -44,11 +52,15 @@ export async function handleAgencyContactSelect(
     if (result.success) {
       // The page will revalidate and show the updated contact
     } else {
-      console.error('Failed to update agency primary contact:', result.error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to update agency primary contact:', result.error)
+      }
     }
     return result
   } catch (error) {
-    console.error('Error updating agency primary contact:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error updating agency primary contact:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -59,11 +71,15 @@ export async function handleUnassignAgencyContact(connectionId: string) {
     if (result.success) {
       // Agency primary contact unassigned successfully
     } else {
-      console.error('Failed to unassign agency primary contact:', result.error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to unassign agency primary contact:', result.error)
+      }
     }
     return result
   } catch (error) {
-    console.error('Error unassigning agency primary contact:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error unassigning agency primary contact:', error)
+    }
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

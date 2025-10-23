@@ -4,9 +4,9 @@ import { getAgenciesSnapshot } from '@/features/agencies/server';
 import { AgenciesContent } from './AgenciesContent';
 
 interface AgenciesPageProps {
-  searchParams: {
+  searchParams: Promise<{
     search?: string;
-  };
+  }>;
 }
 
 export default async function AgenciesPage({ searchParams }: AgenciesPageProps) {

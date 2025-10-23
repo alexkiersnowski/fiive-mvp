@@ -9,11 +9,13 @@ export const getConnectionSnapshot = cache(async (
 ): Promise<ConnectionSnapshot | null> => {
   const supabase = await createClient();
   
-  console.log('getConnectionSnapshot called with:', {
-    connectionId,
-    orgId: context.orgId,
-    variant: context.variant
-  });
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('getConnectionSnapshot called with:', {
+      connectionId,
+      orgId: context.orgId,
+      variant: context.variant
+    });
+  }
   
   let currentUserType: 'agency' | 'client';
   let connection;
@@ -84,13 +86,15 @@ export const getConnectionSnapshot = cache(async (
   }
   
   if (error || !connection) {
-    console.error('Error fetching connection snapshot:', {
-      error,
-      connection,
-      connectionId,
-      orgId: context.orgId,
-      variant: context.variant
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching connection snapshot:', {
+        error,
+        connection,
+        connectionId,
+        orgId: context.orgId,
+        variant: context.variant
+      });
+    }
     return null;
   }
   
@@ -279,5 +283,7 @@ export const getConnectionSnapshot = cache(async (
 export function invalidateConnection(connectionId: string) {
   // TODO: Implement cache invalidation when using real data
   // revalidateTag(`connection:${connectionId}`);
-  console.log(`Invalidating connection cache for: ${connectionId}`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`Invalidating connection cache for: ${connectionId}`);
+  }
 }

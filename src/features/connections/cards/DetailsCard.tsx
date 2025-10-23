@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { InlineEdit } from '@/components/ui/inline-edit';
 import { EyeSlash } from '@phosphor-icons/react';
+import { toast } from 'sonner';
 import { useConnection } from '../ConnectionContext';
 import { updateEngagementStatus, updateContractValue, updateContractEndDate, updateHealthStatus } from '../actions';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
@@ -22,7 +23,7 @@ function getCurrencySymbol(currencyCode: 'EUR' | 'USD' | 'GBP'): string {
 
 export default function DetailsCard({ context }: { context: EnhancedModeContext }) {
   const { snapshot } = useConnection();
-  const isAgency = context?.variant === 'agency' ?? true; // Default to agency view for SSR
+  const isAgency = context.variant === 'agency';
   const [contractValue, setContractValue] = useState(snapshot.connection.contractValue || '');
   const [contractEnd, setContractEnd] = useState(snapshot.connection.contractEnd || '');
   const [healthStatus, setHealthStatus] = useState(snapshot.connection.health || '');
@@ -93,12 +94,18 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                     );
                     
                     if (!result.success) {
-                      console.error('Failed to update engagement status:', result.error);
-                      // TODO: Add toast notification for error
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.error('Failed to update engagement status:', result.error);
+                      }
+                      toast.error('Failed to update engagement status');
+                    } else {
+                      toast.success('Engagement status updated');
                     }
                   } catch (error) {
-                    console.error('Error updating engagement status:', error);
-                    // TODO: Add toast notification for error
+                    if (process.env.NODE_ENV !== 'production') {
+                      console.error('Error updating engagement status:', error);
+                    }
+                    toast.error('Failed to update engagement status');
                   }
                 }}
                 clearable={true}
@@ -135,16 +142,22 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                     );
                     
                     if (!result.success) {
-                      console.error('Failed to update contract value:', result.error);
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.error('Failed to update contract value:', result.error);
+                      }
                       // Revert to previous value on error
                       setContractValue(snapshot.connection.contractValue || '');
-                      // TODO: Add toast notification for error
+                      toast.error('Failed to update contract value');
+                    } else {
+                      toast.success('Contract value updated');
                     }
                   } catch (error) {
-                    console.error('Error updating contract value:', error);
+                    if (process.env.NODE_ENV !== 'production') {
+                      console.error('Error updating contract value:', error);
+                    }
                     // Revert to previous value on error
                     setContractValue(snapshot.connection.contractValue || '');
-                    // TODO: Add toast notification for error
+                    toast.error('Failed to update contract value');
                   }
                 }}
                 className="h-[28px] truncate"
@@ -177,16 +190,22 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                     );
                     
                     if (!result.success) {
-                      console.error('Failed to update contract end date:', result.error);
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.error('Failed to update contract end date:', result.error);
+                      }
                       // Revert to previous value on error
                       setContractEnd(snapshot.connection.contractEnd || '');
-                      // TODO: Add toast notification for error
+                      toast.error('Failed to update contract end date');
+                    } else {
+                      toast.success('Contract end date updated');
                     }
                   } catch (error) {
-                    console.error('Error updating contract end date:', error);
+                    if (process.env.NODE_ENV !== 'production') {
+                      console.error('Error updating contract end date:', error);
+                    }
                     // Revert to previous value on error
                     setContractEnd(snapshot.connection.contractEnd || '');
-                    // TODO: Add toast notification for error
+                    toast.error('Failed to update contract end date');
                   }
                 }}
                 className="h-[28px] cursor-pointer truncate"
@@ -222,16 +241,22 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                     );
                     
                     if (!result.success) {
-                      console.error('Failed to update health status:', result.error);
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.error('Failed to update health status:', result.error);
+                      }
                       // Revert to previous value on error
                       setHealthStatus(snapshot.connection.health || '');
-                      // TODO: Add toast notification for error
+                      toast.error('Failed to update health status');
+                    } else {
+                      toast.success('Health status updated');
                     }
                   } catch (error) {
-                    console.error('Error updating health status:', error);
+                    if (process.env.NODE_ENV !== 'production') {
+                      console.error('Error updating health status:', error);
+                    }
                     // Revert to previous value on error
                     setHealthStatus(snapshot.connection.health || '');
-                    // TODO: Add toast notification for error
+                    toast.error('Failed to update health status');
                   }
                 }}
                 clearable={true}

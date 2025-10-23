@@ -16,16 +16,18 @@ export default function ContractsEndingCard({ snapshot, context }: StatsCardProp
     <Card className="w-full pt-5 pb-[18px] px-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <CardTitle className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>{title}</CardTitle>
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>
-            <div>
-              <Info size={14} weight="regular" style={{ color: 'var(--color-base-text-tertiary)' }} />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={8}>
-            Contracts ending within the next 90 days
-          </TooltipContent>
-        </Tooltip>
+        {isAgency && (
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <div>
+                <Info size={14} weight="regular" style={{ color: 'var(--color-base-text-tertiary)' }} />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={8}>
+              Contracts ending within the next 90 days
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
       <div className="display-8-medium" style={{ color: 'var(--color-base-text-primary)' }}>{contracts.endingSoonCount}</div>
       <Button

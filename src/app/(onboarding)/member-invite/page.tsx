@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/server'
 export const revalidate = 0
 
 interface MemberInvitePageProps {
-  searchParams: { org_id?: string }
+  searchParams: Promise<{ org_id?: string }>
 }
 
 export default async function MemberInvitePage({ searchParams }: MemberInvitePageProps) {
@@ -26,6 +26,9 @@ export default async function MemberInvitePage({ searchParams }: MemberInvitePag
   // For invited users, profile might not exist yet or RLS might block access
   // This is normal - they'll create their profile through this form
 
+  // Resolve search params
+  const resolvedSearchParams = await searchParams
+
   // Get organization name from user metadata or URL params
   let organizationName = "[Org Name]"
   
@@ -34,13 +37,13 @@ export default async function MemberInvitePage({ searchParams }: MemberInvitePag
     organizationName = user.user_metadata.organization_name
   }
   // Fallback to URL param lookup if no metadata
-  else if (searchParams.org_id) {
+  else if (resolvedSearchParams.org_id) {
     try {
       const supabase = await createClient()
       const { data: organization, error } = await supabase
         .from('organizations')
         .select('name')
-        .eq('id', searchParams.org_id)
+        .eq('id', resolvedSearchParams.org_id)
         .single()
 
       if (!error && organization?.name) {

@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 
 interface ClientWorkspacePageProps {
-  params: {
+  params: Promise<{
     connectionId: string;
-  };
+  }>;
 }
 
 export default async function ClientWorkspacePage({ params }: ClientWorkspacePageProps) {

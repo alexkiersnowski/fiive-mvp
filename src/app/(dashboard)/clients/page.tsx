@@ -4,10 +4,10 @@ import { getClientsSnapshot } from '@/features/clients/server';
 import { ClientsContent } from './ClientsContent';
 
 interface ClientsPageProps {
-  searchParams: {
+  searchParams: Promise<{
     search?: string;
     sort?: string;
-  };
+  }>;
 }
 
 export default async function ClientsPage({ searchParams }: ClientsPageProps) {
