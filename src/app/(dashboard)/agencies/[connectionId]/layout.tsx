@@ -5,9 +5,9 @@ import { ConnectionLayout } from '@/features/connections/ConnectionLayout';
 
 interface AgencyConnectionLayoutProps {
   children: React.ReactNode;
-  params: {
+  params: Promise<{
     connectionId: string;
-  };
+  }>;
 }
 
 export default async function AgencyConnectionLayout({ children, params }: AgencyConnectionLayoutProps) {

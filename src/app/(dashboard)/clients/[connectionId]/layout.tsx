@@ -5,9 +5,9 @@ import { ConnectionLayout } from '@/features/connections/ConnectionLayout';
 
 interface ClientConnectionLayoutProps {
   children: React.ReactNode;
-  params: {
+  params: Promise<{
     connectionId: string;
-  };
+  }>;
 }
 
 export default async function ClientConnectionLayout({ children, params }: ClientConnectionLayoutProps) {
