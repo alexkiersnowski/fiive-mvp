@@ -15,10 +15,10 @@ export default async function DashboardHome() {
     ? "Here's what's active across your agency"
     : "Here's what's happening across your agencies";
 
-  // Await all data on the server for instant rendering
+  // Await all data on the server for instant rendering (now using unified query)
   const snapshotStartTime = performance.now();
   const snapshot = await getHomeSnapshot(context);
-  console.log(`[Performance] getHomeSnapshot: ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
+  console.log(`[Performance] getHomeSnapshot (unified): ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
   
   const cards = homeCardRegistry(context);
   

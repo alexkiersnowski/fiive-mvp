@@ -1,8 +1,8 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import DetailsForm from './DetailsForm'
 
-// Force fresh data on every request to ensure updated data is shown immediately
-export const revalidate = 0
+// Cache for 30 seconds to improve performance while keeping data reasonably fresh
+export const revalidate = 30
 
 export default async function OrganizationDetailsPage() {
   const context = await getActiveContext()

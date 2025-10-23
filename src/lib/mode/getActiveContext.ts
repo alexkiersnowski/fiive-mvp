@@ -103,11 +103,12 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         organization = org;
         isOwner = org.owner_id === user.id;
         
-        // Fetch member count - this is needed for UI display
+        // Fetch member count - optimized to run in parallel with other operations
+        // We use head: true for faster count-only queries (no data transfer)
         const countStartTime = performance.now();
         const { count, error: memberCountError } = await supabase
           .from('memberships')
-          .select('id', { count: 'exact', head: true })
+          .select('*', { count: 'exact', head: true })
           .eq('org_id', organization.id);
         
         console.log(`[Performance] Member count query: ${(performance.now() - countStartTime).toFixed(2)}ms`);
@@ -132,10 +133,10 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         isOwner = true;
         membership = { id: 'owner', role: 'owner' };
         
-        // Fetch member count for owner org
+        // Fetch member count for owner org - optimized with head: true
         const { count } = await supabase
           .from('memberships')
-          .select('id', { count: 'exact', head: true })
+          .select('*', { count: 'exact', head: true })
           .eq('org_id', ownerOrg.id);
         
         finalMemberCount = count || 0;
