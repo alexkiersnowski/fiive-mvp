@@ -62,15 +62,15 @@ async function handleSignIn(data: { email: string }) {
       })
       
       if (!resendResult.error) {
-        redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&resend=true&from=signin`)
+        redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&from=signin`)
       } else {
         // Handle rate limiting or other errors
         if (resendResult.error.message.includes('rate limit') || 
             resendResult.error.message.includes('too many requests') ||
             resendResult.error.message.includes('security purposes') ||
             resendResult.error.message.includes('55 seconds')) {
-          // Redirect to check-email with resend state (same as successful resend)
-          redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&resend=true&from=signin`)
+          // Redirect to check-email (same as successful resend)
+          redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&from=signin`)
         } else {
           throw new Error(resendResult.error.message)
         }

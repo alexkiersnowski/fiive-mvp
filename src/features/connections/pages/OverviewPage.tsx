@@ -13,7 +13,7 @@ export function OverviewPage() {
   const { snapshot, context } = useConnection();
 
   return (
-    <div className="mt-4 flex flex-col gap-4">
+    <div className="mb-5 flex flex-col gap-4">
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2">
           <AboutCard />

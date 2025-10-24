@@ -11,6 +11,7 @@ import { Calendar } from './calendar'
 import { StatusBadge, StatusVariant } from './connection-badge'
 import { EngagementBadge, EngagementVariant } from './engagement-badge'
 import { HealthBadge, HealthVariant } from './health-badge'
+import { RequestBadge, RequestVariant } from './request-badge'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './command'
 
@@ -33,7 +34,7 @@ type InlineEditProps =
       className?: string
       searchable?: boolean
       clearable?: boolean
-      badgeComponent?: 'connection' | 'engagement' | 'health'
+      badgeComponent?: 'connection' | 'engagement' | 'health' | 'request'
       placeholder?: string
     }
   | {
@@ -251,6 +252,10 @@ export function InlineEdit(props: InlineEditProps) {
         return <HealthBadge variant={tempValue as HealthVariant} size="sm" showText={true} />
       }
       
+      if (props.badgeComponent === 'request') {
+        return <RequestBadge variant={tempValue as RequestVariant} size="sm" showText={true} />
+      }
+      
       // Default to regular Badge component
       return (
         <Badge variant="outline" className="text-xs">
@@ -319,6 +324,10 @@ export function InlineEdit(props: InlineEditProps) {
                       
                       if (props.badgeComponent === 'health') {
                         return <HealthBadge variant={option.value as HealthVariant} size="sm" showText={true} />
+                      }
+                      
+                      if (props.badgeComponent === 'request') {
+                        return <RequestBadge variant={option.value as RequestVariant} size="sm" showText={true} />
                       }
                       
                       return (

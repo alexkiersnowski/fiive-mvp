@@ -15,33 +15,29 @@ function CheckEmailContent() {
   
   const email = isClient ? searchParams.get("email") : null
   const mode = isClient ? searchParams.get("mode") : null
-  const resend = isClient ? searchParams.get("resend") : null
   const from = isClient ? searchParams.get("from") : null
   const isSignup = mode === "signup"
-  const isResend = resend === "true"
   
   // Determine which page to redirect back to
   const backToPage = from === "signin" ? "/signin" : "/signup"
   
-  // Handle messaging based on user's intent vs what actually happened
+  // Simplified messaging - always use "Verify your email" for unverified users
   let title, subtitle, description
   
-  if (isResend) {
-    // User exists but unverified - resending confirmation (or rate limited)
-    title = "Check your email again"
+  if (isSignup) {
+    // New user signup or existing unverified user
+    title = "Verify your email"
     subtitle = email 
       ? `We've sent a verification link to ${email}`
       : "We've sent a verification link to your email address"
     description = "Click the link to confirm and finish creating your account"
   } else {
-    // Normal flow
-    title = isSignup ? "Verify your email" : "Sign in with email"
+    // Sign in flow
+    title = "Sign in with email"
     subtitle = email 
-      ? `We've sent a ${isSignup ? 'verification' : 'secure sign-in'} link to ${email}`
-      : `We've sent a ${isSignup ? 'verification' : 'secure sign-in'} link to your email address`
-    description = isSignup 
-      ? "Click the link to confirm and finish creating your account"
-      : "Click the link to access your account"
+      ? `We've sent a secure sign-in link to ${email}`
+      : "We've sent a secure sign-in link to your email address"
+    description = "Click the link to access your account"
   }
 
   return (

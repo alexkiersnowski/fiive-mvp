@@ -16,14 +16,21 @@ export function ConnectionLayout({ snapshot, context, baseRoute, children }: Con
   
   return (
     <ConnectionProvider snapshot={snapshot} context={context}>
-      <div style={{ padding: '24px 16px 24px 24px' }}>
+      <div style={{ 
+        padding: '24px 16px 24px 24px',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
         <ConnectionHeader snapshot={snapshot} />
         <ConnectionTabs 
           connectionId={snapshot.connection.id}
           baseRoute={baseRoute}
           currentUserType={currentUserType}
         />
-        {children}
+        <div style={{ flex: 1 }}>
+          {children}
+        </div>
       </div>
     </ConnectionProvider>
   );
