@@ -13,14 +13,12 @@ export function RequestsPage() {
   const userInitials = context.user?.firstName?.[0] + context.user?.lastName?.[0] || 'U';
 
   return (
-    <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
-      <div className="flex-1">
-        {/* Requests Table */}
-        <RequestsTable
-          userAvatar={userAvatar}
-          userInitials={userInitials}
-        />
-      </div>
+    <Card className="w-full gap-0">
+      {/* Requests Table */}
+      <RequestsTable
+        userAvatar={userAvatar}
+        userInitials={userInitials}
+      />
     </Card>
   );
 }

@@ -25,7 +25,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
   return (
     <div>
       {/* Back button */}
-      <div className="mb-3">
+      <div className="mb-2">
         <Button
           variant="ghost"
           size="sm"
@@ -38,7 +38,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
       </div>
 
       {/* Avatar, Title, Status Badge, and Settings */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-5">
           <Avatar className="h-15 w-15">
             <AvatarImage src={snapshot.partner.logo} alt={snapshot.partner.name} />

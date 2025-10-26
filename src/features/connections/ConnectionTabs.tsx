@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { useEffect, useRef } from 'react';
 
 interface ConnectionTabsProps {
   connectionId: string;
@@ -12,6 +13,47 @@ interface ConnectionTabsProps {
 
 export function ConnectionTabs({ connectionId, baseRoute, currentUserType }: ConnectionTabsProps) {
   const pathname = usePathname();
+  const previousPathnameRef = useRef(pathname);
+
+  // Scroll to top when tab changes
+  useEffect(() => {
+    if (previousPathnameRef.current !== pathname) {
+      // Multiple attempts to find and scroll the main element
+      const scrollToTop = () => {
+        // Try multiple selectors to find the scrollable element
+        const selectors = [
+          'main[style*="overflow: auto"]',
+          'main',
+          '[data-scrollable]',
+          '.overflow-auto'
+        ];
+        
+        let mainElement: HTMLElement | null = null;
+        for (const selector of selectors) {
+          mainElement = document.querySelector(selector) as HTMLElement;
+          if (mainElement && mainElement.scrollHeight > mainElement.clientHeight) {
+            break;
+          }
+        }
+        
+        if (mainElement) {
+          // Force scroll to top immediately
+          mainElement.scrollTop = 0;
+          // Also try smooth scroll
+          mainElement.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      };
+      
+      // Try immediately
+      scrollToTop();
+      
+      // Try again after a short delay to ensure DOM is ready
+      setTimeout(scrollToTop, 50);
+      setTimeout(scrollToTop, 150);
+      
+      previousPathnameRef.current = pathname;
+    }
+  }, [pathname]);
   
   const baseHref = `/${baseRoute}/${connectionId}`;
   
@@ -23,7 +65,14 @@ export function ConnectionTabs({ connectionId, baseRoute, currentUserType }: Con
   ];
 
   return (
-    <div className="mb-5">
+    <div 
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        backgroundColor: 'var(--color-neutral-2)',
+      }}
+    >
       <nav role="tablist" className="flex border-b border-[var(--color-neutral-4)]">
         {tabs.map((tab) => {
           const isActive = pathname === tab.href;

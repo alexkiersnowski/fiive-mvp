@@ -92,17 +92,19 @@ export default function DashboardLayout({ data, context, children, initialIsColl
         capabilities={context.capabilities}
       />
       <main style={{ 
-        padding: isFullWidthPage ? '0' : '16px 16px 24px 16px',
-        overflow: 'auto'
+        overflow: 'auto',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: isFullWidthPage ? '0' : '16px 16px 24px 16px'
       }}>
         <div 
           style={{
+            minHeight: '100%',
             borderRadius: isFullWidthPage ? '0' : 'var(--radius-6, 16px)',
             border: isFullWidthPage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
             background: isFullWidthPage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isFullWidthPage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : '16px'),
-            height: '100%',
-            overflow: isSettingsPage ? 'auto' : 'visible'
+            padding: isFullWidthPage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : '16px')
           }}
         >
           {children}

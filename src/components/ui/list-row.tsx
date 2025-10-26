@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { CheckCircle, SquaresFour, DotsThree, User } from "@phosphor-icons/react"
+import { CheckCircle, SquaresFour, DotsThree, User, XCircle } from "@phosphor-icons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { Button } from "./button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./dropdown-menu"
@@ -30,6 +30,9 @@ export interface ListRowProps {
   comboboxOptions?: (ComboboxOption & { avatar?: string })[]
   onComboboxSelect?: (value: string) => void
   comboboxPlaceholder?: string
+  comboboxWidth?: string
+  clearable?: boolean
+  onClear?: () => void
   
   // Actions
   iconButtonEnd?: boolean | React.ReactNode
@@ -67,6 +70,9 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     comboboxOptions,
     onComboboxSelect,
     comboboxPlaceholder = "Select...",
+    comboboxWidth,
+    clearable = false,
+    onClear,
     iconButtonEnd = false,
     visibility = false,
     actions = true,
@@ -90,6 +96,12 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
         }
       }
     }));
+
+    // Handle clear functionality
+    const handleClear = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onClear?.();
+    };
     
     // Only show combobox if it's explicitly triggered (not on regular click)
     const shouldShowCombobox = comboboxOptions && (isComboboxOpen || !iconButtonEnd);
@@ -220,9 +232,28 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
                   </span>
                 )}
               </div>
+
+              {/* Clear button */}
+              {clearable && text && text !== 'Assign member' && isComboboxOpen && (
+                <XCircle 
+                  size={16} 
+                  weight="fill"
+                  className="cursor-pointer transition-colors duration-75 flex-shrink-0 ml-2"
+                  style={{ 
+                    color: 'var(--color-interactive-neutral-default)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--color-interactive-neutral-hover)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--color-interactive-neutral-default)'
+                  }}
+                  onClick={handleClear}
+                />
+              )}
             </div>
           </PopoverTrigger>
-          <PopoverContent className="w-full p-0" align="start" style={{ width: 'var(--radix-popover-trigger-width)' }}>
+          <PopoverContent className="w-full p-0" align="start" style={{ width: comboboxWidth || 'var(--radix-popover-trigger-width)', minWidth: comboboxWidth || '240px' }}>
             <Command>
               <div className="[&_[data-slot=command-input-wrapper]]:!h-auto [&_[data-slot=command-input-wrapper]]:!py-1">
                 <CommandInput placeholder={comboboxPlaceholder || "Search..."} className="!h-auto !py-2 px-4 text-sm" />

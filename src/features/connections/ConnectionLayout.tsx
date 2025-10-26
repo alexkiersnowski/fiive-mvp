@@ -17,10 +17,8 @@ export function ConnectionLayout({ snapshot, context, baseRoute, children }: Con
   return (
     <ConnectionProvider snapshot={snapshot} context={context}>
       <div style={{ 
-        padding: '24px 16px 24px 24px',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column'
+        padding: '16px 16px 24px 24px',
+        minHeight: '100%',
       }}>
         <ConnectionHeader snapshot={snapshot} />
         <ConnectionTabs 
@@ -28,7 +26,10 @@ export function ConnectionLayout({ snapshot, context, baseRoute, children }: Con
           baseRoute={baseRoute}
           currentUserType={currentUserType}
         />
-        <div style={{ flex: 1 }}>
+        <div style={{ 
+          paddingTop: '16px',
+          flex: 1
+        }}>
           {children}
         </div>
       </div>

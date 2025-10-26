@@ -24,7 +24,7 @@ export default function ContractsEndingCard({ snapshot, context }: StatsCardProp
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
-              Contracts ending within the next 90 days
+              Ending in next 90 days
             </TooltipContent>
           </Tooltip>
         )}
