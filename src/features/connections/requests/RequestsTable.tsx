@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { RequestBadge } from '@/components/ui/request-badge'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash } from '@phosphor-icons/react'
+import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -780,6 +780,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   <ListRow
                     ref={assigneeListRowRef}
                     avatar={true}
+                    avatarFallback={isAssigneeUnassigned ? <User size={16} weight="fill" className="text-white" /> : undefined}
                     text={isAssigneeUnassigned ? "Unassigned" : request.assignee.name}
                     textColor={isAssigneeUnassigned ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
                     variant="stacked"
