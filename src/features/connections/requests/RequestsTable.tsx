@@ -17,9 +17,11 @@ import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, Flow
 interface RequestsTableProps {
   userAvatar?: string
   userInitials?: string
+  onRequestClick?: (requestId: string) => void
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick }: RequestsTableProps) {
+  
   const [searchQuery, setSearchQuery] = useState('')
   const [sortValue, setSortValue] = useState('created')
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
@@ -45,13 +47,13 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
     };
   } | null>(null)
 
-        // Mock current user organization ID (in real app, this would come from context/auth)
-        const currentUserOrgId = 'client-org-1' // This should match the submitted by organization ID
-        const submittedByOrgId = 'client-org-1' // This should come from the actual request data
-        const canDeleteRequest = currentUserOrgId === submittedByOrgId
-        
-        // Mock data for scaffolding
-        const requestCount = 1
+  // Mock current user organization ID (in real app, this would come from context/auth)
+  const currentUserOrgId = 'client-org-1' // This should match the submitted by organization ID
+  const submittedByOrgId = 'client-org-1' // This should come from the actual request data
+  const canDeleteRequest = currentUserOrgId === submittedByOrgId
+  
+  // Mock data for scaffolding
+  const requestCount = 1
   
   // Mock member data for assignee selection
   const memberOptions = [
@@ -102,6 +104,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
     {
       id: '1',
       title: 'Update homepage hero for the summer campaign',
+      description: 'We need to update the homepage hero section to reflect our new summer campaign. Please refresh all visual elements including the background images, CTAs, and messaging to align with the summer theme.',
       submittedBy: { name: 'John Smith', email: 'john.smith@example.com', orgId: 'client-org-1' },
       type: 'Design',
       assignee: { name: 'Sarah Johnson', id: '1' },
@@ -600,7 +603,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
     setProfileDialogOpen(true);
   };
 
-
+  // Navigation handler
+  const handleRowClick = (requestId: string) => {
+    onRequestClick?.(requestId)
+  }
 
   return (
     <div className="w-full min-w-0">
@@ -727,30 +733,39 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
           <Table className="table-fixed w-full border-collapse">
             <TableBody>
             {mockRequests.slice(0, 1).map((request) => (
-              <TableRow key={request.id} className="[&>*]:h-[44px] hover:bg-[var(--color-interactive-surface-hover)] cursor-pointer transition-colors duration-75">
+              <TableRow 
+                key={request.id} 
+                onClick={() => handleRowClick(request.id)}
+                className="[&>*]:h-[44px] hover:bg-[var(--color-interactive-surface-hover)] cursor-pointer transition-colors duration-75"
+              >
                 <TableCell className="w-[25%] py-0 truncate">
                   {request.title}
                 </TableCell>
 
-                <TableCell className="w-[15%] py-0">
+                <TableCell 
+                  className="w-[15%] py-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <ListRow
                     avatar
                     text={request.submittedBy.name}
                     variant="stacked"
                     className="min-w-0"
-                    onClick={() => handleContactClick({
-                      id: request.submittedBy.email.split('@')[0],
-                      first_name: request.submittedBy.name.split(' ')[0],
-                      last_name: request.submittedBy.name.split(' ')[1],
-                      email: request.submittedBy.email,
-                      avatar_url: '',
-                      job_title: 'Product Manager',
-                      organization: {
-                        id: request.submittedBy.orgId,
-                        name: 'Example Client Corp',
-                        logo_url: ''
-                      }
-                    })}
+                    onClick={() => {
+                      handleContactClick({
+                        id: request.submittedBy.email.split('@')[0],
+                        first_name: request.submittedBy.name.split(' ')[0],
+                        last_name: request.submittedBy.name.split(' ')[1],
+                        email: request.submittedBy.email,
+                        avatar_url: '',
+                        job_title: 'Product Manager',
+                        organization: {
+                          id: request.submittedBy.orgId,
+                          name: 'Example Client Corp',
+                          logo_url: ''
+                        }
+                      })
+                    }}
                   />
                 </TableCell>
 
@@ -758,7 +773,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
                   <Badge variant="neutral" className="text-xs">{request.type}</Badge>
                 </TableCell>
 
-                <TableCell className="w-[15%] py-0">
+                <TableCell 
+                  className="w-[15%] py-0"
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                >
                   <ListRow
                     ref={assigneeListRowRef}
                     avatar={true}
@@ -766,7 +784,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
                     textColor={isAssigneeUnassigned ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
                     variant="stacked"
                     className="min-w-0 min-h-[32px]"
-                    onClick={() => console.log('Assignee clicked')}
+                    onClick={() => {
+                      console.log('Assignee clicked')
+                    }}
                     comboboxOptions={comboboxOptions}
                     onComboboxSelect={onAssigneeSelect}
                     comboboxPlaceholder="Search members..."
@@ -776,7 +796,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
                   />
                 </TableCell>
 
-                <TableCell className="w-[15%] py-0">
+                <TableCell 
+                  className="w-[15%] py-0" 
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <InlineEdit
                     type="badge"
                     value={request.status}
@@ -796,7 +819,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U' }: R
                   {request.created}
                 </TableCell>
 
-                <TableCell className="w-[44px] p-0">
+                <TableCell 
+                  className="w-[44px] p-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div className="flex items-center justify-center h-full">
                     <DropdownMenu modal={false} open={isActionsDropdownOpen} onOpenChange={setIsActionsDropdownOpen}>
                       <DropdownMenuTrigger asChild>
