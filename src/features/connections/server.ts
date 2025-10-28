@@ -287,3 +287,270 @@ export function invalidateConnection(connectionId: string) {
     console.log(`Invalidating connection cache for: ${connectionId}`);
   }
 }
+
+export interface Request {
+  id: string
+  connectionId: string
+  title: string
+  description: string
+  status: 'new' | 'in_review' | 'accepted' | 'canceled'
+  type: string | null
+  submittedBy: {
+    id: string
+    name: string
+    email: string
+    avatarUrl?: string
+    jobTitle?: string
+    orgId: string
+    orgName: string
+    orgLogo?: string
+  }
+  assignee: {
+    id: string
+    name: string
+    email: string
+    avatarUrl?: string
+  } | null
+  client: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
+  createdAt: string
+  createdByOrgId: string
+}
+
+export const getRequestsForConnection = cache(async (
+  connectionId: string
+): Promise<Request[]> => {
+  const supabase = await createClient();
+  
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('getRequestsForConnection called with:', { connectionId });
+  }
+  
+  // Fetch the connection to get client_id
+  const { data: connection, error: connectionError } = await supabase
+    .from('connections')
+    .select('client_id')
+    .eq('id', connectionId)
+    .single();
+  
+  if (connectionError || !connection) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching connection:', connectionError);
+    }
+    return [];
+  }
+  
+  // Fetch client organization details
+  const { data: clientOrg, error: clientOrgError } = await supabase
+    .from('organizations')
+    .select('id, name, logo_url')
+    .eq('id', connection.client_id)
+    .single();
+  
+  if (clientOrgError) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching client organization:', clientOrgError);
+    }
+  }
+  
+  // Fetch requests for this connection
+  const { data: requests, error } = await supabase
+    .from('requests')
+    .select(`
+      id,
+      title,
+      description,
+      status,
+      type,
+      created_by_user_id,
+      assignee_user_id,
+      created_at,
+      created_by_org_id
+    `)
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+  
+  if (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching requests:', error);
+    }
+    return [];
+  }
+  
+  // Fetch all unique user IDs for submitted by and assignees
+  const userIds = new Set<string>();
+  requests?.forEach(request => {
+    if (request.created_by_user_id) userIds.add(request.created_by_user_id);
+    if (request.assignee_user_id) userIds.add(request.assignee_user_id);
+  });
+  
+  // Fetch all user profiles in one query
+  let profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
+  
+  if (userIds.size > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, avatar_url, job_title')
+      .in('id', Array.from(userIds));
+    
+    if (!profilesError && profiles) {
+      profilesMap = profiles.reduce((acc, profile) => {
+        acc[profile.id] = profile;
+        return acc;
+      }, {} as typeof profilesMap);
+    }
+  }
+  
+  // Fetch organization IDs for each user from memberships
+  let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  
+  if (userIds.size > 0) {
+    const { data: memberships, error: membershipsError } = await supabase
+      .from('memberships')
+      .select(`
+        user_id,
+        org_id,
+        organizations!inner(
+          id,
+          name,
+          logo_url
+        )
+      `)
+      .in('user_id', Array.from(userIds));
+    
+    if (!membershipsError && memberships) {
+      memberships.forEach(membership => {
+        const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
+        if (org) {
+          userOrgMap[membership.user_id] = {
+            orgId: org.id,
+            orgName: org.name,
+            orgLogo: org.logo_url || undefined
+          };
+        }
+      });
+    }
+  }
+  
+  // Map the requests to the UI format
+  const formattedRequests = requests?.map(request => {
+    const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] : null;
+    const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] : null;
+    
+    return {
+      id: request.id,
+      connectionId: connectionId,
+      title: request.title,
+      description: request.description || '',
+      status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled',
+      type: request.type,
+      submittedBy: {
+        id: request.created_by_user_id,
+        name: submittedByProfile 
+          ? `${submittedByProfile.first_name || ''} ${submittedByProfile.last_name || ''}`.trim() || 'Unknown User'
+          : 'Unknown User',
+        email: submittedByProfile?.email || '',
+        avatarUrl: submittedByProfile?.avatar_url || undefined,
+        jobTitle: submittedByProfile?.job_title || undefined,
+        orgId: userOrgMap[request.created_by_user_id]?.orgId || '',
+        orgName: userOrgMap[request.created_by_user_id]?.orgName || '',
+        orgLogo: userOrgMap[request.created_by_user_id]?.orgLogo
+      },
+      assignee: request.assignee_user_id && assigneeProfile ? {
+        id: request.assignee_user_id,
+        name: `${assigneeProfile.first_name || ''} ${assigneeProfile.last_name || ''}`.trim() || 'Unknown User',
+        email: assigneeProfile.email,
+        avatarUrl: assigneeProfile.avatar_url || undefined
+      } : null,
+      client: {
+        id: clientOrg?.id || connection.client_id,
+        name: clientOrg?.name || 'Unknown Client',
+        logoUrl: clientOrg?.logo_url
+      },
+      createdAt: request.created_at ? (() => {
+        const date = new Date(request.created_at);
+        const day = date.getDate();
+        const month = date.toLocaleDateString('en-US', { month: 'short' });
+        const year = date.getFullYear();
+        return `${day} ${month} ${year}`;
+      })() : '',
+      createdByOrgId: request.created_by_org_id
+    };
+  }) || [];
+  
+  return formattedRequests;
+});
+
+export const getAgencyMembersForConnection = cache(async (
+  connectionId: string
+): Promise<Array<{
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  avatarUrl?: string
+  jobTitle?: string
+}>> => {
+  const supabase = await createClient();
+  
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('getAgencyMembersForConnection called with:', { connectionId });
+  }
+  
+  // Get the connection to find the agency_id
+  const { data: connection, error: connectionError } = await supabase
+    .from('connections')
+    .select('agency_id')
+    .eq('id', connectionId)
+    .single();
+  
+  if (connectionError || !connection) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching connection for agency members:', connectionError);
+    }
+    return [];
+  }
+  
+  // Fetch agency members
+  const { data: members, error: membersError } = await supabase
+    .from('memberships')
+    .select(`
+      profiles!inner(
+        id,
+        first_name,
+        last_name,
+        email,
+        avatar_url,
+        job_title,
+        deleted_at
+      )
+    `)
+    .eq('org_id', connection.agency_id)
+    .is('profiles.deleted_at', null)
+    .order('profiles(first_name)');
+  
+  if (membersError) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching agency members:', membersError);
+    }
+    return [];
+  }
+  
+  const formattedMembers = members?.map(member => {
+    const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+    return {
+      id: profile.id,
+      firstName: profile.first_name || '',
+      lastName: profile.last_name || '',
+      email: profile.email || '',
+      avatarUrl: profile.avatar_url || undefined,
+      jobTitle: profile.job_title || undefined
+    };
+  }) || [];
+  
+  return formattedMembers;
+});

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
@@ -13,20 +14,46 @@ import { RequestBadge } from '@/components/ui/request-badge'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
+import { toast } from 'sonner'
+import { updateRequestAssignee, updateRequestStatus } from './actions'
+import type { Request } from '../server'
 
 interface RequestsTableProps {
   userAvatar?: string
   userInitials?: string
   onRequestClick?: (requestId: string) => void
+  onNewRequest?: () => void
+  requests?: Request[]
+  agencyMembers?: Array<{
+    id: string
+    firstName: string
+    lastName: string
+    email: string
+    avatarUrl?: string
+    jobTitle?: string
+  }>
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  currentOrgId: string
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId }: RequestsTableProps) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   const [searchQuery, setSearchQuery] = useState('')
   const [sortValue, setSortValue] = useState('created')
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
   const [requestStatus, setRequestStatus] = useState('in_review')
-  const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
+  const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
+  
+  // Optimistic UI state for requests
+  const [optimisticRequests, setOptimisticRequests] = useState<Request[]>(requests)
+  
+  // Update optimistic requests when props change
+  useEffect(() => {
+    setOptimisticRequests(requests)
+  }, [requests])
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
@@ -55,44 +82,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   // Mock data for scaffolding
   const requestCount = 1
   
-  // Mock member data for assignee selection
-  const memberOptions = [
-    {
-      id: '1',
-      firstName: 'Sarah',
-      lastName: 'Johnson',
-      email: 'sarah.johnson@example.com',
-      avatarUrl: '',
-      jobTitle: 'Project Manager'
-    },
-    {
-      id: '2',
-      firstName: 'Mike',
-      lastName: 'Chen',
-      email: 'mike.chen@example.com',
-      avatarUrl: '',
-      jobTitle: 'Designer'
-    },
-    {
-      id: '3',
-      firstName: 'Emily',
-      lastName: 'Davis',
-      email: 'emily.davis@example.com',
-      avatarUrl: '',
-      jobTitle: 'Developer'
-    },
-    {
-      id: '4',
-      firstName: 'Alex',
-      lastName: 'Rodriguez',
-      email: 'alex.rodriguez@example.com',
-      avatarUrl: '',
-      jobTitle: 'Account Manager'
-    }
-  ]
-  
-  // Transform members to combobox options
-  const comboboxOptions = memberOptions.map(member => ({
+  // Transform agency members to combobox options
+  const comboboxOptions = agencyMembers.map(member => ({
     value: member.id,
     label: `${member.firstName} ${member.lastName}`,
     avatar: member.avatarUrl,
@@ -570,19 +561,131 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
 
   // Assignee handlers
-  const onAssigneeSelect = (memberId: string) => {
-    const selectedMember = memberOptions.find(member => member.id === memberId)
+  const handleAssigneeSelect = async (requestId: string, memberId: string) => {
+    const selectedMember = agencyMembers.find(member => member.id === memberId)
     if (selectedMember) {
-      setIsAssigneeUnassigned(false)
-      console.log('Selected assignee:', selectedMember)
-      // TODO: Update assignee in database
+      const newAssignee = {
+        id: memberId,
+        name: `${selectedMember.firstName} ${selectedMember.lastName}`,
+        email: selectedMember.email,
+        avatarUrl: selectedMember.avatarUrl
+      }
+      
+      // Optimistic update
+      setOptimisticRequests(prev => 
+        prev.map(req => 
+          req.id === requestId 
+            ? { ...req, assignee: newAssignee } 
+            : req
+        )
+      )
+      
+      // Notify parent for bidirectional updates (table → modal)
+      if (onRequestUpdate) {
+        onRequestUpdate(requestId, { assignee: newAssignee })
+      }
+      
+      try {
+        await updateRequestAssignee(requestId, memberId)
+        toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
+        router.refresh() // Refresh to get updated data from server
+      } catch (error) {
+        console.error('Failed to update assignee:', error)
+        toast.error('Failed to update assignee')
+        // Revert optimistic update on error
+        setOptimisticRequests(requests)
+        if (onRequestUpdate) {
+          // Revert parent state as well
+          const originalRequest = requests.find(r => r.id === requestId)
+          if (originalRequest) {
+            onRequestUpdate(requestId, { assignee: originalRequest.assignee })
+          }
+        }
+      }
     }
   }
 
-  const onClearAssignee = () => {
-    setIsAssigneeUnassigned(true)
-    console.log('Cleared assignee')
-    // TODO: Clear assignee in database
+  const handleClearAssignee = async (requestId: string) => {
+    // Optimistic update
+    setOptimisticRequests(prev => 
+      prev.map(req => 
+        req.id === requestId 
+          ? { ...req, assignee: null } 
+          : req
+      )
+    )
+    
+    // Notify parent for bidirectional updates (table → modal)
+    if (onRequestUpdate) {
+      onRequestUpdate(requestId, { assignee: null })
+    }
+    
+    try {
+      await updateRequestAssignee(requestId, null)
+      toast.success('Assignee removed')
+      router.refresh() // Refresh to get updated data from server
+    } catch (error) {
+      console.error('Failed to clear assignee:', error)
+      toast.error('Failed to clear assignee')
+      // Revert optimistic update on error
+      setOptimisticRequests(requests)
+      if (onRequestUpdate) {
+        // Revert parent state as well
+        const originalRequest = requests.find(r => r.id === requestId)
+        if (originalRequest) {
+          onRequestUpdate(requestId, { assignee: originalRequest.assignee })
+        }
+      }
+    }
+  }
+
+  // Status handler
+  const handleStatusChange = async (requestId: string, newStatus: string) => {
+    const validStatuses = ['new', 'in_review', 'accepted', 'canceled'] as const
+    if (!validStatuses.includes(newStatus as any)) {
+      console.error('Invalid status:', newStatus)
+      return
+    }
+    
+    const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled'
+    
+    // Optimistic update
+    setOptimisticRequests(prev => 
+      prev.map(req => 
+        req.id === requestId 
+          ? { ...req, status: typedStatus } 
+          : req
+      )
+    )
+    
+    // Notify parent for bidirectional updates (table → modal)
+    if (onRequestUpdate) {
+      onRequestUpdate(requestId, { status: typedStatus })
+    }
+    
+    try {
+      await updateRequestStatus(requestId, typedStatus)
+      const statusLabels = {
+        new: 'New',
+        in_review: 'In review',
+        accepted: 'Accepted',
+        canceled: 'Canceled'
+      }
+      toast.success(`Status updated to ${statusLabels[typedStatus]}`)
+      router.refresh() // Refresh to get updated data from server
+    } catch (error) {
+      console.error('Failed to update status:', error)
+      toast.error('Failed to update status')
+      // Revert optimistic update on error
+      setOptimisticRequests(requests)
+      if (onRequestUpdate) {
+        // Revert parent state as well
+        const originalRequest = requests.find(r => r.id === requestId)
+        if (originalRequest) {
+          onRequestUpdate(requestId, { status: originalRequest.status })
+        }
+      }
+    }
   }
 
   // Profile Card handler
@@ -606,6 +709,15 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   // Navigation handler
   const handleRowClick = (requestId: string) => {
     onRequestClick?.(requestId)
+  }
+
+  const handleCopyLink = (requestId: string, connectionId: string) => {
+    const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestId}`
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      toast.success('Link copied to clipboard')
+    }).catch(() => {
+      toast.error('Failed to copy link')
+    })
   }
 
   return (
@@ -685,8 +797,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               className="cursor-pointer text-sm flex-shrink-0 h-6"
               style={{ paddingLeft: '16px', paddingRight: '16px' }}
               onClick={() => {
-                // TODO: Handle new request action
-                console.log('New request clicked');
+                onNewRequest?.();
               }}
             >
               <Plus size={16} className="mr-1" />
@@ -708,7 +819,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 Submitted by
               </TableHead>
               <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Type
+                Project
               </TableHead>
               <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Assignee
@@ -732,7 +843,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         <div className="px-5 pb-5">
           <Table className="table-fixed w-full border-collapse">
             <TableBody>
-            {mockRequests.slice(0, 1).map((request) => (
+            {optimisticRequests.map((request) => (
               <TableRow 
                 key={request.id} 
                 onClick={() => handleRowClick(request.id)}
@@ -748,21 +859,23 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 >
                   <ListRow
                     avatar
+                    avatarUrl={request.submittedBy.avatarUrl}
                     text={request.submittedBy.name}
                     variant="stacked"
                     className="min-w-0"
                     onClick={() => {
+                      const nameParts = request.submittedBy.name.split(' ')
                       handleContactClick({
-                        id: request.submittedBy.email.split('@')[0],
-                        first_name: request.submittedBy.name.split(' ')[0],
-                        last_name: request.submittedBy.name.split(' ')[1],
+                        id: request.submittedBy.id,
+                        first_name: nameParts[0] || '',
+                        last_name: nameParts.slice(1).join(' ') || '',
                         email: request.submittedBy.email,
-                        avatar_url: '',
-                        job_title: 'Product Manager',
+                        avatar_url: request.submittedBy.avatarUrl || '',
+                        job_title: request.submittedBy.jobTitle || '',
                         organization: {
                           id: request.submittedBy.orgId,
-                          name: 'Example Client Corp',
-                          logo_url: ''
+                          name: request.submittedBy.orgName,
+                          logo_url: request.submittedBy.orgLogo || ''
                         }
                       })
                     }}
@@ -770,7 +883,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 </TableCell>
 
                 <TableCell className="w-[15%] py-0">
-                  <Badge variant="neutral" className="text-xs">{request.type}</Badge>
+                  <Badge variant="neutral" className="text-xs">
+                    {request.type === 'general' ? 'General request' : request.type}
+                  </Badge>
                 </TableCell>
 
                 <TableCell 
@@ -780,20 +895,21 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   <ListRow
                     ref={assigneeListRowRef}
                     avatar={true}
-                    avatarFallback={isAssigneeUnassigned ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                    text={isAssigneeUnassigned ? "Unassigned" : request.assignee.name}
-                    textColor={isAssigneeUnassigned ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
+                    avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
+                    avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
+                    text={!request.assignee ? "Unassigned" : request.assignee.name}
+                    textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
                     variant="stacked"
                     className="min-w-0 min-h-[32px]"
                     onClick={() => {
                       console.log('Assignee clicked')
                     }}
                     comboboxOptions={comboboxOptions}
-                    onComboboxSelect={onAssigneeSelect}
+                    onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
                     comboboxPlaceholder="Search members..."
                     comboboxWidth="240px"
-                    clearable={!isAssigneeUnassigned}
-                    onClear={onClearAssignee}
+                    clearable={!!request.assignee}
+                    onClear={() => handleClearAssignee(request.id)}
                   />
                 </TableCell>
 
@@ -806,18 +922,18 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     value={request.status}
                     options={[
                       { value: 'new', label: 'New' },
-                      { value: 'in_review', label: 'In Review' },
+                      { value: 'in_review', label: 'In review' },
                       { value: 'accepted', label: 'Accepted' },
                       { value: 'canceled', label: 'Canceled' },
                     ]}
-                    onSave={setRequestStatus}
+                    onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
                     badgeComponent="request"
                     className="truncate h-6 rounded-[8px]"
                   />
                 </TableCell>
 
                 <TableCell className="w-[15%] py-0 truncate">
-                  {request.created}
+                  {request.createdAt}
                 </TableCell>
 
                 <TableCell 
@@ -825,12 +941,12 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={isActionsDropdownOpen} onOpenChange={setIsActionsDropdownOpen}>
+                    <DropdownMenu modal={false} open={openActionsDropdown === request.id} onOpenChange={(open) => setOpenActionsDropdown(open ? request.id : null)}>
                       <DropdownMenuTrigger asChild>
                         <Button
                           variant="ghost"
                           className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            isActionsDropdownOpen
+                            openActionsDropdown === request.id
                               ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
                               : 'hover:bg-[var(--color-interactive-surface-hover)]'
                           }`}
@@ -839,23 +955,29 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                        <DropdownMenuItem onClick={() => {
+                          setOpenActionsDropdown(null)
+                          handleRowClick(request.id)
+                        }}>
                           <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           View details
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                        <DropdownMenuItem onClick={() => setOpenActionsDropdown(null)}>
                           <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           Convert to task
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                        <DropdownMenuItem onClick={() => {
+                          setOpenActionsDropdown(null)
+                          handleCopyLink(request.id, request.connectionId)
+                        }}>
                           <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           Copy link
                         </DropdownMenuItem>
-                        {canDeleteRequest && (
+                        {request.createdByOrgId === currentOrgId && (
                           <>
                             <div className="border-t border-[var(--color-neutral-6)] my-1" />
                             <DropdownMenuItem 
-                              onClick={() => setIsActionsDropdownOpen(false)}
+                              onClick={() => setOpenActionsDropdown(null)}
                               style={{ color: 'var(--color-red-11)' }}
                             >
                               <Trash size={16} style={{ color: 'var(--color-red-11)' }} />

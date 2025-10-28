@@ -1,39 +1,147 @@
 'use client'
 
+import { useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { RequestDetailContent } from './RequestDetailContent'
-import { X, ArrowsOut } from '@phosphor-icons/react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface RequestDetailModalProps {
   requestData: {
     requestId: string
     title: string
     description: string
+    client?: {
+      id: string
+      name: string
+      logoUrl?: string
+    }
+    submittedBy?: {
+      id: string
+      name: string
+      email: string
+      avatarUrl?: string
+    }
+    assignee?: {
+      id: string
+      name: string
+      email: string
+      avatarUrl?: string
+    } | null
+    type?: string | null
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+    createdAt?: string
+    createdByOrgId?: string
   } | null
+  agencyMembers?: Array<{
+    id: string
+    firstName: string
+    lastName: string
+    email: string
+    avatarUrl?: string
+    jobTitle?: string
+  }>
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  connectionId: string
+  currentOrgId: string
 }
 
-export function RequestDetailModal({ requestData, isOpen, onClose, onExpand }: RequestDetailModalProps) {
+export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, onClose, onExpand, onRequestUpdate, connectionId, currentOrgId }: RequestDetailModalProps) {
+  const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
+  
+  // Determine if this is a client-submitted request (locked for editing)
+  const isClientSubmitted = requestData?.createdByOrgId && requestData.createdByOrgId !== currentOrgId
+  
+  // Determine dialog title based on who created the request
+  const getDialogTitle = () => {
+    if (!requestData?.createdByOrgId) return 'Request'
+    
+    const isAgencyCreated = requestData.createdByOrgId === currentOrgId
+    return isAgencyCreated ? 'Request — Agency created' : 'Request — Client submitted'
+  }
+  
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent 
-        className="!max-w-[1600px] !w-[calc(100vw-10rem)] !max-h-[972px] !h-[calc(100vh-7.5rem)] overflow-auto !p-0 !gap-0 !flex !flex-col" 
+        className="!max-w-[1200px] !w-[calc(100vw-10rem)] !max-h-[800px] !h-[calc(100vh-7.5rem)] overflow-auto !p-0 !gap-0 !flex !flex-col" 
         showCloseButton={false}
       >
         {/* Header */}
         <div className="w-full flex items-center justify-between h-fit flex-shrink-0 pl-10 pr-4 py-4">
-          <DialogTitle className="!text-[14px] !leading-[20px] !font-normal !tracking-[0.0025rem] !text-[var(--color-base-text-tertiary)]">Request</DialogTitle>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <DialogTitle className="!text-[12px] !leading-[20px] !font-normal !tracking-[0.0025rem] !text-[var(--color-base-text-tertiary)]">
+              {getDialogTitle()}
+            </DialogTitle>
+            {isClientSubmitted && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center justify-center">
+                    <LockSimple 
+                      size={12} 
+                      weight="fill"
+                      style={{ color: 'var(--color-base-text-tertiary)' }}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="center" sideOffset={8}>
+                  <div className="text-xs text-center">
+                    You can update status and assignee only
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+          <div className="flex gap-0">
+            <DropdownMenu modal={false} open={isActionsDropdownOpen} onOpenChange={setIsActionsDropdownOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-10 w-10 cursor-pointer transition-colors duration-75 rounded-md ${
+                    isActionsDropdownOpen
+                      ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
+                      : 'hover:bg-[var(--color-interactive-surface-hover)]'
+                  }`}
+                >
+                  <DotsThree className="w-[18px] h-[18px]" />
+                  <span className="sr-only">More options</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[200px]">
+                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                  <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                  Convert to task
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                  <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                  Copy link
+                </DropdownMenuItem>
+                {!isClientSubmitted && (
+                  <>
+                    <div className="border-t border-[var(--color-neutral-6)] my-1" />
+                    <DropdownMenuItem 
+                      onClick={() => setIsActionsDropdownOpen(false)}
+                      style={{ color: 'var(--color-red-11)' }}
+                    >
+                      <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
+                      Delete request
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button 
               variant="ghost" 
               size="icon" 
               onClick={onExpand}
               className="h-10 w-10 cursor-pointer transition-all duration-75 rounded-md hover:bg-interactive-surface-hover"
             >
-              <ArrowsOut className="w-[18px] h-[18px]" />
+              <ArrowsOutSimple className="w-[18px] h-[18px]" />
               <span className="sr-only">Expand</span>
             </Button>
             <Button 
@@ -50,11 +158,21 @@ export function RequestDetailModal({ requestData, isOpen, onClose, onExpand }: R
 
         {/* Content */}
         {requestData && (
-          <div className="pl-10 pr-10 pb-10">
+          <div className="pl-10 pr-10 pb-10 h-full">
             <RequestDetailContent 
               requestId={requestData.requestId}
               title={requestData.title}
               description={requestData.description}
+              client={requestData.client}
+              submittedBy={requestData.submittedBy}
+              assignee={requestData.assignee}
+              agencyMembers={agencyMembers}
+              type={requestData.type}
+              status={requestData.status}
+              createdAt={requestData.createdAt}
+              onRequestUpdate={onRequestUpdate}
+              createdByOrgId={requestData.createdByOrgId}
+              currentOrgId={currentOrgId}
             />
           </div>
         )}

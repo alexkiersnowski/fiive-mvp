@@ -73,7 +73,7 @@ export function ProfileCard({ member, isOpen, onClose }: ProfileCardProps) {
               />
             ) : (
               <span className="text-2xl font-medium text-white">
-                {member.organization.name[0].toUpperCase()}
+                {member.organization.name?.[0]?.toUpperCase() || '?'}
               </span>
             )}
           </div>
@@ -107,7 +107,7 @@ export function ProfileCard({ member, isOpen, onClose }: ProfileCardProps) {
                   />
                 ) : (
                   <span className="text-xl font-medium text-white">
-                    {member.first_name[0]}{member.last_name[0]}
+                    {member.first_name?.[0] || ''}{member.last_name?.[0] || ''}
                   </span>
                 )}
               </div>

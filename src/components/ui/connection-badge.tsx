@@ -63,7 +63,7 @@ export function StatusBadge({ variant, size = "sm", className, showTooltip = fal
 
   // Size-specific styles
   const sizeStyles = size === "lg" 
-    ? { paddingTop: '6px', paddingBottom: '6px', paddingLeft: '12px', paddingRight: '12px' }
+    ? { paddingTop: '6px', paddingBottom: '6px', paddingLeft: '12px', paddingRight: '12px', borderRadius: '4px' }
     : {}
   
   const textClass = size === "lg" ? "text-sm-medium" : "text-xs"

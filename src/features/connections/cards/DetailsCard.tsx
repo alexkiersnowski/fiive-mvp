@@ -132,6 +132,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                 editingPlaceholder="250,000"
                 currency={getCurrencySymbol(snapshot.agency.currencyCode)}
                 numeric={true}
+                showBorder={true}
                 onSave={async (newValue) => {
                   setContractValue(newValue);
                   

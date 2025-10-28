@@ -51,6 +51,9 @@ export interface ListRowProps {
   // Interactivity
   nonInteractive?: boolean // Disables hover states and click handlers
   
+  // Styling
+  borderRadius?: string // Custom border radius (default: 'calc(var(--radius) - 2px)')
+  
   // Additional props
   className?: string
   onClick?: () => void
@@ -79,6 +82,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     dropdownItems,
     variant = "stacked",
     nonInteractive = false,
+    borderRadius = 'calc(var(--radius) - 2px)',
     className,
     onClick,
     ...props
@@ -112,7 +116,8 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
         const iconSize = Math.round(avatarSize * 0.67); // Scale icon proportionally
         
         // Scenario 1: Invited members (text is "—") - show User icon
-        if (text === '—') {
+        // Scenario 1a: Unassigned state - show User icon
+        if (text === '—' || text === 'Unassigned' || text === 'Assignee') {
           return (
             <div 
               className="rounded-full flex items-center justify-center"
@@ -208,7 +213,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
                 getStateStyles(),
                 className
               )}
-              style={{ borderRadius: 'calc(var(--radius) - 2px)' }}
+              style={{ borderRadius }}
               {...props}
             >
               {/* Start Icon/Avatar */}
@@ -300,7 +305,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
           getStateStyles(),
           className
         )}
-        style={{ borderRadius: 'calc(var(--radius) - 2px)' }}
+        style={{ borderRadius }}
         onClick={!nonInteractive ? (e) => {
           e.stopPropagation();
           onClick?.();

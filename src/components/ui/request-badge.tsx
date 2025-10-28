@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Badge } from "./badge"
 import { cn } from "@/lib/utils"
+import { CaretDown } from "@phosphor-icons/react"
 
 export type RequestVariant = "new" | "in_review" | "accepted" | "canceled"
 export type BadgeSize = "sm" | "lg"
@@ -11,6 +12,7 @@ interface RequestBadgeProps {
   className?: string
   children?: React.ReactNode
   showText?: boolean
+  showIconRight?: boolean
 }
 
 const requestStyles = {
@@ -49,12 +51,12 @@ const textStyles = {
 
 const tooltipLabels = {
   new: "New",
-  in_review: "In Review",
+  in_review: "In review",
   accepted: "Accepted",
   canceled: "Canceled"
 }
 
-export function RequestBadge({ variant, size = "sm", className, showText = false }: RequestBadgeProps) {
+export function RequestBadge({ variant, size = "sm", className, showText = false, showIconRight = false }: RequestBadgeProps) {
   // Validate variant and provide fallback
   const validVariant = Object.keys(requestStyles).includes(variant) ? variant : 'new'
   
@@ -63,7 +65,7 @@ export function RequestBadge({ variant, size = "sm", className, showText = false
 
   // Size-specific styles
   const sizeStyles = size === "lg" 
-    ? { paddingTop: '6px', paddingBottom: '6px', paddingLeft: '12px', paddingRight: '12px' }
+    ? { paddingTop: '6px', paddingBottom: '6px', paddingLeft: '12px', paddingRight: '12px', borderRadius: '4px' }
     : {}
   
   const textClass = size === "lg" ? "text-sm-medium" : "text-xs"
@@ -71,13 +73,16 @@ export function RequestBadge({ variant, size = "sm", className, showText = false
   return (
     <Badge
       variant="outline"
-      className={cn(textClass, "border-0 flex items-center justify-center min-w-0 flex-shrink-0", className)}
+      className={cn(textClass, "border-0 flex items-center justify-center min-w-0 flex-shrink-0 gap-1.5", className)}
       style={{ ...badgeStyles, ...sizeStyles, maxWidth: '100%' }}
     >
       {showText && (
         <span style={{ color: textColorStyles.color }} className="truncate">
           {tooltipLabels[variant]}
         </span>
+      )}
+      {showIconRight && size === "lg" && (
+        <CaretDown size={12} style={{ color: textColorStyles.color, flexShrink: 0 }} />
       )}
     </Badge>
   )

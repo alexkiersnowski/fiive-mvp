@@ -5,6 +5,7 @@ import { Check, XCircle, CalendarBlank } from '@phosphor-icons/react'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { Input } from './input'
+import { Textarea } from './textarea'
 import { Badge } from './badge'
 import { Button } from './button'
 import { Calendar } from './calendar'
@@ -13,18 +14,27 @@ import { EngagementBadge, EngagementVariant } from './engagement-badge'
 import { HealthBadge, HealthVariant } from './health-badge'
 import { RequestBadge, RequestVariant } from './request-badge'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './command'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from './command'
 
 type InlineEditProps = 
   | { 
       type: 'text'
       value: string
       onSave: (value: string) => void
+      onChange?: (value: string) => void // Called on every keystroke (real-time updates)
+      onTab?: () => void // Called when Tab key is pressed (for custom focus navigation)
       placeholder?: string
       className?: string
       currency?: string // e.g., '€', '$', '£'
       numeric?: boolean // If true, only allow numeric input
       editingPlaceholder?: string // Placeholder shown when editing (e.g., "250,000.00")
+      showBorder?: boolean // If true, shows border on input (default: false)
+      textClass?: string // Custom text class (e.g., 'display-7-medium text-primary')
+      multiline?: boolean // If true, uses textarea for multi-line editing (default: false)
+      maxLength?: number // Maximum character length
+      preventNewLines?: boolean // If true, Enter saves (no newlines) and pasted content is stripped of newlines (default: false)
+      style?: React.CSSProperties // Inline styles
+      nonInteractive?: boolean // If true, makes the field non-editable (display only)
     }
   | { 
       type: 'badge'
@@ -33,9 +43,14 @@ type InlineEditProps =
       onSave: (value: string) => void
       className?: string
       searchable?: boolean
+      searchPlaceholder?: string
       clearable?: boolean
       badgeComponent?: 'connection' | 'engagement' | 'health' | 'request'
       placeholder?: string
+      dividerIndex?: number // Index where to insert a divider (after this index)
+      popoverWidth?: string // Custom width for the popover dropdown (e.g., '400px')
+      badgeBorderRadius?: string // Custom border radius for badge (e.g., '8px')
+      nonInteractive?: boolean // If true, makes the field non-editable (display only)
     }
   | {
       type: 'date'
@@ -46,11 +61,24 @@ type InlineEditProps =
       dateFormat?: string // e.g., 'dd MMM yyyy' for '23 Oct 2025'
     }
 
-export function InlineEdit(props: InlineEditProps) {
+export interface InlineEditRef {
+  startEditing: () => void
+}
+
+export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((props, ref) => {
   const [isEditing, setIsEditing] = React.useState(false)
   const [tempValue, setTempValue] = React.useState(props.value)
   const [isPopoverOpen, setIsPopoverOpen] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+  
+  // Expose startEditing method to parent via ref
+  React.useImperativeHandle(ref, () => ({
+    startEditing: () => {
+      setIsEditing(true)
+      // Focus will happen in useEffect when isEditing becomes true
+    }
+  }))
   
   // Date-specific state (moved to top level to avoid conditional hooks)
   const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(() => {
@@ -84,13 +112,23 @@ export function InlineEdit(props: InlineEditProps) {
     }
   }, [props.value, props.type])
 
-  // Focus input when editing starts
+  // Focus input/textarea when editing starts
   React.useEffect(() => {
-    if (isEditing && props.type === 'text' && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
+    if (isEditing && props.type === 'text') {
+      const multiline = 'multiline' in props ? props.multiline : false
+      if (multiline && textareaRef.current) {
+        textareaRef.current.focus()
+        // Set cursor to end of text
+        const length = textareaRef.current.value.length
+        textareaRef.current.setSelectionRange(length, length)
+      } else if (!multiline && inputRef.current) {
+        inputRef.current.focus()
+        // Set cursor to end of text instead of selecting all
+        const length = inputRef.current.value.length
+        inputRef.current.setSelectionRange(length, length)
+      }
     }
-  }, [isEditing, props.type])
+  }, [isEditing, props])
 
   const handleSave = () => {
     let valueToSave = tempValue
@@ -166,10 +204,16 @@ export function InlineEdit(props: InlineEditProps) {
         // Check if it exceeds numeric(12,2) limits
         if (integerPart.length <= 10 && decimalPart.length <= 2) {
           setTempValue(cleanValue)
+          if (props.onChange) {
+            props.onChange(cleanValue)
+          }
         }
         // If it exceeds limits, don't update (effectively blocking the input)
       } else {
         setTempValue(value)
+        if (props.onChange) {
+          props.onChange(value)
+        }
       }
     }
 
@@ -182,6 +226,77 @@ export function InlineEdit(props: InlineEditProps) {
     }
 
     if (isEditing) {
+      // Multi-line editing with textarea
+      const multiline = 'multiline' in props ? props.multiline : false
+      const preventNewLines = 'preventNewLines' in props ? props.preventNewLines : false
+      
+      if (multiline) {
+        return (
+          <Textarea
+            ref={textareaRef}
+            value={tempValue}
+            onChange={(e) => {
+              const newValue = e.target.value
+              setTempValue(newValue)
+              if (props.type === 'text' && props.onChange) {
+                props.onChange(newValue)
+              }
+            }}
+            onPaste={(e) => {
+              if (preventNewLines) {
+                const pastedText = e.clipboardData.getData('text')
+                // Only prevent default if there are newlines to clean
+                if (/\r?\n/.test(pastedText)) {
+                  e.preventDefault()
+                  const cleanedText = pastedText.replace(/\r?\n/g, '')
+                  
+                  // Get selection to handle overwrite vs append
+                  const textarea = e.currentTarget
+                  const start = textarea.selectionStart
+                  const end = textarea.selectionEnd
+                  const newValue = tempValue.substring(0, start) + cleanedText + tempValue.substring(end)
+                  setTempValue(newValue)
+                  
+                  // Move cursor to end of pasted content
+                  setTimeout(() => {
+                    textarea.selectionStart = textarea.selectionEnd = start + cleanedText.length
+                  }, 0)
+                }
+                // If no newlines, let native paste happen to preserve undo
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Tab' && props.type === 'text' && props.onTab) {
+                e.preventDefault()
+                handleSave()
+                props.onTab()
+              } else if (e.key === 'Enter' && preventNewLines) {
+                e.preventDefault()
+                handleSave()
+                // If onTab is provided, also navigate to next field
+                if (props.type === 'text' && props.onTab) {
+                  props.onTab()
+                }
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setTempValue(props.value)
+                setIsEditing(false)
+              }
+            }}
+            onBlur={handleSave}
+            placeholder={props.editingPlaceholder || props.placeholder}
+            maxLength={props.maxLength}
+            style={props.style || {}}
+            className={cn(
+              "resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-1 py-1 rounded-sm !min-h-0",
+              props.textClass || "text-sm-regular",
+              props.className
+            )}
+          />
+        )
+      }
+      
+      // Single-line editing with input
       return (
         <div className="relative flex items-center">
           {props.currency && (
@@ -196,9 +311,13 @@ export function InlineEdit(props: InlineEditProps) {
             onKeyDown={handleKeyDown}
             onBlur={handleSave}
             placeholder={props.editingPlaceholder || props.placeholder}
+            maxLength={props.maxLength}
+            style={props.style || {}}
             className={cn(
-              "py-1 h-auto text-sm-regular rounded-sm",
-              props.currency ? "pl-6 pr-2" : "px-2",
+              "py-1 h-auto rounded-sm",
+              props.textClass || "text-sm-regular",
+              !props.showBorder && "border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+              props.currency ? "pl-6 pr-1" : "px-1",
               props.className
             )}
           />
@@ -206,18 +325,23 @@ export function InlineEdit(props: InlineEditProps) {
       )
     }
 
+    const multiline = 'multiline' in props ? props.multiline : false
     return (
       <div
         className={cn(
-          "py-1 px-2 text-sm-regular rounded-sm transition-colors duration-75",
-          "hover:bg-[var(--color-interactive-surface-hover)]",
+          "py-1 px-1 rounded-sm transition-colors duration-75",
+          props.textClass || "text-sm-regular",
+          !multiline && "truncate",
+          multiline && "whitespace-pre-wrap",
+          !props.nonInteractive && "hover:bg-[var(--color-interactive-surface-hover)]",
           props.className
         )}
         style={{
-          cursor: 'pointer',
-          ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {})
+          cursor: props.nonInteractive ? 'default' : 'pointer',
+          ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {}),
+          ...(props.style || {})
         }}
-        onClick={() => setIsEditing(true)}
+        onClick={() => !props.nonInteractive && setIsEditing(true)}
       >
         {formatDisplayValue(props.value)}
       </div>
@@ -256,25 +380,28 @@ export function InlineEdit(props: InlineEditProps) {
         return <RequestBadge variant={tempValue as RequestVariant} size="sm" showText={true} />
       }
       
-      // Default to regular Badge component
+      // Default to neutral badge styling (like "Design" in request table)
       return (
-        <Badge variant="outline" className="text-xs">
+        <Badge variant="neutral" className="text-xs">
           {displayLabel}
         </Badge>
       )
     }
 
     return (
-      <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+      <Popover open={!props.nonInteractive && isPopoverOpen} onOpenChange={(open) => !props.nonInteractive && setIsPopoverOpen(open)}>
         <PopoverTrigger asChild>
           <div
             className={cn(
-              "py-1 px-2 rounded transition-colors duration-75 flex items-center justify-between gap-2",
-              "hover:bg-[var(--color-interactive-surface-hover)]",
+              "py-1 px-1 rounded transition-colors duration-75 flex items-center justify-between gap-2",
+              !props.nonInteractive && "hover:bg-[var(--color-interactive-surface-hover)]",
               isPopoverOpen && "bg-[var(--color-interactive-surface-hover)]",
               props.className
             )}
-            style={{ cursor: 'pointer' }}
+            style={{ 
+              cursor: props.nonInteractive ? 'default' : 'pointer',
+              ...(props.badgeBorderRadius ? { borderRadius: props.badgeBorderRadius } : {})
+            }}
           >
             {renderBadge()}
             {props.clearable && tempValue && isPopoverOpen && (
@@ -297,49 +424,60 @@ export function InlineEdit(props: InlineEditProps) {
           </div>
         </PopoverTrigger>
         <PopoverContent 
-          className="w-full min-w-48 p-0" 
+          className="inline-edit-popover w-full min-w-48 p-0" 
           align="start"
-          style={{ width: 'var(--radix-popover-trigger-width)' }}
+          style={{ width: props.type === 'badge' && props.popoverWidth ? props.popoverWidth : 'var(--radix-popover-trigger-width)' }}
         >
           <Command>
-            {props.searchable && <CommandInput placeholder="Search options..." />}
+            {(props.searchable || props.dividerIndex !== undefined) && (
+              <div className="[&_[data-slot=command-input-wrapper]]:!h-auto [&_[data-slot=command-input-wrapper]]:!py-1">
+                <CommandInput placeholder={props.searchPlaceholder || "Search options..."} className="!h-auto !py-2 px-4 text-sm" />
+              </div>
+            )}
             <CommandList>
               <CommandEmpty>No options found.</CommandEmpty>
               <CommandGroup>
-                {props.options.map((option) => (
-                  <CommandItem
-                    key={option.value}
-                    value={option.value}
-                    onSelect={() => handleBadgeSelect(option.value)}
-                    className="flex items-center justify-between cursor-pointer"
-                  >
-                    {(() => {
-                      if (props.badgeComponent === 'engagement') {
-                        return <EngagementBadge variant={option.value as EngagementVariant} size="sm" showText={true} />
-                      }
-                      
-                      if (props.badgeComponent === 'connection') {
-                        return <StatusBadge variant={option.value as StatusVariant} size="sm" showText={true} />
-                      }
-                      
-                      if (props.badgeComponent === 'health') {
-                        return <HealthBadge variant={option.value as HealthVariant} size="sm" showText={true} />
-                      }
-                      
-                      if (props.badgeComponent === 'request') {
-                        return <RequestBadge variant={option.value as RequestVariant} size="sm" showText={true} />
-                      }
-                      
-                      return (
-                        <Badge variant="outline" className="text-xs">
-                          {option.label}
-                        </Badge>
-                      )
-                    })()}
-                    {option.value === tempValue && (
-                      <Check size={16} className="text-primary" />
+                {props.options.map((option, index) => (
+                  <React.Fragment key={option.value}>
+                    <CommandItem
+                      value={option.value}
+                      onSelect={() => handleBadgeSelect(option.value)}
+                      className="flex items-center justify-between cursor-pointer"
+                    >
+                      {(() => {
+                        if (props.badgeComponent === 'engagement') {
+                          return <EngagementBadge variant={option.value as EngagementVariant} size="sm" showText={true} />
+                        }
+                        
+                        if (props.badgeComponent === 'connection') {
+                          return <StatusBadge variant={option.value as StatusVariant} size="sm" showText={true} />
+                        }
+                        
+                        if (props.badgeComponent === 'health') {
+                          return <HealthBadge variant={option.value as HealthVariant} size="sm" showText={true} />
+                        }
+                        
+                        if (props.badgeComponent === 'request') {
+                          return <RequestBadge variant={option.value as RequestVariant} size="sm" showText={true} />
+                        }
+                        
+                        return (
+                          <Badge variant="neutral" className="text-xs">
+                            {option.label}
+                          </Badge>
+                        )
+                      })()}
+                      {option.value === tempValue && (
+                        <Check size={16} className="text-primary" />
+                      )}
+                    </CommandItem>
+                    {/* Only show divider if there are more options after it */}
+                    {props.dividerIndex !== undefined && index === props.dividerIndex && index < props.options.length - 1 && (
+                      <div className="my-1">
+                        <CommandSeparator />
+                      </div>
                     )}
-                  </CommandItem>
+                  </React.Fragment>
                 ))}
               </CommandGroup>
             </CommandList>
@@ -377,7 +515,7 @@ export function InlineEdit(props: InlineEditProps) {
         <PopoverTrigger asChild>
           <div
             className={cn(
-              "py-1 px-2 text-sm-regular rounded-sm transition-colors duration-75 flex items-center justify-between gap-2",
+              "py-1 px-1 text-sm-regular rounded-sm transition-colors duration-75 flex items-center justify-between gap-2",
               "hover:bg-[var(--color-interactive-surface-hover)]",
               isPopoverOpen && "bg-[var(--color-interactive-surface-hover)]",
               "!cursor-pointer", // Force cursor pointer with !important
@@ -424,4 +562,6 @@ export function InlineEdit(props: InlineEditProps) {
 
   // This should never be reached due to TypeScript exhaustiveness checking
   return null
-}
+})
+
+InlineEdit.displayName = 'InlineEdit'
