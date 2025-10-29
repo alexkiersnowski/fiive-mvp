@@ -1,6 +1,6 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { notFound } from 'next/navigation';
-import { getConnectionSnapshot } from '@/features/connections/server';
+import { getConnectionSnapshot, validateConnectionAccess } from '@/features/connections/server';
 import { ConnectionLayout } from '@/features/connections/ConnectionLayout';
 
 interface AgencyConnectionLayoutProps {
@@ -26,12 +26,16 @@ export default async function AgencyConnectionLayout({ children, params }: Agenc
     notFound();
   }
 
-  // Fetch connection data once for the entire layout
-  const snapshot = await getConnectionSnapshot(context, connectionId);
-  
-  if (!snapshot) {
+  // Validate connection access first (lightweight check)
+  const isValid = await validateConnectionAccess(connectionId, context);
+  if (!isValid) {
     notFound();
   }
+
+  // For request detail pages: ConnectionLayout will detect via usePathname and skip snapshot usage
+  // For other pages: fetch full snapshot as they need it
+  // We always validate first, but ConnectionLayout optimizes by not using snapshot for request detail pages
+  const snapshot = await getConnectionSnapshot(context, connectionId);
 
   return (
     <ConnectionLayout 

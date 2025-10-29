@@ -25,7 +25,12 @@ interface NewRequestModalProps {
   }>
   isOpen: boolean
   onClose: () => void
-  onRequestCreated?: () => void
+  onRequestCreated?: (optimisticRequest: {
+    title: string
+    description: string
+    type: string | null
+    assigneeUserId: string | null
+  }) => void
   connectionId: string
   currentOrgId: string
 }
@@ -72,6 +77,14 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
     // Show success toast immediately
     toast.success('Request created successfully')
     
+    // Call optimistic update immediately with form data
+    onRequestCreated?.({
+      title,
+      description,
+      type,
+      assigneeUserId
+    })
+    
     // Create request in background
     createRequest(
       connectionId,
@@ -79,10 +92,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
       description,
       type,
       assigneeUserId
-    ).then(() => {
-      // Refresh the list after successful creation
-      onRequestCreated?.()
-    }).catch((error) => {
+    ).catch((error) => {
       console.error('Error creating request:', error)
       toast.error('Failed to create request')
     })

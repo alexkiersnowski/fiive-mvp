@@ -164,3 +164,66 @@ export async function updateRequestDescription(requestId: string, description: s
   console.log('Request description updated successfully:', data);
   return data;
 }
+
+/**
+ * Fetch requests for a connection (server action for client components)
+ */
+export async function fetchRequestsForConnection(connectionId: string) {
+  // Import the server function dynamically to avoid circular dependencies
+  const { getRequestsForConnection } = await import('../server')
+  return await getRequestsForConnection(connectionId)
+}
+
+/**
+ * Soft delete a request
+ */
+export async function deleteRequest(requestId: string) {
+  const supabase = await createClient();
+  const context = await getActiveContext();
+  
+  if (!context?.user?.id) {
+    throw new Error('User not authenticated');
+  }
+  
+  console.log('deleteRequest called with:', { 
+    requestId, 
+    deletedByUserId: context.user.id,
+    currentOrgId: context.organization.id,
+    userEmail: context.user.email
+  });
+  
+  // First, fetch the request to see who created it
+  const { data: existingRequest, error: fetchError } = await supabase
+    .from('requests')
+    .select('id, title, created_by_org_id, created_by_user_id')
+    .eq('id', requestId)
+    .single();
+  
+  if (fetchError) {
+    console.error('Error fetching request before delete:', fetchError);
+    throw new Error(`Failed to fetch request: ${fetchError.message}`);
+  }
+  
+  console.log('Existing request:', existingRequest);
+  console.log('Attempting to delete request created by org:', existingRequest?.created_by_org_id);
+  console.log('Current user org:', context.organization.id);
+  console.log('Match?', existingRequest?.created_by_org_id === context.organization.id);
+  
+  const { data, error } = await supabase
+    .from('requests')
+    .update({ 
+      deleted_at: new Date().toISOString(),
+      deleted_by_user_id: context.user.id
+    })
+    .eq('id', requestId)
+    .select()
+    .single();
+  
+  if (error) {
+    console.error('Error deleting request:', error);
+    throw new Error(`Failed to delete request: ${error.message}`);
+  }
+  
+  console.log('Request deleted successfully:', data);
+  return data;
+}

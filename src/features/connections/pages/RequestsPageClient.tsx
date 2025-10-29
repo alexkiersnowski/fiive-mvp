@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter, useParams, usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useParams, usePathname, useSearchParams } from 'next/navigation'
 import { useConnection } from '../ConnectionContext';
 import RequestsTable from '../requests/RequestsTable';
 import { RequestDetailModal } from '../requests/RequestDetailModal'
@@ -26,6 +26,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
   const { snapshot, context } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   // Get user avatar and organization from context
@@ -35,6 +36,21 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
 
   // Local state for requests (for optimistic updates)
   const [requests, setRequests] = useState<Request[]>(initialRequests)
+  
+  // Handle optimistic deletion from query params (when navigating from detail page)
+  useEffect(() => {
+    const deletedRequestId = searchParams.get('deleted')
+    if (deletedRequestId) {
+      // Optimistically remove the deleted request
+      setRequests(prev => prev.filter(r => r.id !== deletedRequestId))
+      
+      // Clean up the query param
+      const newSearchParams = new URLSearchParams(searchParams.toString())
+      newSearchParams.delete('deleted')
+      const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
+      router.replace(newUrl, { scroll: false })
+    }
+  }, [searchParams, pathname, router])
 
   // Local state for modal (like ProfileCard pattern)
   const [selectedRequest, setSelectedRequest] = useState<{
@@ -131,9 +147,68 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
     }
   }
 
-  function handleRequestCreated() {
-    // Refresh the page to show the new request
-    router.refresh()
+  async function handleRequestCreated(optimisticRequest: {
+    title: string
+    description: string
+    type: string | null
+    assigneeUserId: string | null
+  }) {
+    // Optimistically add the new request to the table immediately
+    const optimisticRequestData: Request = {
+      id: `temp-${Date.now()}`, // Temporary ID until we get the real one
+      connectionId: connectionId,
+      title: optimisticRequest.title,
+      description: optimisticRequest.description,
+      type: optimisticRequest.type || 'general',
+      status: 'new',
+      assignee: optimisticRequest.assigneeUserId 
+        ? agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId) 
+          ? {
+              id: agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.id,
+              name: `${agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.firstName} ${agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.lastName}`,
+              email: agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.email,
+              avatarUrl: agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.avatarUrl
+            }
+          : null
+        : null,
+      client: {
+        id: snapshot.partner.id,
+        name: snapshot.partner.name,
+        logoUrl: snapshot.partner.logo
+      },
+      submittedBy: {
+        id: context.user?.id || '',
+        name: `${context.user?.firstName || ''} ${context.user?.lastName || ''}`,
+        email: context.user?.email || '',
+        avatarUrl: context.user?.avatarUrl,
+        jobTitle: context.user?.jobTitle,
+        orgId: context.organization.id,
+        orgName: context.organization.name,
+        orgLogo: context.organization.logoUrl
+      },
+      createdAt: (() => {
+        const date = new Date();
+        const day = date.getDate();
+        const month = date.toLocaleDateString('en-US', { month: 'short' });
+        const year = date.getFullYear();
+        return `${day} ${month} ${year}`;
+      })(),
+      createdByOrgId: currentOrgId
+    }
+
+    // Add optimistic request to the top of the list
+    setRequests(prevRequests => [optimisticRequestData, ...prevRequests])
+
+    // Fetch real data from server in the background
+    try {
+      const { fetchRequestsForConnection } = await import('../requests/actions')
+      const freshRequests = await fetchRequestsForConnection(connectionId)
+      setRequests(freshRequests)
+    } catch (error) {
+      console.error('Failed to refresh requests:', error)
+      // Fallback to router.refresh if fetch fails
+      router.refresh()
+    }
   }
 
   return (
@@ -158,6 +233,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
         onClose={handleModalClose}
         onExpand={handleExpand}
         onRequestUpdate={handleRequestUpdate}
+        onRequestDeleted={(requestId) => {
+          // Optimistically remove request from table
+          setRequests(prev => prev.filter(r => r.id !== requestId))
+        }}
         connectionId={connectionId}
         currentOrgId={currentOrgId}
       />

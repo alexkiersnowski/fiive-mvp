@@ -1,32 +1,51 @@
-import { Card } from '@/components/ui/card'
 import { RequestDetailContent } from '@/features/connections/requests/RequestDetailContent'
-
-// Temporary mock data
-function getMockRequest(requestId: string) {
-  return {
-    id: requestId,
-    title: 'Update homepage hero for the summer campaign',
-    description: 'We need to update the homepage hero section to reflect our new summer campaign. Please refresh all visual elements including the background images, CTAs, and messaging to align with the summer theme.',
-  }
-}
+import { getRequestById, getAgencyMembersForConnection, getConnectionPartnerName } from '@/features/connections/server'
+import { getActiveContext } from '@/lib/mode/getActiveContext'
+import { notFound } from 'next/navigation'
 
 export default async function ClientRequestDetailPage({ 
   params 
 }: { 
-  params: Promise<{ requestId: string }> 
+  params: Promise<{ connectionId: string; requestId: string }> 
 }) {
-  const { requestId } = await params
-  const requestData = getMockRequest(requestId)
+  const { connectionId, requestId } = await params
+  
+  // Fetch request data, agency members, and context in parallel
+  const [request, agencyMembers, context] = await Promise.all([
+    getRequestById(requestId, connectionId),
+    getAgencyMembersForConnection(connectionId),
+    getActiveContext()
+  ])
+  
+  if (!context) {
+    notFound()
+  }
+  
+  // Fetch partner name for breadcrumbs
+  const partnerName = await getConnectionPartnerName(connectionId, context)
+  
+  if (!request) {
+    notFound()
+  }
   
   return (
-    <Card className="w-full">
-      <RequestDetailContent 
-        requestId={requestId}
-        title={requestData.title}
-        description={requestData.description}
-        mode="page"
-      />
-    </Card>
+    <RequestDetailContent 
+      requestId={request.id}
+      title={request.title}
+      description={request.description}
+      client={request.client}
+      submittedBy={request.submittedBy}
+      assignee={request.assignee}
+      agencyMembers={agencyMembers}
+      type={request.type}
+      status={request.status}
+      createdAt={request.createdAt}
+      mode="page"
+      createdByOrgId={request.createdByOrgId}
+      currentOrgId={context.organization.id}
+      connectionId={connectionId}
+      partnerName={partnerName || undefined}
+    />
   )
 }
 

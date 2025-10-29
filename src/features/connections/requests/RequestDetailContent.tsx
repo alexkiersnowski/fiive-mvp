@@ -1,18 +1,23 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { RequestBadge } from '@/components/ui/request-badge'
 import { StatusButton } from '@/components/ui/status-button'
 import { ListRow } from '@/components/ui/list-row'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
-import { Check, CaretDown, ArrowRight } from '@phosphor-icons/react'
+import { Check, CaretDown, ArrowRight, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee } from './actions'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import Link from 'next/link'
+import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee, deleteRequest } from './actions'
+import { toast } from 'sonner'
 
 interface RequestDetailContentProps {
   requestId: string
@@ -50,13 +55,75 @@ interface RequestDetailContentProps {
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
   createdByOrgId?: string
   currentOrgId: string
+  connectionId?: string
+  onRequestDeleted?: (requestId: string) => void
+  partnerName?: string // Name of the connected organization (for breadcrumbs)
 }
 
-export function RequestDetailContent({ requestId, title, description, client, submittedBy, assignee, agencyMembers = [], type, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, currentOrgId }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, submittedBy, assignee, agencyMembers = [], type, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, currentOrgId, connectionId, onRequestDeleted, partnerName }: RequestDetailContentProps) {
   const router = useRouter()
+  const pathname = usePathname()
   
   // Determine if current org can edit this request
   const canEdit = createdByOrgId === currentOrgId
+  
+  // Determine base route for navigation
+  const baseRoute = pathname?.startsWith('/agencies/') ? 'agencies' : 'clients'
+  
+  // Determine if this is a client-submitted request (locked for editing)
+  const isClientSubmitted = createdByOrgId && createdByOrgId !== currentOrgId
+  
+  // State for actions dropdown
+  const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
+  
+  // Handle delete request (optimistic)
+  const handleDeleteRequest = async () => {
+    // Show success toast immediately
+    toast.success('Request deleted')
+    
+    // Navigate back to requests list with deleted request ID in state
+    // This allows the requests page to optimistically remove it
+    if (connectionId) {
+      router.push(`/${baseRoute}/${connectionId}/requests?deleted=${requestId}`)
+    } else {
+      router.back()
+    }
+    
+    // Update table optimistically (in case we're in modal mode)
+    onRequestDeleted?.(requestId)
+    
+    // Delete in background
+    deleteRequest(requestId).catch((error) => {
+      console.error('Error deleting request:', error)
+      toast.error('Failed to delete request')
+    })
+  }
+  
+  // Handle copy link
+  const handleCopyLink = () => {
+    const fullUrl = `${window.location.origin}${pathname}`
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      toast.success('Link copied to clipboard')
+    }).catch(() => {
+      toast.error('Failed to copy link')
+    })
+  }
+  
+  // Determine dialog title based on who created the request
+  const getDialogTitle = () => {
+    if (!createdByOrgId) return 'Request'
+
+    const isAgencyCreated = createdByOrgId === currentOrgId
+    return isAgencyCreated ? 'Request — Agency created' : 'Request — Client submitted'
+  }
+  
+  // Get just the status suffix (Client submitted or Agency created)
+  const getRequestStatusText = () => {
+    if (!createdByOrgId) return ''
+    
+    const isAgencyCreated = createdByOrgId === currentOrgId
+    return isAgencyCreated ? 'Agency created' : 'Client submitted'
+  }
   
   const [titleValue, setTitleValue] = useState(title)
   const [descriptionValue, setDescriptionValue] = useState(description)
@@ -308,61 +375,174 @@ export function RequestDetailContent({ requestId, title, description, client, su
   ]
 
   return (
-    <div className={`grid grid-cols-[2fr_auto_1fr] gap-8 h-full ${mode === 'page' ? 'p-10' : ''}`}>
-      {/* Left Column / Main Content */}
-      <div className="flex flex-col gap-5">
-        {/* Title with Badge */}
-        <div className="flex items-start gap-3">
-          <div data-inline-edit="title" className="flex-1">
-            <InlineEdit
-              key={titleResetKey}
-              type="text"
-              value={titleValue}
-              onSave={handleTitleSave}
-              placeholder="Add a title..."
-              textClass="display-7-medium text-primary"
-              multiline={true}
-              maxLength={255}
-              preventNewLines={true}
-              className="px-0"
-              nonInteractive={!canEdit}
-            />
+    <div className="flex flex-col gap-4 flex-1 min-h-0">
+      {/* Breadcrumbs and Actions - only shown in page mode */}
+      {mode === 'page' && (
+        <>
+          <div className="flex-shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Breadcrumb>
+                <BreadcrumbList style={{ fontSize: '12px' }}>
+                  {connectionId && partnerName && (
+                    <>
+                      <BreadcrumbItem>
+                        <BreadcrumbLink asChild>
+                          <Link href={`/${baseRoute}/${connectionId}`}>
+                            {partnerName}
+                          </Link>
+                        </BreadcrumbLink>
+                      </BreadcrumbItem>
+                      <BreadcrumbSeparator />
+                    </>
+                  )}
+                  {connectionId && (
+                    <BreadcrumbItem>
+                      <BreadcrumbLink asChild>
+                        <Link href={`/${baseRoute}/${connectionId}/requests`}>
+                          Requests
+                        </Link>
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                  )}
+                </BreadcrumbList>
+              </Breadcrumb>
+              {/* Informational text - not part of breadcrumb */}
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] leading-[20px] font-normal tracking-[0.0025rem]" style={{ color: 'var(--color-base-text-tertiary)' }}>
+                  —
+                </span>
+                <span className="text-[12px] leading-[20px] font-normal tracking-[0.0025rem]" style={{ color: 'var(--color-base-text-tertiary)' }}>
+                  {getRequestStatusText()}
+                </span>
+              </div>
+              {isClientSubmitted && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center justify-center">
+                      <LockSimple 
+                        size={12} 
+                        weight="fill"
+                        style={{ color: 'var(--color-base-text-tertiary)' }}
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="center" sideOffset={8}>
+                    <div className="text-xs text-center">
+                      You can update status and assignee only
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+            <DropdownMenu modal={false} open={isActionsDropdownOpen} onOpenChange={setIsActionsDropdownOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-10 w-10 cursor-pointer transition-colors duration-75 rounded-md ${
+                  isActionsDropdownOpen
+                    ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
+                    : 'hover:bg-[var(--color-interactive-surface-hover)]'
+                }`}
+              >
+                <DotsThree className="w-[18px] h-[18px]" />
+                <span className="sr-only">More options</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[200px]">
+              <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                Convert to task
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                handleCopyLink()
+                setIsActionsDropdownOpen(false)
+              }}>
+                <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                Copy link
+              </DropdownMenuItem>
+              {!isClientSubmitted && (
+                <>
+                  <div className="border-t border-[var(--color-neutral-6)] my-1" />
+                  <DropdownMenuItem 
+                    onClick={() => {
+                      handleDeleteRequest()
+                      setIsActionsDropdownOpen(false)
+                    }}
+                    style={{ color: 'var(--color-red-11)' }}
+                  >
+                    <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
+                    Delete request
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           </div>
-          <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
-            <PopoverTrigger asChild>
-              <StatusButton variant={statusValue} className="mt-1.5">
-                <CaretDown size={12} weight="fill" />
-              </StatusButton>
-            </PopoverTrigger>
-            <PopoverContent 
-              className="w-full min-w-48 p-0" 
-              align="start"
-              style={{ width: 'var(--radix-popover-trigger-width)' }}
-            >
-              <Command>
-                <CommandList>
-                  <CommandEmpty>No status found.</CommandEmpty>
-                  <CommandGroup>
-                    {statusOptions.map((option) => (
-                      <CommandItem
-                        key={option.value}
-                        value={option.value}
-                        onSelect={() => handleStatusChange(option.value as string)}
-                        className="flex items-center justify-between cursor-pointer"
-                      >
-                        <RequestBadge variant={option.value as any} size="sm" showText />
-                        {option.value === statusValue && (
-                          <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
-                        )}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+        </>
+      )}
+      
+      <div className="flex gap-0 flex-1 min-h-0">
+      {/* Left Column / Main Content */}
+      <div className="flex-[2] flex flex-col">
+        {/* Title with Badge - Sticky */}
+        <div className="flex-shrink-0 pb-5 pr-8">
+          <div className="flex items-start gap-3">
+            <div data-inline-edit="title" className="flex-1">
+              <InlineEdit
+                key={titleResetKey}
+                type="text"
+                value={titleValue}
+                onSave={handleTitleSave}
+                placeholder="Add a title..."
+                textClass="display-7-medium text-primary"
+                multiline={true}
+                maxLength={255}
+                preventNewLines={true}
+                className="px-0"
+                nonInteractive={!canEdit}
+              />
+            </div>
+            <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
+              <PopoverTrigger asChild>
+                <StatusButton variant={statusValue} className="mt-1.5">
+                  <CaretDown size={12} weight="fill" />
+                </StatusButton>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-full min-w-48 p-0"
+                align="start"
+                style={{ width: 'var(--radix-popover-trigger-width)' }}
+              >
+                <Command>
+                  <CommandList>
+                    <CommandEmpty>No status found.</CommandEmpty>
+                    <CommandGroup>
+                      {statusOptions.map((option) => (
+                        <CommandItem
+                          key={option.value}
+                          value={option.value}
+                          onSelect={() => handleStatusChange(option.value as string)}
+                          className="flex items-center justify-between cursor-pointer"
+                        >
+                          <RequestBadge variant={option.value as any} size="sm" showText />
+                          {option.value === statusValue && (
+                            <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
+                          )}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
-        <div data-inline-edit="description">
+        
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
+          <div className="flex flex-col gap-5">
+            <div data-inline-edit="description">
           <InlineEdit
             type="text"
             value={descriptionValue}
@@ -406,13 +586,15 @@ export function RequestDetailContent({ requestId, title, description, client, su
               </div>
             </div>
           </>
+          </div>
+        </div>
       </div>
 
       {/* 1px Divider */}
-      <div className="w-px bg-neutral-alpha-4" />
+      <div className="w-px bg-neutral-alpha-4 flex-shrink-0 mb-10"/>
 
       {/* Right Column */}
-      <div className="flex flex-col gap-2">
+      <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
           <h3 className="text-md-medium text-primary">
           Details
         </h3>
@@ -514,6 +696,7 @@ export function RequestDetailContent({ requestId, title, description, client, su
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

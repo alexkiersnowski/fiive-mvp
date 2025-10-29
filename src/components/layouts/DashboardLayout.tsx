@@ -24,7 +24,9 @@ export default function DashboardLayout({ data, context, children, initialIsColl
     pathname.startsWith('/home') ? 'home' :
     pathname.split('/')[1] || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
-  const isFullWidthPage = ['/home', '/clients', '/agencies'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/')
+  // Check if we're on a detail page (should use card variant, not full-width)
+  const isDetailPage = /^\/(clients|agencies)\/[^/]+\/requests\/[^/]+$/.test(pathname)
+  const isFullWidthPage = !isDetailPage && (['/home', '/clients', '/agencies'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/'))
   const isSettingsPage = pathname.startsWith('/settings')
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
   
@@ -101,10 +103,14 @@ export default function DashboardLayout({ data, context, children, initialIsColl
         <div 
           style={{
             minHeight: '100%',
+            height: isFullWidthPage ? 'auto' : '100%',
             borderRadius: isFullWidthPage ? '0' : 'var(--radius-6, 16px)',
             border: isFullWidthPage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
             background: isFullWidthPage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isFullWidthPage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : '16px')
+            padding: isFullWidthPage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : isDetailPage ? '24px 32px 0px 32px' : '24px 32px 0px 32px'),
+            overflow: isFullWidthPage ? 'visible' : 'hidden',
+            display: isFullWidthPage ? 'block' : 'flex',
+            flexDirection: 'column'
           }}
         >
           {children}

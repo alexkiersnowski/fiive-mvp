@@ -7,6 +7,8 @@ import { RequestDetailContent } from './RequestDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { toast } from 'sonner'
+import { deleteRequest } from './actions'
 
 interface RequestDetailModalProps {
   requestData: {
@@ -47,11 +49,12 @@ interface RequestDetailModalProps {
   onClose: () => void
   onExpand: () => void
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  onRequestDeleted?: (requestId: string) => void
   connectionId: string
   currentOrgId: string
 }
 
-export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, onClose, onExpand, onRequestUpdate, connectionId, currentOrgId }: RequestDetailModalProps) {
+export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, onClose, onExpand, onRequestUpdate, onRequestDeleted, connectionId, currentOrgId }: RequestDetailModalProps) {
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // Determine if this is a client-submitted request (locked for editing)
@@ -65,10 +68,30 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
     return isAgencyCreated ? 'Request — Agency created' : 'Request — Client submitted'
   }
   
+  // Handle delete request (optimistic)
+  const handleDeleteRequest = async () => {
+    if (!requestData?.requestId) return
+    
+    // Close modal immediately
+    onClose()
+    
+    // Show success toast immediately
+    toast.success('Request deleted')
+    
+    // Update table optimistically
+    onRequestDeleted?.(requestData.requestId)
+    
+    // Delete in background
+    deleteRequest(requestData.requestId).catch((error) => {
+      console.error('Error deleting request:', error)
+      toast.error('Failed to delete request')
+    })
+  }
+  
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent 
-        className="!max-w-[1200px] !w-[calc(100vw-10rem)] !max-h-[800px] !h-[calc(100vh-7.5rem)] overflow-auto !p-0 !gap-0 !flex !flex-col" 
+        className="!max-w-[1200px] !w-[calc(100vw-10rem)] !max-h-[800px] !h-[calc(100vh-7.5rem)] overflow-hidden !p-0 !gap-0 !flex !flex-col" 
         showCloseButton={false}
       >
         {/* Header */}
@@ -125,7 +148,10 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 
-                      onClick={() => setIsActionsDropdownOpen(false)}
+                      onClick={() => {
+                        handleDeleteRequest()
+                        setIsActionsDropdownOpen(false)
+                      }}
                       style={{ color: 'var(--color-red-11)' }}
                     >
                       <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
@@ -158,7 +184,7 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
 
         {/* Content */}
         {requestData && (
-          <div className="pl-10 pr-10 pb-10 h-full">
+          <div className="pl-10 pr-10 h-full min-h-0 flex flex-col">
             <RequestDetailContent 
               requestId={requestData.requestId}
               title={requestData.title}

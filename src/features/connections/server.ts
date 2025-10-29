@@ -3,6 +3,46 @@ import { createClient } from '@/lib/supabase/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 
+/**
+ * Lightweight validation to check if the current user's organization has access to a connection.
+ * This is used for request detail pages where we don't need the full snapshot.
+ */
+export const validateConnectionAccess = cache(async (
+  connectionId: string,
+  context: EnhancedModeContext
+): Promise<boolean> => {
+  const supabase = await createClient();
+  
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('validateConnectionAccess called with:', {
+      connectionId,
+      orgId: context.orgId,
+      variant: context.variant
+    });
+  }
+  
+  // Minimal query: just check if connection exists and belongs to user's org
+  if (context.variant === 'agency') {
+    const { data, error } = await supabase
+      .from('connections')
+      .select('id')
+      .eq('id', connectionId)
+      .eq('agency_id', context.orgId)
+      .single();
+    
+    return !error && !!data;
+  } else {
+    const { data, error } = await supabase
+      .from('connections')
+      .select('id')
+      .eq('id', connectionId)
+      .eq('client_id', context.orgId)
+      .single();
+    
+    return !error && !!data;
+  }
+});
+
 export const getConnectionSnapshot = cache(async (
   context: EnhancedModeContext,
   connectionId: string
@@ -553,4 +593,247 @@ export const getAgencyMembersForConnection = cache(async (
   }) || [];
   
   return formattedMembers;
+});
+
+/**
+ * Get the partner organization name for a connection.
+ * Returns the name of the organization we're connected to (client if viewing as agency, agency if viewing as client).
+ */
+export const getConnectionPartnerName = cache(async (
+  connectionId: string,
+  context: EnhancedModeContext
+): Promise<string | null> => {
+  const supabase = await createClient();
+
+  if (context.variant === 'agency') {
+    // Agency viewing client - get client organization name
+    const { data: connection, error } = await supabase
+      .from('connections')
+      .select(`
+        client_id,
+        organizations!connections_client_id_fkey (
+          name
+        )
+      `)
+      .eq('id', connectionId)
+      .eq('agency_id', context.orgId)
+      .single();
+
+    if (error || !connection) return null;
+    
+    const clientOrg = Array.isArray(connection.organizations) 
+      ? connection.organizations[0] 
+      : connection.organizations;
+    
+    return clientOrg?.name || null;
+  } else {
+    // Client viewing agency - get agency organization name
+    const { data: connection, error } = await supabase
+      .from('connections')
+      .select(`
+        agency_id,
+        organizations!connections_agency_id_fkey (
+          name
+        )
+      `)
+      .eq('id', connectionId)
+      .eq('client_id', context.orgId)
+      .single();
+
+    if (error || !connection) return null;
+    
+    const agencyOrg = Array.isArray(connection.organizations) 
+      ? connection.organizations[0] 
+      : connection.organizations;
+    
+    return agencyOrg?.name || null;
+  }
+});
+
+export const getRequestById = cache(async (
+  requestId: string,
+  connectionId: string
+): Promise<Request | null> => {
+  const supabase = await createClient();
+  
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('getRequestById called with:', { requestId, connectionId });
+  }
+  
+  // Fetch the connection to get client_id
+  const { data: connection, error: connectionError } = await supabase
+    .from('connections')
+    .select('client_id')
+    .eq('id', connectionId)
+    .single();
+  
+  if (connectionError || !connection) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching connection:', {
+        error: connectionError,
+        connectionId,
+        connection,
+        errorDetails: connectionError ? {
+          message: connectionError.message,
+          details: connectionError.details,
+          hint: connectionError.hint,
+          code: connectionError.code
+        } : null
+      });
+    }
+    return null;
+  }
+  
+  // Fetch client organization details
+  const { data: clientOrg, error: clientOrgError } = await supabase
+    .from('organizations')
+    .select('id, name, logo_url')
+    .eq('id', connection.client_id)
+    .single();
+  
+  if (clientOrgError) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching client organization:', clientOrgError);
+    }
+  }
+  
+  // Fetch the specific request
+  const { data: request, error } = await supabase
+    .from('requests')
+    .select(`
+      id,
+      title,
+      description,
+      status,
+      type,
+      created_by_user_id,
+      assignee_user_id,
+      created_at,
+      created_by_org_id,
+      connection_id
+    `)
+    .eq('id', requestId)
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null)
+    .single();
+  
+  if (error || !request) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching request:', {
+        error,
+        requestId,
+        connectionId,
+        request,
+        message: error?.message || 'Request not found or does not belong to connection'
+      });
+    }
+    return null;
+  }
+  
+  // Verify the request belongs to the connection (safety check)
+  if (request.connection_id !== connectionId) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Request connection mismatch:', {
+        requestConnectionId: request.connection_id,
+        providedConnectionId: connectionId
+      });
+    }
+    return null;
+  }
+  
+  // Fetch user IDs needed
+  const userIds = new Set<string>();
+  if (request.created_by_user_id) userIds.add(request.created_by_user_id);
+  if (request.assignee_user_id) userIds.add(request.assignee_user_id);
+  
+  // Fetch user profiles
+  let profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
+  
+  if (userIds.size > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, avatar_url, job_title')
+      .in('id', Array.from(userIds));
+    
+    if (!profilesError && profiles) {
+      profilesMap = profiles.reduce((acc, profile) => {
+        acc[profile.id] = profile;
+        return acc;
+      }, {} as typeof profilesMap);
+    }
+  }
+  
+  // Fetch organization IDs for each user from memberships
+  let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  
+  if (userIds.size > 0) {
+    const { data: memberships, error: membershipsError } = await supabase
+      .from('memberships')
+      .select(`
+        user_id,
+        org_id,
+        organizations!inner(
+          id,
+          name,
+          logo_url
+        )
+      `)
+      .in('user_id', Array.from(userIds));
+    
+    if (!membershipsError && memberships) {
+      memberships.forEach(membership => {
+        const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
+        if (org) {
+          userOrgMap[membership.user_id] = {
+            orgId: org.id,
+            orgName: org.name,
+            orgLogo: org.logo_url || undefined
+          };
+        }
+      });
+    }
+  }
+  
+  const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] : null;
+  const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] : null;
+  
+  return {
+    id: request.id,
+    connectionId: connectionId,
+    title: request.title,
+    description: request.description || '',
+    status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled',
+    type: request.type,
+    submittedBy: {
+      id: request.created_by_user_id,
+      name: submittedByProfile 
+        ? `${submittedByProfile.first_name || ''} ${submittedByProfile.last_name || ''}`.trim() || 'Unknown User'
+        : 'Unknown User',
+      email: submittedByProfile?.email || '',
+      avatarUrl: submittedByProfile?.avatar_url || undefined,
+      jobTitle: submittedByProfile?.job_title || undefined,
+      orgId: userOrgMap[request.created_by_user_id]?.orgId || '',
+      orgName: userOrgMap[request.created_by_user_id]?.orgName || '',
+      orgLogo: userOrgMap[request.created_by_user_id]?.orgLogo
+    },
+    assignee: request.assignee_user_id && assigneeProfile ? {
+      id: request.assignee_user_id,
+      name: `${assigneeProfile.first_name || ''} ${assigneeProfile.last_name || ''}`.trim() || 'Unknown User',
+      email: assigneeProfile.email,
+      avatarUrl: assigneeProfile.avatar_url || undefined
+    } : null,
+    client: {
+      id: clientOrg?.id || connection.client_id,
+      name: clientOrg?.name || 'Unknown Client',
+      logoUrl: clientOrg?.logo_url
+    },
+    createdAt: request.created_at ? (() => {
+      const date = new Date(request.created_at);
+      const day = date.getDate();
+      const month = date.toLocaleDateString('en-US', { month: 'short' });
+      const year = date.getFullYear();
+      return `${day} ${month} ${year}`;
+    })() : '',
+    createdByOrgId: request.created_by_org_id
+  };
 });

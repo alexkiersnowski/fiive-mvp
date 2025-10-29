@@ -8,6 +8,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
 import { RequestBadge } from '@/components/ui/request-badge'
@@ -15,7 +16,7 @@ import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateRequestAssignee, updateRequestStatus } from './actions'
+import { updateRequestAssignee, updateRequestStatus, deleteRequest } from './actions'
 import type { Request } from '../server'
 
 interface RequestsTableProps {
@@ -719,6 +720,21 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       toast.error('Failed to copy link')
     })
   }
+  
+  const handleDeleteRequest = async (requestId: string) => {
+    // Optimistically remove request from table
+    setOptimisticRequests(prev => prev.filter(r => r.id !== requestId))
+    
+    try {
+      await deleteRequest(requestId)
+      toast.success('Request deleted')
+    } catch (error) {
+      console.error('Error deleting request:', error)
+      toast.error('Failed to delete request')
+      // Revert optimistic update on error
+      setOptimisticRequests(requests)
+    }
+  }
 
   return (
     <div className="w-full min-w-0">
@@ -977,7 +993,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                           <>
                             <div className="border-t border-[var(--color-neutral-6)] my-1" />
                             <DropdownMenuItem 
-                              onClick={() => setOpenActionsDropdown(null)}
+                              onClick={() => {
+                                handleDeleteRequest(request.id)
+                                setOpenActionsDropdown(null)
+                              }}
                               style={{ color: 'var(--color-red-11)' }}
                             >
                               <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
