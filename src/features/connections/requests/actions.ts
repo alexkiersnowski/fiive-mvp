@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 
+const isDev = () => process.env.NODE_ENV !== 'production';
+
 /**
  * Create a new request
  */
@@ -20,15 +22,17 @@ export async function createRequest(
     throw new Error('User not authenticated');
   }
   
-  console.log('createRequest called with:', { 
-    connectionId, 
-    title, 
-    description, 
-    type, 
-    assigneeUserId,
-    createdByUserId: context.user.id,
-    createdByOrgId: context.organization.id
-  });
+  if (isDev()) {
+    console.log('createRequest called with:', { 
+      connectionId, 
+      title, 
+      description, 
+      type, 
+      assigneeUserId,
+      createdByUserId: context.user.id,
+      createdByOrgId: context.organization.id
+    });
+  }
   
   const { data, error } = await supabase
     .from('requests')
@@ -46,11 +50,15 @@ export async function createRequest(
     .single();
   
   if (error) {
-    console.error('Error creating request:', error);
+    if (isDev()) {
+      console.error('Error creating request:', error);
+    }
     throw new Error(`Failed to create request: ${error.message}`);
   }
   
-  console.log('Request created successfully:', data);
+  if (isDev()) {
+    console.log('Request created successfully:', data);
+  }
   return data;
 }
 
@@ -60,7 +68,9 @@ export async function createRequest(
 export async function updateRequestAssignee(requestId: string, assigneeUserId: string | null) {
   const supabase = await createClient();
   
-  console.log('updateRequestAssignee called with:', { requestId, assigneeUserId });
+  if (isDev()) {
+    console.log('updateRequestAssignee called with:', { requestId, assigneeUserId });
+  }
   
   const { data, error } = await supabase
     .from('requests')
@@ -73,11 +83,15 @@ export async function updateRequestAssignee(requestId: string, assigneeUserId: s
     .single();
   
   if (error) {
-    console.error('Error updating request assignee:', error);
+    if (isDev()) {
+      console.error('Error updating request assignee:', error);
+    }
     throw new Error(`Failed to update assignee: ${error.message}`);
   }
   
-  console.log('Request assignee updated successfully:', data);
+  if (isDev()) {
+    console.log('Request assignee updated successfully:', data);
+  }
   return data;
 }
 
@@ -90,7 +104,9 @@ export async function updateRequestStatus(
 ) {
   const supabase = await createClient();
   
-  console.log('updateRequestStatus called with:', { requestId, status });
+  if (isDev()) {
+    console.log('updateRequestStatus called with:', { requestId, status });
+  }
   
   const { data, error } = await supabase
     .from('requests')
@@ -103,11 +119,15 @@ export async function updateRequestStatus(
     .single();
   
   if (error) {
-    console.error('Error updating request status:', error);
+    if (isDev()) {
+      console.error('Error updating request status:', error);
+    }
     throw new Error(`Failed to update status: ${error.message}`);
   }
   
-  console.log('Request status updated successfully:', data);
+  if (isDev()) {
+    console.log('Request status updated successfully:', data);
+  }
   return data;
 }
 
@@ -117,7 +137,9 @@ export async function updateRequestStatus(
 export async function updateRequestTitle(requestId: string, title: string) {
   const supabase = await createClient();
   
-  console.log('updateRequestTitle called with:', { requestId, title });
+  if (isDev()) {
+    console.log('updateRequestTitle called with:', { requestId, title });
+  }
   
   const { data, error } = await supabase
     .from('requests')
@@ -130,11 +152,15 @@ export async function updateRequestTitle(requestId: string, title: string) {
     .single();
   
   if (error) {
-    console.error('Error updating request title:', error);
+    if (isDev()) {
+      console.error('Error updating request title:', error);
+    }
     throw new Error(`Failed to update title: ${error.message}`);
   }
   
-  console.log('Request title updated successfully:', data);
+  if (isDev()) {
+    console.log('Request title updated successfully:', data);
+  }
   return data;
 }
 
@@ -144,7 +170,9 @@ export async function updateRequestTitle(requestId: string, title: string) {
 export async function updateRequestDescription(requestId: string, description: string) {
   const supabase = await createClient();
   
-  console.log('updateRequestDescription called with:', { requestId, description });
+  if (isDev()) {
+    console.log('updateRequestDescription called with:', { requestId, description });
+  }
   
   const { data, error } = await supabase
     .from('requests')
@@ -157,21 +185,28 @@ export async function updateRequestDescription(requestId: string, description: s
     .single();
   
   if (error) {
-    console.error('Error updating request description:', error);
+    if (isDev()) {
+      console.error('Error updating request description:', error);
+    }
     throw new Error(`Failed to update description: ${error.message}`);
   }
   
-  console.log('Request description updated successfully:', data);
+  if (isDev()) {
+    console.log('Request description updated successfully:', data);
+  }
   return data;
 }
 
 /**
  * Fetch requests for a connection (server action for client components)
  */
-export async function fetchRequestsForConnection(connectionId: string) {
+export async function fetchRequestsForConnection(
+  connectionId: string,
+  options?: { limit?: number; offset?: number }
+) {
   // Import the server function dynamically to avoid circular dependencies
   const { getRequestsForConnection } = await import('../server')
-  return await getRequestsForConnection(connectionId)
+  return await getRequestsForConnection(connectionId, options)
 }
 
 /**
@@ -185,12 +220,14 @@ export async function deleteRequest(requestId: string) {
     throw new Error('User not authenticated');
   }
   
-  console.log('deleteRequest called with:', { 
-    requestId, 
-    deletedByUserId: context.user.id,
-    currentOrgId: context.organization.id,
-    userEmail: context.user.email
-  });
+  if (isDev()) {
+    console.log('deleteRequest called with:', { 
+      requestId, 
+      deletedByUserId: context.user.id,
+      currentOrgId: context.organization.id,
+      userEmail: context.user.email
+    });
+  }
   
   // First, fetch the request to see who created it
   const { data: existingRequest, error: fetchError } = await supabase
@@ -200,14 +237,18 @@ export async function deleteRequest(requestId: string) {
     .single();
   
   if (fetchError) {
-    console.error('Error fetching request before delete:', fetchError);
+    if (isDev()) {
+      console.error('Error fetching request before delete:', fetchError);
+    }
     throw new Error(`Failed to fetch request: ${fetchError.message}`);
   }
   
-  console.log('Existing request:', existingRequest);
-  console.log('Attempting to delete request created by org:', existingRequest?.created_by_org_id);
-  console.log('Current user org:', context.organization.id);
-  console.log('Match?', existingRequest?.created_by_org_id === context.organization.id);
+  if (isDev()) {
+    console.log('Existing request:', existingRequest);
+    console.log('Attempting to delete request created by org:', existingRequest?.created_by_org_id);
+    console.log('Current user org:', context.organization.id);
+    console.log('Match?', existingRequest?.created_by_org_id === context.organization.id);
+  }
   
   const { data, error } = await supabase
     .from('requests')
@@ -220,10 +261,14 @@ export async function deleteRequest(requestId: string) {
     .single();
   
   if (error) {
-    console.error('Error deleting request:', error);
+    if (isDev()) {
+      console.error('Error deleting request:', error);
+    }
     throw new Error(`Failed to delete request: ${error.message}`);
   }
   
-  console.log('Request deleted successfully:', data);
+  if (isDev()) {
+    console.log('Request deleted successfully:', data);
+  }
   return data;
 }

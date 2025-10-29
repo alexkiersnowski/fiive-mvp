@@ -360,65 +360,98 @@ export interface Request {
   createdByOrgId: string
 }
 
-export const getRequestsForConnection = cache(async (
-  connectionId: string
-): Promise<Request[]> => {
+// Cache connection info separately to avoid duplicate fetches
+const getConnectionInfo = cache(async (connectionId: string) => {
   const supabase = await createClient();
-  
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('getRequestsForConnection called with:', { connectionId });
-  }
-  
-  // Fetch the connection to get client_id
   const { data: connection, error: connectionError } = await supabase
     .from('connections')
-    .select('client_id')
+    .select('client_id, agency_id')
     .eq('id', connectionId)
     .single();
   
   if (connectionError || !connection) {
-    if (process.env.NODE_ENV !== 'production') {
+    return { connection: null, error: connectionError };
+  }
+  
+  return { connection, error: null };
+});
+
+export const getRequestsForConnection = cache(async (
+  connectionId: string,
+  options?: { limit?: number; offset?: number }
+): Promise<Request[]> => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  const startTime = isDev ? performance.now() : 0;
+  const { limit = 50, offset = 0 } = options || {};
+  const supabase = await createClient();
+  
+  // Fetch the connection info (cached, shared with getAgencyMembersForConnection)
+  const { connection, error: connectionError } = await getConnectionInfo(connectionId);
+  
+  if (connectionError) {
+    if (isDev) {
       console.error('Error fetching connection:', connectionError);
     }
+    // Return empty array - connection error means we can't proceed
+    // Client will handle showing appropriate error if needed
     return [];
   }
   
-  // Fetch client organization details
-  const { data: clientOrg, error: clientOrgError } = await supabase
+  if (!connection) {
+    // Connection not found - return empty array (no results)
+    return [];
+  }
+  
+  // Fetch client organization details (can run in parallel with requests query)
+  const clientOrgPromise = supabase
     .from('organizations')
     .select('id, name, logo_url')
     .eq('id', connection.client_id)
     .single();
   
-  if (clientOrgError) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('Error fetching client organization:', clientOrgError);
-    }
-  }
+  // Fetch requests and client org in parallel (they don't depend on each other)
+  const requestsStartTime = isDev ? performance.now() : 0;
+  const [requestsResult, clientOrgResult] = await Promise.all([
+    supabase
+      .from('requests')
+      .select(`
+        id,
+        title,
+        description,
+        status,
+        type,
+        created_by_user_id,
+        assignee_user_id,
+        created_at,
+        created_by_org_id
+      `)
+      .eq('connection_id', connectionId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1),
+    clientOrgPromise
+  ]);
   
-  // Fetch requests for this connection
-  const { data: requests, error } = await supabase
-    .from('requests')
-    .select(`
-      id,
-      title,
-      description,
-      status,
-      type,
-      created_by_user_id,
-      assignee_user_id,
-      created_at,
-      created_by_org_id
-    `)
-    .eq('connection_id', connectionId)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
+  const requestsTime = isDev ? performance.now() - requestsStartTime : 0;
+  const { data: requests, error } = requestsResult;
+  const { data: clientOrg, error: clientOrgError } = clientOrgResult;
   
   if (error) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (isDev) {
       console.error('Error fetching requests:', error);
     }
+    // Query error - return empty array (client will handle)
     return [];
+  }
+  
+  // If requests is null/undefined, treat as no results (empty query result)
+  if (!requests) {
+    return [];
+  }
+  
+  if (clientOrgError && isDev) {
+    console.error('Error fetching client organization:', clientOrgError);
+    // Non-critical - we can continue with connection.client_id as fallback
   }
   
   // Fetch all unique user IDs for submitted by and assignees
@@ -428,42 +461,46 @@ export const getRequestsForConnection = cache(async (
     if (request.assignee_user_id) userIds.add(request.assignee_user_id);
   });
   
-  // Fetch all user profiles in one query
+  // Fetch user profiles and memberships in parallel (they don't depend on each other)
   let profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
-  
+  let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  let parallelTime = 0;
   if (userIds.size > 0) {
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('id, first_name, last_name, email, avatar_url, job_title')
-      .in('id', Array.from(userIds));
+    const userIdArray = Array.from(userIds);
     
-    if (!profilesError && profiles) {
-      profilesMap = profiles.reduce((acc, profile) => {
+    // Run both queries in parallel
+    const parallelStartTime = isDev ? performance.now() : 0;
+    const [profilesResult, membershipsResult] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email, avatar_url, job_title')
+        .in('id', userIdArray),
+      supabase
+        .from('memberships')
+        .select(`
+          user_id,
+          org_id,
+          organizations!inner(
+            id,
+            name,
+            logo_url
+          )
+        `)
+        .in('user_id', userIdArray)
+    ]);
+    parallelTime = isDev ? performance.now() - parallelStartTime : 0;
+    
+    // Process profiles
+    if (!profilesResult.error && profilesResult.data) {
+      profilesMap = profilesResult.data.reduce((acc, profile) => {
         acc[profile.id] = profile;
         return acc;
       }, {} as typeof profilesMap);
     }
-  }
-  
-  // Fetch organization IDs for each user from memberships
-  let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
-  
-  if (userIds.size > 0) {
-    const { data: memberships, error: membershipsError } = await supabase
-      .from('memberships')
-      .select(`
-        user_id,
-        org_id,
-        organizations!inner(
-          id,
-          name,
-          logo_url
-        )
-      `)
-      .in('user_id', Array.from(userIds));
     
-    if (!membershipsError && memberships) {
-      memberships.forEach(membership => {
+    // Process memberships
+    if (!membershipsResult.error && membershipsResult.data) {
+      membershipsResult.data.forEach(membership => {
         const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
         if (org) {
           userOrgMap[membership.user_id] = {
@@ -522,6 +559,11 @@ export const getRequestsForConnection = cache(async (
     };
   }) || [];
   
+  if (isDev) {
+    const totalTime = performance.now() - startTime;
+    console.log(`[Performance] getRequestsForConnection: ${totalTime.toFixed(2)}ms (requests: ${requestsTime.toFixed(2)}ms, parallel: ${parallelTime.toFixed(2)}ms)`);
+  }
+  
   return formattedRequests;
 });
 
@@ -535,21 +577,14 @@ export const getAgencyMembersForConnection = cache(async (
   avatarUrl?: string
   jobTitle?: string
 }>> => {
+  const isDev = process.env.NODE_ENV !== 'production';
   const supabase = await createClient();
   
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('getAgencyMembersForConnection called with:', { connectionId });
-  }
-  
-  // Get the connection to find the agency_id
-  const { data: connection, error: connectionError } = await supabase
-    .from('connections')
-    .select('agency_id')
-    .eq('id', connectionId)
-    .single();
+  // Use cached connection info (shared with getRequestsForConnection)
+  const { connection, error: connectionError } = await getConnectionInfo(connectionId);
   
   if (connectionError || !connection) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (isDev) {
       console.error('Error fetching connection for agency members:', connectionError);
     }
     return [];

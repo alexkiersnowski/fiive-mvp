@@ -35,9 +35,11 @@ interface RequestsTableProps {
   }>
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
   currentOrgId: string
+  onLoadMore?: () => void
+  sentinelRef?: React.RefObject<HTMLDivElement | null>
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, sentinelRef }: RequestsTableProps) {
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -591,7 +593,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
         router.refresh() // Refresh to get updated data from server
       } catch (error) {
-        console.error('Failed to update assignee:', error)
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to update assignee:', error)
+        }
         toast.error('Failed to update assignee')
         // Revert optimistic update on error
         setOptimisticRequests(requests)
@@ -626,7 +630,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       toast.success('Assignee removed')
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
-      console.error('Failed to clear assignee:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to clear assignee:', error)
+      }
       toast.error('Failed to clear assignee')
       // Revert optimistic update on error
       setOptimisticRequests(requests)
@@ -644,7 +650,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   const handleStatusChange = async (requestId: string, newStatus: string) => {
     const validStatuses = ['new', 'in_review', 'accepted', 'canceled'] as const
     if (!validStatuses.includes(newStatus as any)) {
-      console.error('Invalid status:', newStatus)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Invalid status:', newStatus)
+      }
       return
     }
     
@@ -675,7 +683,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       toast.success(`Status updated to ${statusLabels[typedStatus]}`)
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
-      console.error('Failed to update status:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to update status:', error)
+      }
       toast.error('Failed to update status')
       // Revert optimistic update on error
       setOptimisticRequests(requests)
@@ -729,7 +739,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       await deleteRequest(requestId)
       toast.success('Request deleted')
     } catch (error) {
-      console.error('Error deleting request:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error deleting request:', error)
+      }
       toast.error('Failed to delete request')
       // Revert optimistic update on error
       setOptimisticRequests(requests)
@@ -759,8 +771,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     size="custom"
                     customSize={{ button: 'h-6 w-6', avatar: 'h-[26px] w-[26px]' }}
                     onClick={() => {
-                      // TODO: Handle avatar click action
-                      console.log('Avatar clicked');
+                      // Avatar click handled by ListRow component
                     }}
                   />
                 </div>
@@ -918,7 +929,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     variant="stacked"
                     className="min-w-0 min-h-[32px]"
                     onClick={() => {
-                      console.log('Assignee clicked')
+                      // Assignee click handled by combobox
                     }}
                     comboboxOptions={comboboxOptions}
                     onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
@@ -1013,6 +1024,19 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             </TableBody>
           </Table>
         </div>
+        {/* Sentinel for infinite scroll - invisible but required for IntersectionObserver */}
+        {onLoadMore && sentinelRef && (
+          <div 
+            ref={sentinelRef} 
+            style={{ 
+              height: '1px',
+              width: '100%',
+              visibility: 'hidden',
+              pointerEvents: 'none'
+            }} 
+            aria-hidden="true"
+          />
+        )}
       </div>
 
       {/* Profile Card Dialog */}
