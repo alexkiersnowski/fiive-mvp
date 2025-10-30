@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useRouter, useParams, usePathname, useSearchParams } from 'next/navigation'
 import { useConnection } from '../ConnectionContext';
 import RequestsTable from '../requests/RequestsTable';
 import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
 import type { Request } from '../server';
-import { fetchRequestsForConnection } from '../requests/actions';
+import { fetchRequestsForConnection, fetchRequestById } from '../requests/actions';
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../requests/constants';
 
 interface RequestsPageClientProps {
@@ -39,6 +40,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
 
   // Local state for requests (for optimistic updates)
   const [requests, setRequests] = useState<Request[]>(initialRequests)
+  // Optimistic new requests disabled (relying on real-time updates)
   
   // Total count state
   const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
@@ -68,7 +70,48 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true)
+  // no optimistic reconcile attempts (disabled)
   
+  // DRY: refresh first page (used by realtime fallback and deletes under search)
+  const refreshFirstPage = useCallback(async () => {
+    try {
+      const result = await fetchRequestsForConnection(connectionId, {
+        limit: PAGE_SIZE,
+        offset: 0,
+        searchQuery: debouncedSearchQuery || undefined
+      })
+      if (!isMountedRef.current) return
+      setRequests(result.requests)
+      setTotalCount(result.totalCount)
+      setHasMore(result.requests.length === PAGE_SIZE)
+      setCurrentOffset(PAGE_SIZE)
+      setPrefetchedRequests([])
+      setPrefetchedOffset(null)
+    } catch (_) {
+      // ignore
+    }
+  }, [connectionId, debouncedSearchQuery])
+
+  // DRY: prepend unique request by id
+  const prependUnique = useCallback((request: Request) => {
+    setRequests(prev => {
+      if (prev.some(r => r.id === request.id)) return prev
+      return [request, ...prev]
+    })
+  }, [])
+
+  // DRY: remove by id, return whether something was removed
+  const removeById = useCallback((id: string) => {
+    let removed = false
+    setRequests(prev => {
+      const exists = prev.some(r => r.id === id)
+      if (!exists) return prev
+      removed = true
+      return prev.filter(r => r.id !== id)
+    })
+    return removed
+  }, [])
+
   // Cleanup on unmount - cancel in-flight requests and timeouts
   useEffect(() => {
     isMountedRef.current = true
@@ -81,6 +124,19 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       prefetchTimeouts.current.clear()
     }
   }, [])
+
+  // Helper to merge arrays by id while preserving order and uniqueness
+  function mergeUniqueById<T extends { id: string }>(base: T[], incoming: T[]): T[] {
+    const seen = new Set(base.map(i => i.id))
+    const merged = [...base]
+    for (const item of incoming) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id)
+        merged.push(item)
+      }
+    }
+    return merged
+  }
 
   // Debounce search query (150ms delay for faster responsiveness)
   useEffect(() => {
@@ -242,6 +298,68 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
   }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery])
 
+  // Real-time: listen for inserts and updates (including soft-deletes)
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient()
+    const channel = supabase
+      .channel(`requests-insert-${connectionId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'requests', filter: `connection_id=eq.${connectionId}` },
+        async (payload: any) => {
+          // If a search is active, simplest is to refetch first page for correctness
+          if (debouncedSearchQuery) {
+            await refreshFirstPage()
+            return
+          }
+          // Otherwise, fetch just the inserted row and prepend if unique
+          const newId = payload?.new?.id
+          if (!newId) return
+          try {
+            const req = await fetchRequestById(connectionId, newId)
+            if (!req) return
+            prependUnique(req)
+            setTotalCount(c => c + 1)
+          } catch (_) {
+            // fallback to full refresh if single-row fetch fails
+            await refreshFirstPage()
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'requests', filter: `connection_id=eq.${connectionId}` },
+        async (payload: any) => {
+          // If a search is active, refetch first page for correctness
+          if (debouncedSearchQuery) {
+            await refreshFirstPage()
+            return
+          }
+          const updated = payload?.new
+          if (!updated) return
+          // Handle soft delete locally
+          if (updated.deleted_at) {
+            const wasRemoved = removeById(updated.id)
+            if (wasRemoved) setTotalCount(c => Math.max(0, c - 1))
+            return
+          }
+          // For non-delete updates, we can refresh or fetch single row; keep it simple: fetch single row and merge
+          try {
+            const req = await fetchRequestById(connectionId, updated.id)
+            if (!req) return
+            setRequests(prev => prev.map(r => (r.id === req.id ? req : r)))
+          } catch (_) {
+            await refreshFirstPage()
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById])
+
   // Load more requests function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
     // Prevent concurrent calls
@@ -273,7 +391,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       const nextOffset = prefetchedOffset + PAGE_SIZE
       
       if (isMountedRef.current) {
-        setRequests(prev => [...prev, ...prefetchedRequests])
+        setRequests(prev => mergeUniqueById(prev, prefetchedRequests))
         setCurrentOffset(nextOffset)
       }
       
@@ -334,7 +452,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         }
       } else {
         if (isMountedRef.current) {
-          setRequests(prev => [...prev, ...result.requests])
+          setRequests(prev => mergeUniqueById(prev, result.requests))
           setTotalCount(result.totalCount)
           const nextOffset = currentOffset + PAGE_SIZE
           setCurrentOffset(nextOffset)
@@ -491,91 +609,83 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
   }
 
-  async function handleRequestCreated(optimisticRequest: {
+  // Optimistic add: show a temporary row immediately
+  const handleRequestOptimistic = useCallback((payload: {
+    tempId: string
     title: string
     description: string
     type: string | null
     assigneeUserId: string | null
-  }) {
-    // Optimistically add the new request to the table immediately
-    const optimisticRequestData: Request = {
-      id: `temp-${Date.now()}`, // Temporary ID until we get the real one
-      connectionId: connectionId,
-      title: optimisticRequest.title,
-      description: optimisticRequest.description,
-      type: optimisticRequest.type || 'general',
+  }) => {
+    const today = (() => {
+      const d = new Date()
+      const day = d.getDate()
+      const month = d.toLocaleDateString('en-US', { month: 'short' })
+      const year = d.getFullYear()
+      return `${day} ${month} ${year}`
+    })()
+
+    const optimisticRow: Request = {
+      id: payload.tempId,
+      connectionId,
+      title: payload.title,
+      description: payload.description || '',
       status: 'new',
-      assignee: optimisticRequest.assigneeUserId 
-        ? agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId) 
-          ? {
-              id: agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.id,
-              name: `${agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.firstName} ${agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.lastName}`,
-              email: agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.email,
-              avatarUrl: agencyMembers.find(m => m.id === optimisticRequest.assigneeUserId)!.avatarUrl
-            }
-          : null
-        : null,
+      type: payload.type,
+      submittedBy: {
+        id: context.user?.id || '',
+        name: `${context.user?.firstName || ''} ${context.user?.lastName || ''}`.trim() || 'You',
+        email: context.user?.email || '',
+        avatarUrl: context.user?.avatarUrl || undefined,
+        jobTitle: context.user?.jobTitle || undefined,
+        orgId: context.organization.id,
+        orgName: context.organization.name || '',
+        orgLogo: undefined,
+      },
+      assignee: null,
       client: {
         id: snapshot.partner.id,
         name: snapshot.partner.name,
-        logoUrl: snapshot.partner.logo
+        logoUrl: snapshot.partner.logo,
       },
-      submittedBy: {
-        id: context.user?.id || '',
-        name: `${context.user?.firstName || ''} ${context.user?.lastName || ''}`,
-        email: context.user?.email || '',
-        avatarUrl: context.user?.avatarUrl,
-        jobTitle: context.user?.jobTitle,
-        orgId: context.organization.id,
-        orgName: context.organization.name,
-        orgLogo: context.organization.logoUrl
-      },
-      createdAt: (() => {
-        const date = new Date();
-        const day = date.getDate();
-        const month = date.toLocaleDateString('en-US', { month: 'short' });
-        const year = date.getFullYear();
-        return `${day} ${month} ${year}`;
-      })(),
-      createdByOrgId: currentOrgId
+      createdAt: today,
+      createdByOrgId: context.organization.id,
     }
 
-    // Add optimistic request to the top of the list
-    setRequests(prevRequests => [optimisticRequestData, ...prevRequests])
+    setRequests(prev => [optimisticRow, ...prev])
+    setTotalCount(c => c + 1)
+  }, [connectionId, context.user, context.organization, snapshot.partner])
 
-    // Fetch real data from server in the background (only first page, reset pagination)
+  async function handleRequestCreated({ requestId, tempId }: { requestId: string; tempId?: string }) {
     try {
-      // Cancel any in-flight requests
-      inFlightRequests.current.clear()
-      isLoadingMore.current = false
-      
-      const result = await fetchRequestsForConnection(connectionId, { 
-        limit: PAGE_SIZE, 
-        offset: 0,
-        searchQuery: debouncedSearchQuery || undefined
+      const req = await fetchRequestById(connectionId, requestId)
+      if (!req) return
+      // Replace temp row if present; otherwise prepend and increment count
+      setRequests(prev => {
+        const hadTemp = tempId ? prev.some(r => r.id === tempId) : false
+        const without = prev.filter(r => r.id !== tempId && r.id !== req.id)
+        const next = [req, ...without]
+        if (hadTemp) {
+          // keep count the same
+          return next
+        }
+        // If no temp, we will increment count below
+        return next
       })
-      
-      // Only update state if component is still mounted
-      if (isMountedRef.current) {
-        setRequests(result.requests)
-        setTotalCount(result.totalCount)
-        // Reset pagination state
-        const newHasMore = result.requests.length === PAGE_SIZE
-        setHasMore(newHasMore)
-        setCurrentOffset(PAGE_SIZE)
-        // Clear any prefetched data
-        setPrefetchedRequests([])
-        setPrefetchedOffset(null)
+      // If no temp was present, bump the count; if temp existed, count already included
+      if (tempId) {
+        // no-op for count
+      } else {
+        setTotalCount(c => c + 1)
       }
-      // Prefetch will be triggered automatically by the useEffect when state updates
     } catch (error) {
       if (isDev()) {
-        console.error('Failed to refresh requests:', error)
+        console.error('Failed to insert newly created request into table:', error)
       }
-      // Fallback to router.refresh if fetch fails
-      router.refresh()
     }
   }
+
+  // No optimistic display merge; show server-backed list only
 
   return (
     <>
@@ -608,6 +718,23 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         onRequestDeleted={(requestId) => {
           // Optimistically remove request from table
           setRequests(prev => prev.filter(r => r.id !== requestId))
+          // Safety: reconcile with DB shortly after in case delete fails or is delayed
+          setTimeout(async () => {
+            try {
+              const result = await fetchRequestsForConnection(connectionId, {
+                limit: PAGE_SIZE,
+                offset: 0,
+                searchQuery: debouncedSearchQuery || undefined
+              })
+              if (!isMountedRef.current) return
+              setRequests(result.requests)
+              setTotalCount(result.totalCount)
+              setHasMore(result.requests.length === PAGE_SIZE)
+              setCurrentOffset(PAGE_SIZE)
+            } catch (_) {
+              // ignore
+            }
+          }, 800)
         }}
         connectionId={connectionId}
         currentOrgId={currentOrgId}
@@ -623,6 +750,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         agencyMembers={agencyMembers}
         isOpen={isNewModalOpen}
         onClose={handleNewModalClose}
+        onRequestOptimistic={handleRequestOptimistic}
         onRequestCreated={handleRequestCreated}
         connectionId={connectionId}
         currentOrgId={currentOrgId}

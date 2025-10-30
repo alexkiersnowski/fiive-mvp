@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
+import { escapeForILike } from '@/lib/utils';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 
@@ -420,12 +421,34 @@ export const getRequestsForConnection = cache(async (
   // Normalize search query for status matching
   const normalizeStatusQuery = (query: string): string | null => {
     const normalized = query.toLowerCase().trim();
-    // Map display names and variations to database values
-    if (normalized === 'new') return 'new';
-    if (normalized === 'in review' || normalized === 'in_review' || normalized === 'review') return 'in_review';
-    if (normalized === 'accepted') return 'accepted';
-    if (normalized === 'canceled' || normalized === 'cancelled') return 'canceled';
-    return null;
+    const STATUS_KEYWORDS: Record<string, 'new' | 'in_review' | 'accepted' | 'canceled'> = {
+      open: 'new',
+      new: 'new',
+      'in review': 'in_review',
+      in_review: 'in_review',
+      review: 'in_review',
+      reviewing: 'in_review',
+      accepted: 'accepted',
+      approve: 'accepted',
+      approved: 'accepted',
+      accept: 'accepted',
+      canceled: 'canceled',
+      cancelled: 'canceled',
+      cancel: 'canceled'
+    };
+    return STATUS_KEYWORDS[normalized] ?? null;
+  };
+
+  // Normalize search query for request type (enum) matching
+  // Only match when the token exactly maps to a known type to avoid enum ilike
+  const normalizeTypeQuery = (query: string): string | null => {
+    const normalized = query.toLowerCase().trim();
+    // Known request types (extend as needed when adding more types)
+    const TYPE_KEYWORDS: Record<string, string> = {
+      general: 'general',
+      'general request': 'general'
+    };
+    return TYPE_KEYWORDS[normalized] ?? null;
   };
 
   // Build the base query for filtering (used for both count and data)
@@ -438,17 +461,17 @@ export const getRequestsForConnection = cache(async (
   // Apply search filter if searchQuery is provided
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
+    const escaped = escapeForILike(trimmedQuery);
     const matchedStatus = normalizeStatusQuery(trimmedQuery);
+    const matchedType = normalizeTypeQuery(trimmedQuery);
     
-    // Search both title and status using OR condition
-    if (matchedStatus) {
-      // If query matches a status, search title OR filter by status
-      // Supabase OR format: 'column1.operator.value1,column2.operator.value2'
-      baseQuery = baseQuery.or(`title.ilike.%${trimmedQuery}%,status.eq.${matchedStatus}`);
-    } else {
-      // Just search title if it doesn't match a status
-      baseQuery = baseQuery.ilike('title', `%${trimmedQuery}%`);
-    }
+    // Build OR list (avoid ilike on enum type). Include project_id text search.
+    const orParts: string[] = [];
+    orParts.push(`title.ilike.%${escaped}%`);
+    orParts.push(`project_id.ilike.%${escaped}%`);
+    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
+    if (matchedType) orParts.push(`type.eq.${matchedType}`);
+    baseQuery = baseQuery.or(orParts.join(','));
   }
   
   // Build the requests query for fetching data
@@ -471,17 +494,16 @@ export const getRequestsForConnection = cache(async (
   // Apply search filter if searchQuery is provided
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
+    const escaped = escapeForILike(trimmedQuery);
     const matchedStatus = normalizeStatusQuery(trimmedQuery);
+    const matchedType = normalizeTypeQuery(trimmedQuery);
     
-    // Search both title and status using OR condition
-    if (matchedStatus) {
-      // If query matches a status, search title OR filter by status
-      // Supabase OR format: 'column1.operator.value1,column2.operator.value2'
-      requestsQuery = requestsQuery.or(`title.ilike.%${trimmedQuery}%,status.eq.${matchedStatus}`);
-    } else {
-      // Just search title if it doesn't match a status
-      requestsQuery = requestsQuery.ilike('title', `%${trimmedQuery}%`);
-    }
+    const orParts: string[] = [];
+    orParts.push(`title.ilike.%${escaped}%`);
+    orParts.push(`project_id.ilike.%${escaped}%`);
+    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
+    if (matchedType) orParts.push(`type.eq.${matchedType}`);
+    requestsQuery = requestsQuery.or(orParts.join(','));
   }
   
   const [countResult, requestsResult, clientOrgResult] = await Promise.all([

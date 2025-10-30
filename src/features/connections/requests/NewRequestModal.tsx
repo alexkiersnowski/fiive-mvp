@@ -25,17 +25,19 @@ interface NewRequestModalProps {
   }>
   isOpen: boolean
   onClose: () => void
-  onRequestCreated?: (optimisticRequest: {
+  onRequestOptimistic?: (payload: {
+    tempId: string
     title: string
     description: string
     type: string | null
     assigneeUserId: string | null
   }) => void
+  onRequestCreated?: (payload: { requestId: string; tempId?: string }) => void
   connectionId: string
   currentOrgId: string
 }
 
-export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, onRequestCreated, connectionId, currentOrgId }: NewRequestModalProps) {
+export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, onRequestOptimistic, onRequestCreated, connectionId, currentOrgId }: NewRequestModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
@@ -68,35 +70,41 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
   const canCreate = title.trim().length > 0
   
   // Handle create request
-  const handleCreateRequest = useCallback(() => {
+  const handleCreateRequest = useCallback(async () => {
     if (!canCreate) return
     
-    // Close modal immediately
+    // Close modal and show toast immediately for snappy UX
     onClose()
-    
-    // Show success toast immediately
     toast.success('Request created successfully')
     
-    // Call optimistic update immediately with form data
-    onRequestCreated?.({
-      title,
-      description,
-      type,
-      assigneeUserId
-    })
-    
-    // Create request in background
-    createRequest(
-      connectionId,
-      title,
-      description,
-      type,
-      assigneeUserId
-    ).catch((error) => {
+    try {
+      // Emit optimistic row with temp id immediately
+      const tempId = `temp-${Date.now()}`
+      onRequestOptimistic?.({
+        tempId,
+        title,
+        description,
+        type,
+        assigneeUserId
+      })
+
+      // Await the server insert to obtain the new request id
+      const created = await createRequest(
+        connectionId,
+        title,
+        description,
+        type,
+        assigneeUserId
+      )
+      // Notify parent with the created id so it can fetch and prepend the row
+      if (created?.id) {
+        ;(onRequestCreated as any)?.({ requestId: created.id, tempId })
+      }
+    } catch (error) {
       console.error('Error creating request:', error)
       toast.error('Failed to create request')
-    })
-  }, [canCreate, connectionId, title, description, type, assigneeUserId, onRequestCreated, onClose])
+    }
+  }, [canCreate, connectionId, title, description, type, assigneeUserId, onRequestCreated, onRequestOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {

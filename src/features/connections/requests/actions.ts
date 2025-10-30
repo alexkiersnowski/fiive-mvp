@@ -210,6 +210,17 @@ export async function fetchRequestsForConnection(
 }
 
 /**
+ * Fetch a single request by id (server action wrapper for client components)
+ */
+export async function fetchRequestById(
+  connectionId: string,
+  requestId: string
+) {
+  const { getRequestById } = await import('../server')
+  return await getRequestById(requestId, connectionId)
+}
+
+/**
  * Soft delete a request
  */
 export async function deleteRequest(requestId: string) {
