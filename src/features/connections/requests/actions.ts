@@ -202,7 +202,7 @@ export async function updateRequestDescription(requestId: string, description: s
  */
 export async function fetchRequestsForConnection(
   connectionId: string,
-  options?: { limit?: number; offset?: number }
+  options?: { limit?: number; offset?: number; searchQuery?: string }
 ) {
   // Import the server function dynamically to avoid circular dependencies
   const { getRequestsForConnection } = await import('../server')

@@ -376,13 +376,18 @@ const getConnectionInfo = cache(async (connectionId: string) => {
   return { connection, error: null };
 });
 
+export interface RequestsWithCount {
+  requests: Request[]
+  totalCount: number
+}
+
 export const getRequestsForConnection = cache(async (
   connectionId: string,
-  options?: { limit?: number; offset?: number }
-): Promise<Request[]> => {
+  options?: { limit?: number; offset?: number; searchQuery?: string }
+): Promise<RequestsWithCount> => {
   const isDev = process.env.NODE_ENV !== 'production';
   const startTime = isDev ? performance.now() : 0;
-  const { limit = 50, offset = 0 } = options || {};
+  const { limit = 50, offset = 0, searchQuery } = options || {};
   const supabase = await createClient();
   
   // Fetch the connection info (cached, shared with getAgencyMembersForConnection)
@@ -392,14 +397,14 @@ export const getRequestsForConnection = cache(async (
     if (isDev) {
       console.error('Error fetching connection:', connectionError);
     }
-    // Return empty array - connection error means we can't proceed
+    // Return empty result - connection error means we can't proceed
     // Client will handle showing appropriate error if needed
-    return [];
+    return { requests: [], totalCount: 0 };
   }
   
   if (!connection) {
-    // Connection not found - return empty array (no results)
-    return [];
+    // Connection not found - return empty result (no results)
+    return { requests: [], totalCount: 0 };
   }
   
   // Fetch client organization details (can run in parallel with requests query)
@@ -411,22 +416,77 @@ export const getRequestsForConnection = cache(async (
   
   // Fetch requests and client org in parallel (they don't depend on each other)
   const requestsStartTime = isDev ? performance.now() : 0;
-  const [requestsResult, clientOrgResult] = await Promise.all([
-    supabase
-      .from('requests')
-      .select(`
-        id,
-        title,
-        description,
-        status,
-        type,
-        created_by_user_id,
-        assignee_user_id,
-        created_at,
-        created_by_org_id
-      `)
-      .eq('connection_id', connectionId)
-      .is('deleted_at', null)
+  
+  // Normalize search query for status matching
+  const normalizeStatusQuery = (query: string): string | null => {
+    const normalized = query.toLowerCase().trim();
+    // Map display names and variations to database values
+    if (normalized === 'new') return 'new';
+    if (normalized === 'in review' || normalized === 'in_review' || normalized === 'review') return 'in_review';
+    if (normalized === 'accepted') return 'accepted';
+    if (normalized === 'canceled' || normalized === 'cancelled') return 'canceled';
+    return null;
+  };
+
+  // Build the base query for filtering (used for both count and data)
+  let baseQuery = supabase
+    .from('requests')
+    .select('*', { count: 'exact', head: true })
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null);
+  
+  // Apply search filter if searchQuery is provided
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const trimmedQuery = searchQuery.trim();
+    const matchedStatus = normalizeStatusQuery(trimmedQuery);
+    
+    // Search both title and status using OR condition
+    if (matchedStatus) {
+      // If query matches a status, search title OR filter by status
+      // Supabase OR format: 'column1.operator.value1,column2.operator.value2'
+      baseQuery = baseQuery.or(`title.ilike.%${trimmedQuery}%,status.eq.${matchedStatus}`);
+    } else {
+      // Just search title if it doesn't match a status
+      baseQuery = baseQuery.ilike('title', `%${trimmedQuery}%`);
+    }
+  }
+  
+  // Build the requests query for fetching data
+  let requestsQuery = supabase
+    .from('requests')
+    .select(`
+      id,
+      title,
+      description,
+      status,
+      type,
+      created_by_user_id,
+      assignee_user_id,
+      created_at,
+      created_by_org_id
+    `)
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null);
+  
+  // Apply search filter if searchQuery is provided
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const trimmedQuery = searchQuery.trim();
+    const matchedStatus = normalizeStatusQuery(trimmedQuery);
+    
+    // Search both title and status using OR condition
+    if (matchedStatus) {
+      // If query matches a status, search title OR filter by status
+      // Supabase OR format: 'column1.operator.value1,column2.operator.value2'
+      requestsQuery = requestsQuery.or(`title.ilike.%${trimmedQuery}%,status.eq.${matchedStatus}`);
+    } else {
+      // Just search title if it doesn't match a status
+      requestsQuery = requestsQuery.ilike('title', `%${trimmedQuery}%`);
+    }
+  }
+  
+  const [countResult, requestsResult, clientOrgResult] = await Promise.all([
+    baseQuery,
+    requestsQuery
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1),
     clientOrgPromise
@@ -434,19 +494,27 @@ export const getRequestsForConnection = cache(async (
   
   const requestsTime = isDev ? performance.now() - requestsStartTime : 0;
   const { data: requests, error } = requestsResult;
+  const { count, error: countError } = countResult;
   const { data: clientOrg, error: clientOrgError } = clientOrgResult;
   
   if (error) {
     if (isDev) {
       console.error('Error fetching requests:', error);
     }
-    // Query error - return empty array (client will handle)
-    return [];
+    // Query error - return empty result (client will handle)
+    return { requests: [], totalCount: 0 };
+  }
+  
+  if (countError && isDev) {
+    console.error('Error fetching request count:', countError);
   }
   
   // If requests is null/undefined, treat as no results (empty query result)
-  if (!requests) {
-    return [];
+  const requestsData = requests || [];
+  const totalCount = countError ? 0 : (count ?? 0);
+  
+  if (requestsData.length === 0 && totalCount === 0) {
+    return { requests: [], totalCount: 0 };
   }
   
   if (clientOrgError && isDev) {
@@ -514,7 +582,7 @@ export const getRequestsForConnection = cache(async (
   }
   
   // Map the requests to the UI format
-  const formattedRequests = requests?.map(request => {
+  const formattedRequests = requestsData.map(request => {
     const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] : null;
     const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] : null;
     
@@ -557,14 +625,14 @@ export const getRequestsForConnection = cache(async (
       })() : '',
       createdByOrgId: request.created_by_org_id
     };
-  }) || [];
+  });
   
   if (isDev) {
     const totalTime = performance.now() - startTime;
     console.log(`[Performance] getRequestsForConnection: ${totalTime.toFixed(2)}ms (requests: ${requestsTime.toFixed(2)}ms, parallel: ${parallelTime.toFixed(2)}ms)`);
   }
   
-  return formattedRequests;
+  return { requests: formattedRequests, totalCount };
 });
 
 export const getAgencyMembersForConnection = cache(async (

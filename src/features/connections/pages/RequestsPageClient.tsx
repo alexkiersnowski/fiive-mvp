@@ -8,11 +8,12 @@ import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
 import type { Request } from '../server';
 import { fetchRequestsForConnection } from '../requests/actions';
-import { PAGE_SIZE, INTERSECTION_ROOT_MARGIN, INTERSECTION_THRESHOLD, SENTINEL_SETUP_DELAY_MS, PREFETCH_TIMEOUT_MS, isDev } from '../requests/constants';
+import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../requests/constants';
 
 interface RequestsPageClientProps {
   connectionId: string
   initialRequests: Request[]
+  initialTotalCount: number
   agencyMembers: Array<{
     id: string
     firstName: string
@@ -24,7 +25,7 @@ interface RequestsPageClientProps {
 }
 
 // Client component wrapper that handles all client-side interactivity
-export default function RequestsPageClient({ connectionId, initialRequests, agencyMembers }: RequestsPageClientProps) {
+export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, agencyMembers }: RequestsPageClientProps) {
   const { snapshot, context } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
@@ -39,10 +40,17 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
   // Local state for requests (for optimistic updates)
   const [requests, setRequests] = useState<Request[]>(initialRequests)
   
+  // Total count state
+  const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  
   // Pagination state
   const [hasMore, setHasMore] = useState(initialRequests.length === PAGE_SIZE)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
-  const sentinelRef = useRef<HTMLDivElement>(null)
+  const parentRef = useRef<HTMLDivElement>(null)
   
   // Loading state lock to prevent concurrent loadMore calls
   const isLoadingMore = useRef(false)
@@ -73,6 +81,65 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
       prefetchTimeouts.current.clear()
     }
   }, [])
+
+  // Debounce search query (150ms delay for faster responsiveness)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery)
+    }, 150)
+
+    return () => clearTimeout(timeoutId)
+  }, [searchQuery])
+
+  // Track if this is the initial mount
+  const isInitialMount = useRef(true)
+
+  // Reset pagination and fetch new results when debounced search query changes
+  useEffect(() => {
+    // Skip on initial mount if there's no search query (we already have initialRequests)
+    if (isInitialMount.current && !debouncedSearchQuery) {
+      isInitialMount.current = false
+      return
+    }
+    isInitialMount.current = false
+
+    // Cancel all in-flight requests
+    inFlightRequests.current.clear()
+    isLoadingMore.current = false
+    // Clear all prefetch timeouts
+    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
+    prefetchTimeouts.current.clear()
+
+    // Fetch new results with search query
+    const fetchSearchResults = async () => {
+      try {
+        const result = await fetchRequestsForConnection(connectionId, {
+          limit: PAGE_SIZE,
+          offset: 0,
+          searchQuery: debouncedSearchQuery || undefined
+        })
+
+        if (isMountedRef.current) {
+          setRequests(result.requests)
+          setTotalCount(result.totalCount)
+          const newHasMore = result.requests.length === PAGE_SIZE
+          setHasMore(newHasMore)
+          setCurrentOffset(PAGE_SIZE)
+          setPrefetchedRequests([])
+          setPrefetchedOffset(null)
+        }
+      } catch (error) {
+        if (isDev()) {
+          console.error('Failed to fetch search results:', error)
+        }
+        if (isMountedRef.current) {
+          setHasMore(false)
+        }
+      }
+    }
+
+    fetchSearchResults()
+  }, [debouncedSearchQuery, connectionId])
   
   // Prefetch next batch of requests with timeout protection
   const prefetchNext = useCallback(async (offset: number) => {
@@ -125,9 +192,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
     prefetchTimeouts.current.set(offset, timeoutId)
     
     try {
-      const newRequests = await fetchRequestsForConnection(connectionId, { 
+      const result = await fetchRequestsForConnection(connectionId, { 
         limit: PAGE_SIZE, 
-        offset 
+        offset,
+        searchQuery: debouncedSearchQuery || undefined
       })
       
       // Clear timeout - only if we still own this request
@@ -139,16 +207,18 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
         }
         
         if (isDev()) {
-          console.log('[Prefetch] Prefetch completed', { count: newRequests.length, offset })
+          console.log('[Prefetch] Prefetch completed', { count: result.requests.length, offset })
         }
         
         // Only update state if component is still mounted and this request is still relevant
         if (isMountedRef.current && inFlightRequests.current.has(offset)) {
           // Store prefetched data - don't set hasMore here, let loadMore decide
-          if (newRequests.length > 0) {
-            setPrefetchedRequests(newRequests)
+          if (result.requests.length > 0) {
+            setPrefetchedRequests(result.requests)
             setPrefetchedOffset(offset)
           }
+          // Update total count (it should be the same, but keep it in sync)
+          setTotalCount(result.totalCount)
         }
       }
     } catch (error) {
@@ -170,7 +240,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
       }
       inFlightRequests.current.delete(offset)
     }
-  }, [connectionId, hasMore, isPrefetching])
+  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery])
 
   // Load more requests function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
@@ -249,25 +319,27 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
     }
     
     try {
-      const newRequests = await fetchRequestsForConnection(connectionId, { 
+      const result = await fetchRequestsForConnection(connectionId, { 
         limit: PAGE_SIZE, 
-        offset: currentOffset 
+        offset: currentOffset,
+        searchQuery: debouncedSearchQuery || undefined
       })
       
       // Only update state if component is still mounted
       if (!isMountedRef.current) return
       
-      if (newRequests.length === 0) {
+      if (result.requests.length === 0) {
         if (isMountedRef.current) {
           setHasMore(false)
         }
       } else {
         if (isMountedRef.current) {
-          setRequests(prev => [...prev, ...newRequests])
+          setRequests(prev => [...prev, ...result.requests])
+          setTotalCount(result.totalCount)
           const nextOffset = currentOffset + PAGE_SIZE
           setCurrentOffset(nextOffset)
           // If we got fewer than PAGE_SIZE, there are no more
-          if (newRequests.length < PAGE_SIZE) {
+          if (result.requests.length < PAGE_SIZE) {
             setHasMore(false)
           } else {
             // Prefetch next batch
@@ -287,7 +359,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
       isLoadingMore.current = false
       inFlightRequests.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext])
+  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext, debouncedSearchQuery])
 
   // Prefetch next batch when initial requests load or after consuming prefetched data
   useEffect(() => {
@@ -302,104 +374,12 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, isPrefetching, prefetchedRequests.length, currentOffset, requests.length])
 
-  // IntersectionObserver for infinite scroll
-  useEffect(() => {
-    if (!hasMore) {
-      if (isDev()) {
-        console.log('[IntersectionObserver] Has no more data, skipping observer')
-      }
-      return
-    }
-
-    let observer: IntersectionObserver | null = null
-    let isMounted = true
-
-    // Wait a tick for sentinel to be rendered
-    const timeoutId = setTimeout(() => {
-      if (!isMounted) return
-      
-      const sentinel = sentinelRef.current
-      if (!sentinel) {
-        if (isDev()) {
-          console.log('[IntersectionObserver] Sentinel not found after timeout')
-        }
-        return
-      }
-
-      // Find the actual scrollable container by walking up the DOM tree
-      // Look for the DashboardLayout's main element or any scrollable ancestor
-      let scrollContainer: Element | null = sentinel.parentElement
-      while (scrollContainer && scrollContainer !== document.documentElement) {
-        const style = window.getComputedStyle(scrollContainer)
-        const hasOverflow = style.overflow === 'auto' || 
-                           style.overflowY === 'auto' || 
-                           style.overflow === 'scroll' || 
-                           style.overflowY === 'scroll' ||
-                           style.overflow === 'overlay' ||
-                           style.overflowY === 'overlay'
-        
-        if (hasOverflow && scrollContainer.scrollHeight > scrollContainer.clientHeight) {
-          break
-        }
-        scrollContainer = scrollContainer.parentElement
-      }
-
-      // If no scroll container found, use viewport (null)
-      // Otherwise use the found container
-      const root = scrollContainer && scrollContainer !== document.documentElement ? scrollContainer : null
-
-      if (isDev()) {
-        console.log('[IntersectionObserver] Setting up observer', {
-          hasScrollContainer: !!root,
-          containerTag: root?.tagName,
-          rootMargin: INTERSECTION_ROOT_MARGIN,
-          sentinelPosition: sentinel.getBoundingClientRect()
-        })
-      }
-
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (!isMounted) return
-          
-          const entry = entries[0]
-          if (!entry) return
-
-          if (isDev()) {
-            console.log('[IntersectionObserver] Entry update', {
-              isIntersecting: entry.isIntersecting,
-              intersectionRatio: entry.intersectionRatio,
-              intersectionRect: entry.intersectionRect,
-              rootBounds: entry.rootBounds,
-              boundingClientRect: entry.boundingClientRect
-            })
-          }
-
-          // Trigger when intersecting AND we still have more data
-          if (entry.isIntersecting && hasMore) {
-            if (isDev()) {
-              console.log('[IntersectionObserver] Intersection detected, loading more')
-            }
+  // Load more handler for virtual scroll
+  const handleLoadMore = useCallback((virtualRows: any[]) => {
+    // Virtual scroll triggers loadMore in RequestsTable based on scroll position
+    // This handler is called when user scrolls near the end
             loadMore()
-          }
-        },
-        {
-          root: root,
-          rootMargin: INTERSECTION_ROOT_MARGIN,
-          threshold: INTERSECTION_THRESHOLD
-        }
-      )
-
-      observer.observe(sentinel)
-    }, SENTINEL_SETUP_DELAY_MS)
-
-    return () => {
-      isMounted = false
-      clearTimeout(timeoutId)
-      if (observer) {
-        observer.disconnect()
-      }
-    }
-  }, [hasMore, loadMore])
+  }, [loadMore])
 
   // Handle optimistic deletion from query params (when navigating from detail page)
   useEffect(() => {
@@ -569,16 +549,18 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
       inFlightRequests.current.clear()
       isLoadingMore.current = false
       
-      const freshRequests = await fetchRequestsForConnection(connectionId, { 
+      const result = await fetchRequestsForConnection(connectionId, { 
         limit: PAGE_SIZE, 
-        offset: 0 
+        offset: 0,
+        searchQuery: debouncedSearchQuery || undefined
       })
       
       // Only update state if component is still mounted
       if (isMountedRef.current) {
-        setRequests(freshRequests)
+        setRequests(result.requests)
+        setTotalCount(result.totalCount)
         // Reset pagination state
-        const newHasMore = freshRequests.length === PAGE_SIZE
+        const newHasMore = result.requests.length === PAGE_SIZE
         setHasMore(newHasMore)
         setCurrentOffset(PAGE_SIZE)
         // Clear any prefetched data
@@ -598,6 +580,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
   return (
     <>
       {/* Requests Table */}
+      <div ref={parentRef}>
       <RequestsTable
         userAvatar={userAvatar}
         userInitials={userInitials}
@@ -607,9 +590,12 @@ export default function RequestsPageClient({ connectionId, initialRequests, agen
         agencyMembers={agencyMembers}
         onRequestUpdate={handleRequestUpdate}
         currentOrgId={currentOrgId}
-        onLoadMore={loadMore}
-        sentinelRef={sentinelRef}
+          onLoadMore={handleLoadMore}
+        onSearchChange={setSearchQuery}
+        totalCount={totalCount}
+          parentRef={parentRef}
       />
+      </div>
 
       {/* Request Detail Modal - For existing requests */}
       <RequestDetailModal

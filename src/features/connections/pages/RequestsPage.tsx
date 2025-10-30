@@ -9,14 +9,19 @@ interface RequestsPageProps {
 
 // Server component that fetches data from Supabase
 export async function RequestsPage({ connectionId }: RequestsPageProps) {
-  const [requests, agencyMembers] = await Promise.all([
+  const [requestsData, agencyMembers] = await Promise.all([
     getRequestsForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
     getAgencyMembersForConnection(connectionId)
   ]);
 
   return (
     <Card className="w-full gap-0">
-      <RequestsPageClient connectionId={connectionId} initialRequests={requests} agencyMembers={agencyMembers} />
+      <RequestsPageClient 
+        connectionId={connectionId} 
+        initialRequests={requestsData.requests} 
+        initialTotalCount={requestsData.totalCount}
+        agencyMembers={agencyMembers} 
+      />
     </Card>
   );
 }

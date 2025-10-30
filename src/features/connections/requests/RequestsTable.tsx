@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -18,6 +18,7 @@ import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, Flow
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest } from './actions'
 import type { Request } from '../server'
+import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -35,11 +36,13 @@ interface RequestsTableProps {
   }>
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
   currentOrgId: string
-  onLoadMore?: () => void
-  sentinelRef?: React.RefObject<HTMLDivElement | null>
+  onLoadMore?: (virtualRows: any[]) => void
+  onSearchChange?: (query: string) => void
+  totalCount?: number
+  parentRef?: React.RefObject<HTMLDivElement | null>
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, sentinelRef }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, parentRef }: RequestsTableProps) {
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -82,8 +85,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   const submittedByOrgId = 'client-org-1' // This should come from the actual request data
   const canDeleteRequest = currentUserOrgId === submittedByOrgId
   
-  // Mock data for scaffolding
-  const requestCount = 1
+  // Use total count from database, fallback to displayed requests count if not provided
+  const requestCount = totalCount !== undefined ? totalCount : optimisticRequests.length
   
   // Transform agency members to combobox options
   const comboboxOptions = agencyMembers.map(member => ({
@@ -748,6 +751,16 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     }
   }
 
+  // Virtual scroll setup using shared hook
+  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
+    items: optimisticRequests,
+    onLoadMore,
+    scrollRestoreDeps: [searchQuery],
+    parentRef
+  })
+  
+  // isNearEnd available for future use (e.g., showing loading indicator)
+
   return (
     <div className="w-full min-w-0">
       {/* Search section - Sticky */}
@@ -756,7 +769,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           <SearchInput
             placeholder="Search requests"
             value={searchQuery}
-            onChange={setSearchQuery}
+            onChange={(value) => {
+              setSearchQuery(value)
+              onSearchChange?.(value)
+            }}
             count={requestCount}
             countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
           />
@@ -865,17 +881,16 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         </Table>
       </div>
 
-      {/* Table Body - Scrollable */}
-      <div className="w-full overflow-x-auto">
+      {/* Table Body - Virtualized Scrollable */}
+      <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="px-5 pb-5">
-          <Table className="table-fixed w-full border-collapse">
-            <TableBody>
-            {optimisticRequests.map((request) => (
-              <TableRow 
-                key={request.id} 
-                onClick={() => handleRowClick(request.id)}
-                className="[&>*]:h-[44px] hover:bg-[var(--color-interactive-surface-hover)] cursor-pointer transition-colors duration-75"
-              >
+          <VirtualTableBody
+            items={optimisticRequests}
+            virtualItems={virtualItems}
+            rowVirtualizer={rowVirtualizer}
+            onRowClick={(request) => handleRowClick(request.id)}
+            renderRow={(request) => (
+              <>
                 <TableCell className="w-[25%] py-0 truncate">
                   {request.title}
                 </TableCell>
@@ -1019,24 +1034,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     </DropdownMenu>
                   </div>
                 </TableCell>
-              </TableRow>
-            ))}
-            </TableBody>
-          </Table>
-        </div>
-        {/* Sentinel for infinite scroll - invisible but required for IntersectionObserver */}
-        {onLoadMore && sentinelRef && (
-          <div 
-            ref={sentinelRef} 
-            style={{ 
-              height: '1px',
-              width: '100%',
-              visibility: 'hidden',
-              pointerEvents: 'none'
-            }} 
-            aria-hidden="true"
+              </>
+            )}
           />
-        )}
+        </div>
       </div>
 
       {/* Profile Card Dialog */}
