@@ -46,40 +46,45 @@ export function VirtualTableBody<T extends { id: string }>({
     )
   }
 
+  // Calculate spacer heights so rows stay in normal table flow
+  const paddingTop = virtualItems.length ? virtualItems[0].start : 0
+  const paddingBottom = Math.max(
+    0,
+    rowVirtualizer.getTotalSize() - (virtualItems[virtualItems.length - 1]?.end ?? 0)
+  )
+
   return (
-    <div
-      style={{
-        height: `${rowVirtualizer.getTotalSize()}px`,
-        position: 'relative',
-      }}
-    >
-      <Table noWrapper className="table-fixed w-full border-collapse">
-        <TableBody>
-          {virtualItems.map((virtualRow) => {
-            const item = items[virtualRow.index]
-            return (
-              <TableRow 
-                key={item.id}
-                ref={VIRTUAL_ROW_HEIGHT ? undefined : (node) => rowVirtualizer.measureElement(node)}
-                data-index={virtualRow.index}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`,
-                  height: `${VIRTUAL_ROW_HEIGHT}px`,
-                }}
-                onClick={() => onRowClick?.(item)}
-                className={`hover:bg-[var(--color-interactive-surface-hover)] cursor-pointer transition-colors duration-75 ${rowClassName}`}
-              >
-                {renderRow(item, virtualRow.index, virtualRow)}
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <Table noWrapper className="table-fixed w-full border-collapse">
+      <TableBody>
+        {paddingTop > 0 && (
+          <TableRow aria-hidden>
+            <td colSpan={1000} style={{ height: paddingTop, padding: 0, border: 0 }} />
+          </TableRow>
+        )}
+
+        {virtualItems.map((virtualRow) => {
+          const item = items[virtualRow.index]
+          return (
+            <TableRow
+              key={item.id}
+              ref={VIRTUAL_ROW_HEIGHT ? undefined : (node) => rowVirtualizer.measureElement(node)}
+              data-index={virtualRow.index}
+              style={{ height: `${VIRTUAL_ROW_HEIGHT}px` }}
+              onClick={() => onRowClick?.(item)}
+              className={`hover:bg-[var(--color-interactive-surface-hover)] cursor-pointer transition-colors duration-75 ${rowClassName}`}
+            >
+              {renderRow(item, virtualRow.index, virtualRow)}
+            </TableRow>
+          )
+        })}
+
+        {paddingBottom > 0 && (
+          <TableRow aria-hidden>
+            <td colSpan={1000} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
   )
 }
 
