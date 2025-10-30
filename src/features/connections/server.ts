@@ -384,11 +384,11 @@ export interface RequestsWithCount {
 
 export const getRequestsForConnection = cache(async (
   connectionId: string,
-  options?: { limit?: number; offset?: number; searchQuery?: string }
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string }
 ): Promise<RequestsWithCount> => {
   const isDev = process.env.NODE_ENV !== 'production';
   const startTime = isDev ? performance.now() : 0;
-  const { limit = 50, offset = 0, searchQuery } = options || {};
+  const { limit = 50, offset = 0, searchQuery, assignedToUserId } = options || {};
   const supabase = await createClient();
   
   // Fetch the connection info (cached, shared with getAgencyMembersForConnection)
@@ -457,6 +457,10 @@ export const getRequestsForConnection = cache(async (
     .select('*', { count: 'exact', head: true })
     .eq('connection_id', connectionId)
     .is('deleted_at', null);
+
+  if (assignedToUserId) {
+    baseQuery = baseQuery.eq('assignee_user_id', assignedToUserId);
+  }
   
   // Apply search filter if searchQuery is provided
   if (searchQuery && searchQuery.trim().length > 0) {
@@ -490,6 +494,10 @@ export const getRequestsForConnection = cache(async (
     `)
     .eq('connection_id', connectionId)
     .is('deleted_at', null);
+
+  if (assignedToUserId) {
+    requestsQuery = requestsQuery.eq('assignee_user_id', assignedToUserId);
+  }
   
   // Apply search filter if searchQuery is provided
   if (searchQuery && searchQuery.trim().length > 0) {

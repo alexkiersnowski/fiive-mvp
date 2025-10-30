@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { RequestBadge } from '@/components/ui/request-badge'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
+import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest } from './actions'
 import type { Request } from '../server'
@@ -40,9 +40,12 @@ interface RequestsTableProps {
   onSearchChange?: (query: string) => void
   totalCount?: number
   parentRef?: React.RefObject<HTMLDivElement | null>
+  assignedToMe?: boolean
+  onToggleAssignedToMe?: () => void
+  isBootstrapping?: boolean
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, parentRef }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false }: RequestsTableProps) {
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -331,8 +334,12 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     className="flex items-center"
                     size="custom"
                     customSize={{ button: 'h-6 w-6', avatar: 'h-[26px] w-[26px]' }}
+                    isActive={assignedToMe}
+                    activeBgClassName="bg-[var(--color-interactive-surface-pressed)] hover:bg-[var(--color-interactive-surface-pressed)]"
                     onClick={() => {
-                      // Avatar click handled by ListRow component
+                      if (onToggleAssignedToMe) {
+                        onToggleAssignedToMe()
+                      }
                     }}
                   />
                 </div>
@@ -341,44 +348,13 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 Assigned to me
               </TooltipContent>
             </Tooltip>
-            <DropdownMenu modal={false} open={isSortDropdownOpen} onOpenChange={setIsSortDropdownOpen}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={`cursor-pointer text-sm-regular h-[32px] flex items-center gap-2 shadow-none transition-all duration-75 ${
-                    isSortDropdownOpen 
-                      ? 'bg-interactive-surface-hover hover:bg-interactive-surface-hover' 
-                      : 'hover:bg-interactive-surface-hover'
-                  }`}
-                >
-                  <SortAscending size={16} />
-                  {getCurrentSortLabel()}
-                  <CaretDown size={16} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                {sortOptions.map((option) => (
-                  <DropdownMenuItem
-                    key={option.value}
-                    onClick={(e) => {
-                      handleSortChange(option.value);
-                      setIsSortDropdownOpen(false);
-                      // Blur the button after selection to prevent focus
-                      const trigger = e.currentTarget.closest('[data-radix-dropdown-menu-trigger]') as HTMLElement;
-                      setTimeout(() => {
-                        trigger?.blur();
-                      }, 0);
-                    }}
-                    className="flex items-center justify-between"
-                  >
-                    <span>{option.label}</span>
-                    {sortValue === option.value && (
-                      <Check size={16} className="text-inherit" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              variant="outline"
+              className="text-sm-regular h-[32px] flex items-center gap-2 shadow-none cursor-default pointer-events-none"
+            >
+              <SortAscending size={16} />
+              {getCurrentSortLabel()}
+            </Button>
             <Button
               variant="default"
               size="lg"
@@ -429,7 +405,13 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       {/* Table Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="px-5 pb-5">
-          <VirtualTableBody
+          {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
+          {isBootstrapping && requests.length === 0 ? (
+            <div>
+              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+            </div>
+          ) : (
+            <VirtualTableBody
             items={optimisticRequests}
             virtualItems={virtualItems}
             rowVirtualizer={rowVirtualizer}
@@ -582,6 +564,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               </>
             )}
           />
+          )}
         </div>
       </div>
 

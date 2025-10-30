@@ -13,6 +13,7 @@ interface AvatarButtonProps {
   isActive?: boolean
   size?: 'sm' | 'md' | 'lg' | 'custom'
   customSize?: { button: string; avatar: string }
+  activeBgClassName?: string
 }
 
 export default function AvatarButton({ 
@@ -24,7 +25,8 @@ export default function AvatarButton({
   variant = 'user',
   isActive = false,
   size = 'md',
-  customSize
+  customSize,
+  activeBgClassName
 }: AvatarButtonProps) {
   const isWorkspace = variant === 'workspace'
   const borderRadius = isWorkspace ? 'var(--spacing-1)' : '50%'
@@ -46,7 +48,7 @@ export default function AvatarButton({
       onClick={onClick}
       className={`${currentSize.button} p-1 ${
         isActive 
-          ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]' 
+          ? (activeBgClassName || 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]')
           : 'hover:bg-[var(--color-interactive-surface-hover)]'
       } cursor-pointer transition-all duration-75 ${className}`}
       style={{ 

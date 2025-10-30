@@ -32,6 +32,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
+  // MVP: read assigned filter synchronously from URL before first fetch
+  const initiallyAssigned = (() => {
+    try { return searchParams.get('assigned') === 'me' } catch { return false }
+  })()
   
   // Get user avatar and organization from context
   const userAvatar = context.user?.avatarUrl || '';
@@ -39,20 +43,23 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const currentOrgId = context.organization.id;
 
   // Local state for requests (for optimistic updates)
-  const [requests, setRequests] = useState<Request[]>(initialRequests)
+  const [requests, setRequests] = useState<Request[]>(initiallyAssigned ? [] : initialRequests)
   // Optimistic new requests disabled (relying on real-time updates)
   
   // Total count state
-  const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
+  const [totalCount, setTotalCount] = useState<number>(initiallyAssigned ? 0 : initialTotalCount)
   
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  const [assignedToMe, setAssignedToMe] = useState<boolean>(initiallyAssigned)
   
   // Pagination state
-  const [hasMore, setHasMore] = useState(initialRequests.length === PAGE_SIZE)
+  const [hasMore, setHasMore] = useState(initiallyAssigned ? true : initialRequests.length === PAGE_SIZE)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const parentRef = useRef<HTMLDivElement>(null)
+  // Buffer initial empty render with skeleton when assigned=me
+  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
   
   // Loading state lock to prevent concurrent loadMore calls
   const isLoadingMore = useRef(false)
@@ -78,7 +85,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       const result = await fetchRequestsForConnection(connectionId, {
         limit: PAGE_SIZE,
         offset: 0,
-        searchQuery: debouncedSearchQuery || undefined
+        searchQuery: debouncedSearchQuery || undefined,
+        assignedToUserId: assignedToMe ? context.user?.id : undefined
       })
       if (!isMountedRef.current) return
       setRequests(result.requests)
@@ -90,7 +98,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     } catch (_) {
       // ignore
     }
-  }, [connectionId, debouncedSearchQuery])
+  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id])
 
   // DRY: prepend unique request by id
   const prependUnique = useCallback((request: Request) => {
@@ -150,6 +158,30 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   // Track if this is the initial mount
   const isInitialMount = useRef(true)
 
+  // One-time: fetch filtered results immediately on mount if assigned=me
+  useEffect(() => {
+    if (initiallyAssigned) {
+      (async () => {
+        try {
+          const result = await fetchRequestsForConnection(connectionId, {
+            limit: PAGE_SIZE,
+            offset: 0,
+            searchQuery: debouncedSearchQuery || undefined,
+            assignedToUserId: context.user?.id
+          })
+          if (!isMountedRef.current) return
+          setRequests(result.requests)
+          setTotalCount(result.totalCount)
+          setHasMore(result.requests.length === PAGE_SIZE)
+          setCurrentOffset(PAGE_SIZE)
+        } finally {
+          setIsBootstrapping(false)
+        }
+      })()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Reset pagination and fetch new results when debounced search query changes
   useEffect(() => {
     // Skip on initial mount if there's no search query (we already have initialRequests)
@@ -172,7 +204,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         const result = await fetchRequestsForConnection(connectionId, {
           limit: PAGE_SIZE,
           offset: 0,
-          searchQuery: debouncedSearchQuery || undefined
+          searchQuery: debouncedSearchQuery || undefined,
+          assignedToUserId: assignedToMe ? context.user?.id : undefined
         })
 
         if (isMountedRef.current) {
@@ -195,7 +228,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
 
     fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId])
+  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id])
   
   // Prefetch next batch of requests with timeout protection
   const prefetchNext = useCallback(async (offset: number) => {
@@ -251,7 +284,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       const result = await fetchRequestsForConnection(connectionId, { 
         limit: PAGE_SIZE, 
         offset,
-        searchQuery: debouncedSearchQuery || undefined
+        searchQuery: debouncedSearchQuery || undefined,
+        assignedToUserId: assignedToMe ? context.user?.id : undefined
       })
       
       // Clear timeout - only if we still own this request
@@ -296,7 +330,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       }
       inFlightRequests.current.delete(offset)
     }
-  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery])
+  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id])
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {
@@ -440,7 +474,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       const result = await fetchRequestsForConnection(connectionId, { 
         limit: PAGE_SIZE, 
         offset: currentOffset,
-        searchQuery: debouncedSearchQuery || undefined
+        searchQuery: debouncedSearchQuery || undefined,
+        assignedToUserId: assignedToMe ? context.user?.id : undefined
       })
       
       // Only update state if component is still mounted
@@ -477,7 +512,41 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       isLoadingMore.current = false
       inFlightRequests.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext, debouncedSearchQuery])
+  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id])
+
+  // Toggle handler and URL sync for Assigned to me
+  const handleToggleAssignedToMe = useCallback(() => {
+    const next = !assignedToMe
+    setAssignedToMe(next)
+    // Update URL
+    const newSearchParams = new URLSearchParams(searchParams.toString())
+    if (next) newSearchParams.set('assigned', 'me')
+    else newSearchParams.delete('assigned')
+    const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
+    router.replace(newUrl, { scroll: false })
+    // Reset pagination and fetch first page
+    setIsBootstrapping(true)
+    ;(async () => {
+      try {
+        const result = await fetchRequestsForConnection(connectionId, {
+          limit: PAGE_SIZE,
+          offset: 0,
+          searchQuery: debouncedSearchQuery || undefined,
+          assignedToUserId: next ? context.user?.id : undefined
+        })
+        if (!isMountedRef.current) return
+        setRequests(result.requests)
+        setTotalCount(result.totalCount)
+        setHasMore(result.requests.length === PAGE_SIZE)
+        setCurrentOffset(PAGE_SIZE)
+        setPrefetchedRequests([])
+        setPrefetchedOffset(null)
+      } catch (_) {
+      } finally {
+        setIsBootstrapping(false)
+      }
+    })()
+  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id])
 
   // Prefetch next batch when initial requests load or after consuming prefetched data
   useEffect(() => {
@@ -704,6 +773,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         onSearchChange={setSearchQuery}
         totalCount={totalCount}
           parentRef={parentRef}
+        assignedToMe={assignedToMe}
+        onToggleAssignedToMe={handleToggleAssignedToMe}
+        isBootstrapping={isBootstrapping}
       />
       </div>
 
