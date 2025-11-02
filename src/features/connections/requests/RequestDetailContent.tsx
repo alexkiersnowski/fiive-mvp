@@ -8,22 +8,36 @@ import { StatusButton } from '@/components/ui/status-button'
 import { ListRow } from '@/components/ui/list-row'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
-import { Check, CaretDown, ArrowRight, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Textarea } from '@/components/ui/textarea'
+import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import { CommentInput } from '@/components/ui/comment-input'
+import { CommentItem } from '@/components/ui/comment-item'
 import Link from 'next/link'
-import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee, deleteRequest } from './actions'
+import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee, deleteRequest, createComment, deleteComment, fetchCommentsForRequest } from './actions'
 import { toast } from 'sonner'
+
+interface Comment {
+  id: string
+  userId: string
+  userName: string
+  userAvatar?: string
+  createdAt: Date
+  text: string
+}
 
 interface RequestDetailContentProps {
   requestId: string
   title: string
   description: string
   client?: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
+  agency?: {
     id: string
     name: string
     logoUrl?: string
@@ -54,24 +68,43 @@ interface RequestDetailContentProps {
   mode?: 'modal' | 'page'
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
   createdByOrgId?: string
+  createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
   connectionId?: string
   onRequestDeleted?: (requestId: string) => void
   partnerName?: string // Name of the connected organization (for breadcrumbs)
+  variant?: 'agency' | 'client'
+  activeUser?: {
+    id: string
+    firstName: string
+    lastName: string
+    avatarUrl?: string
+  }
+  initialComments?: Comment[]
+  onCommentsUpdate?: (comments: Comment[]) => void
 }
 
-export function RequestDetailContent({ requestId, title, description, client, submittedBy, assignee, agencyMembers = [], type, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, currentOrgId, connectionId, onRequestDeleted, partnerName }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
-  
-  // Determine if current org can edit this request
-  const canEdit = createdByOrgId === currentOrgId
   
   // Determine base route for navigation
   const baseRoute = pathname?.startsWith('/agencies/') ? 'agencies' : 'clients'
   
-  // Determine if this is a client-submitted request (locked for editing)
-  const isClientSubmitted = createdByOrgId && createdByOrgId !== currentOrgId
+  // Determine if the request is locked for editing based on view context and organization type
+  // Agency view: locked if created by client
+  // Client view: locked if created by agency
+  const isLocked = (() => {
+    if (!createdByOrgType) return false
+    if (variant === 'agency') {
+      return createdByOrgType === 'client'
+    } else {
+      return createdByOrgType === 'agency'
+    }
+  })()
+  
+  // Determine if current org can edit this request (based on lock status)
+  const canEdit = !isLocked
   
   // State for actions dropdown
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
@@ -109,20 +142,26 @@ export function RequestDetailContent({ requestId, title, description, client, su
     })
   }
   
-  // Determine dialog title based on who created the request
+  // Determine dialog title based on organization type that created the request
   const getDialogTitle = () => {
-    if (!createdByOrgId) return 'Request'
-
-    const isAgencyCreated = createdByOrgId === currentOrgId
-    return isAgencyCreated ? 'Request — Agency created' : 'Request — Client submitted'
+    if (!createdByOrgType) return 'Request'
+    
+    if (createdByOrgType === 'agency') {
+      return variant === 'client' ? 'Request — Created by your agency' : 'Request — Agency created'
+    } else {
+      return variant === 'client' ? 'Request — Submitted to your agency' : 'Request — Client submitted'
+    }
   }
   
-  // Get just the status suffix (Client submitted or Agency created)
+  // Get just the status suffix (Submitted to your agency/Client submitted or Created by your agency/Agency created)
   const getRequestStatusText = () => {
-    if (!createdByOrgId) return ''
+    if (!createdByOrgType) return ''
     
-    const isAgencyCreated = createdByOrgId === currentOrgId
-    return isAgencyCreated ? 'Agency created' : 'Client submitted'
+    if (createdByOrgType === 'agency') {
+      return variant === 'client' ? 'Created by your agency' : 'Agency created'
+    } else {
+      return variant === 'client' ? 'Submitted to your agency' : 'Client submitted'
+    }
   }
   
   const [titleValue, setTitleValue] = useState(title)
@@ -130,14 +169,99 @@ export function RequestDetailContent({ requestId, title, description, client, su
   const [statusValue, setStatusValue] = useState(status)
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
   const [requestType, setRequestType] = useState(type || 'general')
-  const [commentValue, setCommentValue] = useState('')
   const [titleResetKey, setTitleResetKey] = useState(0)
   const [assigneeValue, setAssigneeValue] = useState(assignee)
+  
+  const [comments, setComments] = useState<Comment[]>(initialComments)
+  
+  // Handle comment submission with optimistic update
+  const handleCommentSubmit = async (text: string) => {
+    if (!activeUser) {
+      toast.error('Unable to post comment: user information unavailable')
+      return
+    }
+    
+    // Create optimistic comment
+    const tempId = `temp-${Date.now()}`
+    const optimisticComment: Comment = {
+      id: tempId,
+      userId: activeUser.id,
+      userName: `${activeUser.firstName} ${activeUser.lastName}`.trim() || 'You',
+      userAvatar: activeUser.avatarUrl,
+      createdAt: new Date(),
+      text: text
+    }
+    
+    // Optimistically add to top of comments list
+    setComments(prev => [optimisticComment, ...prev])
+    
+    try {
+      // Write to database
+      await createComment(requestId, text)
+      
+      // Fetch fresh comments from DB to get properly formatted data (with profile joins)
+      // This ensures the comment cache is updated with real DB data and replaces optimistic update
+      try {
+        const freshComments = await fetchCommentsForRequest(requestId)
+        setComments(freshComments)
+        // Update parent cache if callback provided (for modal mode)
+        onCommentsUpdate?.(freshComments)
+      } catch (error) {
+        // If fetch fails, replace temp comment with real one from createComment result
+        // This is a fallback - ideally we always fetch fresh to ensure consistency
+        console.error('Error fetching fresh comments:', error)
+        // Remove temp comment and let it be refetched on next load
+        setComments(prev => prev.filter(comment => comment.id !== tempId))
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      setComments(prev => prev.filter(comment => comment.id !== tempId))
+      toast.error('Failed to post comment. Please try again.')
+      console.error('Error creating comment:', error)
+    }
+  }
+  
+  // Handle comment deletion with optimistic update
+  const handleCommentDelete = async (commentId: string) => {
+    // Optimistically remove from list
+    const commentToDelete = comments.find(c => c.id === commentId)
+    setComments(prev => prev.filter(comment => comment.id !== commentId))
+    
+    try {
+      // Soft delete from database (sets deleted_at and updated_at)
+      await deleteComment(commentId)
+      // Show success message
+      toast.success('Comment deleted successfully')
+      
+      // Fetch fresh comments from DB to update the cache
+      try {
+        const freshComments = await fetchCommentsForRequest(requestId)
+        setComments(freshComments)
+        // Update parent cache if callback provided (for modal mode)
+        onCommentsUpdate?.(freshComments)
+      } catch (error) {
+        // If fetch fails, at least we've removed it optimistically
+        console.error('Error fetching fresh comments after delete:', error)
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      if (commentToDelete) {
+        setComments(prev => [commentToDelete, ...prev])
+      }
+      toast.error('Failed to delete comment. Please try again.')
+      console.error('Error deleting comment:', error)
+    }
+  }
   
   // Sync assignee when prop changes (for table → modal updates)
   useEffect(() => {
     setAssigneeValue(assignee)
   }, [assignee])
+
+  // Sync initialComments when they change (e.g., when navigating to different request in page mode or when prefetched)
+  useEffect(() => {
+    setComments(initialComments)
+  }, [initialComments, mode])
   
   // Track previous values for undo functionality
   const titleSnapshot = useRef(title)
@@ -412,27 +536,30 @@ export function RequestDetailContent({ requestId, title, description, client, su
                   —
                 </span>
                 <span className="text-[12px] leading-[20px] font-normal tracking-[0.0025rem]" style={{ color: 'var(--color-base-text-tertiary)' }}>
-                  {getRequestStatusText()}
+                  {getDialogTitle().replace('Request — ', '')}
                 </span>
+                {isLocked && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center justify-center">
+                        <LockSimple 
+                          size={12} 
+                          weight="fill"
+                          style={{ color: 'var(--color-base-text-tertiary)' }}
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="center" sideOffset={8}>
+                      <div className="text-xs text-center">
+                        {variant === 'client' 
+                          ? 'Created on your behalf. View and comment only.'
+                          : 'You can update status and assignee only'
+                        }
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
-              {isClientSubmitted && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center">
-                      <LockSimple 
-                        size={12} 
-                        weight="fill"
-                        style={{ color: 'var(--color-base-text-tertiary)' }}
-                      />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="center" sideOffset={8}>
-                    <div className="text-xs text-center">
-                      You can update status and assignee only
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              )}
             </div>
             <DropdownMenu modal={false} open={isActionsDropdownOpen} onOpenChange={setIsActionsDropdownOpen}>
             <DropdownMenuTrigger asChild>
@@ -450,10 +577,12 @@ export function RequestDetailContent({ requestId, title, description, client, su
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[200px]">
-              <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
-                <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                Convert to task
-              </DropdownMenuItem>
+              {variant === 'agency' && (
+                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                  <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                  Convert to task
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => {
                 handleCopyLink()
                 setIsActionsDropdownOpen(false)
@@ -461,7 +590,7 @@ export function RequestDetailContent({ requestId, title, description, client, su
                 <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Copy link
               </DropdownMenuItem>
-              {!isClientSubmitted && (
+              {!isLocked && (
                 <>
                   <div className="border-t border-[var(--color-neutral-6)] my-1" />
                   <DropdownMenuItem 
@@ -488,7 +617,7 @@ export function RequestDetailContent({ requestId, title, description, client, su
         {/* Title with Badge - Sticky */}
         <div className="flex-shrink-0 pb-5 pr-8">
           <div className="flex items-start gap-3">
-            <div data-inline-edit="title" className="flex-1">
+            <div data-inline-edit="title" className="flex-1 min-w-0">
               <InlineEdit
                 key={titleResetKey}
                 type="text"
@@ -503,39 +632,48 @@ export function RequestDetailContent({ requestId, title, description, client, su
                 nonInteractive={!canEdit}
               />
             </div>
-            <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
-              <PopoverTrigger asChild>
-                <StatusButton variant={statusValue} className="mt-1.5">
-                  <CaretDown size={12} weight="fill" />
-                </StatusButton>
-              </PopoverTrigger>
-              <PopoverContent
-                className="w-full min-w-48 p-0"
-                align="start"
-                style={{ width: 'var(--radix-popover-trigger-width)' }}
+            {variant === 'agency' ? (
+              <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
+                <PopoverTrigger asChild>
+                  <StatusButton variant={statusValue} className="mt-1.5">
+                    <CaretDown size={12} weight="fill" />
+                  </StatusButton>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-full min-w-48 p-0"
+                  align="start"
+                  style={{ width: 'var(--radix-popover-trigger-width)' }}
+                >
+                  <Command>
+                    <CommandList>
+                      <CommandEmpty>No status found.</CommandEmpty>
+                      <CommandGroup>
+                        {statusOptions.map((option) => (
+                          <CommandItem
+                            key={option.value}
+                            value={option.value}
+                            onSelect={() => handleStatusChange(option.value as string)}
+                            className="flex items-center justify-between cursor-pointer"
+                          >
+                            <RequestBadge variant={option.value as any} size="sm" showText />
+                            {option.value === statusValue && (
+                              <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
+                            )}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <StatusButton 
+                variant={statusValue} 
+                className="mt-1.5 pointer-events-none"
+                customLabel={statusValue === 'new' ? 'Submitted' : undefined}
               >
-                <Command>
-                  <CommandList>
-                    <CommandEmpty>No status found.</CommandEmpty>
-                    <CommandGroup>
-                      {statusOptions.map((option) => (
-                        <CommandItem
-                          key={option.value}
-                          value={option.value}
-                          onSelect={() => handleStatusChange(option.value as string)}
-                          className="flex items-center justify-between cursor-pointer"
-                        >
-                          <RequestBadge variant={option.value as any} size="sm" showText />
-                          {option.value === statusValue && (
-                            <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
-                          )}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+              </StatusButton>
+            )}
           </div>
         </div>
         
@@ -547,9 +685,14 @@ export function RequestDetailContent({ requestId, title, description, client, su
             type="text"
             value={descriptionValue}
             onSave={handleDescriptionSave}
-            placeholder="Add a description..."
+            placeholder={
+              !canEdit && !descriptionValue.trim()
+                ? 'No description'
+                : 'Add a description...'
+            }
             textClass="text-md-regular"
             multiline={true}
+            linkifyUrls={true}
             className="px-0"
             style={{ fontSize: '15px', lineHeight: '22px' }}
             nonInteractive={!canEdit}
@@ -564,27 +707,25 @@ export function RequestDetailContent({ requestId, title, description, client, su
           <h4 className="text-md-medium text-primary mt-5">Comments</h4>
             
             {/* Comment Input */}
-            <div className="flex items-start gap-3">
-              <Avatar className="w-5 h-5 flex-shrink-0">
-                <AvatarImage src={submittedBy?.avatarUrl} />
-                <AvatarFallback className="text-xs font-medium text-white" style={{ background: 'var(--color-neutral-9, #8B8D98)' }}>
-                  {submittedBy?.name?.[0] || '?'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 flex flex-col border border-neutral-4 rounded-md overflow-hidden">
-                <Textarea
-                  placeholder="Leave a comment..."
-                  value={commentValue}
-                  onChange={(e) => setCommentValue(e.target.value)}
-                  className="flex-1 resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none !border-0 focus-visible:!border-0 !min-h-0 break-all overflow-wrap-anywhere"
-                />
-                <div className="p-3 flex justify-end">
-                  <Button size="sm" variant="default" className="h-6 cursor-pointer" disabled={!commentValue.trim()}>
-                    Submit
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <CommentInput 
+              activeUser={activeUser}
+              onCommentSubmit={handleCommentSubmit}
+            />
+
+            {/* Comments List */}
+            {comments.map((comment) => (
+              <CommentItem
+                key={comment.id}
+                id={comment.id}
+                userName={comment.userName}
+                userAvatar={comment.userAvatar}
+                createdAt={comment.createdAt}
+                text={comment.text}
+                createdByUserId={comment.userId}
+                activeUserId={activeUser?.id}
+                onDelete={handleCommentDelete}
+              />
+            ))}
           </>
           </div>
         </div>
@@ -601,16 +742,18 @@ export function RequestDetailContent({ requestId, title, description, client, su
         
         {/* Detail rows - 32px below title */}
         <div className="flex flex-col gap-2 mt-2">
-          {/* Client Row */}
+          {/* Client/Agency Row */}
           <div className="flex items-center gap-4 h-6">
             <div className="w-2/5 min-w-0">
-              <p className="text-sm-regular text-secondary truncate">Client</p>
+              <p className="text-sm-regular text-secondary truncate">
+                {variant === 'agency' ? 'Client' : 'Agency'}
+              </p>
             </div>
             <div className="w-3/5 min-w-0">
               <ListRow 
                 avatar={true}
-                avatarUrl={client?.logoUrl || null}
-                text={client?.name || 'Unknown Client'}
+                avatarUrl={variant === 'agency' ? (client?.logoUrl || null) : (agency?.logoUrl || null)}
+                text={variant === 'agency' ? (client?.name || 'Unknown Client') : (agency?.name || 'Unknown Agency')}
                 nonInteractive={true}
               />
             </div>
@@ -668,12 +811,14 @@ export function RequestDetailContent({ requestId, title, description, client, su
 
           {/* Owner Section */}
           <div className="flex flex-col gap-2 mt-8">
-            <h4 className="text-md-medium text-primary">Owner</h4>
+            <h4 className="text-md-medium text-primary">Agency owner</h4>
             
             {/* Assignee Row */}
             <div className="flex items-center gap-4 h-6 mt-2">
               <div className="w-2/5 min-w-0">
-                <p className="text-sm-regular text-secondary truncate">Assignee</p>
+                <p className="text-sm-regular text-secondary truncate">
+                  {variant === 'agency' ? 'Assignee' : 'Assigned to'}
+                </p>
               </div>
               <div className="w-3/5 min-w-0">
                 <ListRow
@@ -681,16 +826,17 @@ export function RequestDetailContent({ requestId, title, description, client, su
                   avatarUrl={assigneeValue?.avatarUrl || null}
                   text={assigneeValue ? assigneeValue.name : 'Unassigned'}
                   textColor={assigneeValue ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
-                  comboboxOptions={agencyMembers.map(member => ({
+                  comboboxOptions={variant === 'agency' ? agencyMembers.map(member => ({
                     value: member.id,
                     label: `${member.firstName} ${member.lastName}`,
                     avatar: member.avatarUrl
-                  }))}
-                  comboboxPlaceholder="Search members…"
-                  onComboboxSelect={handleAssigneeSelect}
-                  clearable={!!assigneeValue}
-                  onClear={handleClearAssignee}
+                  })) : undefined}
+                  comboboxPlaceholder={variant === 'agency' ? "Search members…" : undefined}
+                  onComboboxSelect={variant === 'agency' ? handleAssigneeSelect : undefined}
+                  clearable={variant === 'agency' ? !!assigneeValue : false}
+                  onClear={variant === 'agency' ? handleClearAssignee : undefined}
                   borderRadius="4px"
+                  nonInteractive={variant === 'client'}
                 />
               </div>
             </div>

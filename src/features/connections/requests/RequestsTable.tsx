@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { RequestBadge } from '@/components/ui/request-badge'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
+import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest } from './actions'
 import type { Request } from '../server'
@@ -39,13 +39,21 @@ interface RequestsTableProps {
   onLoadMore?: (virtualRows: any[]) => void
   onSearchChange?: (query: string) => void
   totalCount?: number
+  unfilteredTotalCount?: number
   parentRef?: React.RefObject<HTMLDivElement | null>
   assignedToMe?: boolean
   onToggleAssignedToMe?: () => void
   isBootstrapping?: boolean
+  isAgency?: boolean
+  agencyOrganization?: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
+  onRequestDeleted?: (requestId: string) => void
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted }: RequestsTableProps) {
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -286,9 +294,13 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     // Optimistically remove request from table
     setOptimisticRequests(prev => prev.filter(r => r.id !== requestId))
     
+    // Notify parent for badge count updates
+    onRequestDeleted?.(requestId)
+    
     try {
       await deleteRequest(requestId)
       toast.success('Request deleted')
+      router.refresh() // Refresh to get updated data from server
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error deleting request:', error)
@@ -309,21 +321,90 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   
   // isNearEnd available for future use (e.g., showing loading indicator)
 
+  // Derived from current filter state — prevents flicker during search clear
+  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe;
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters;
+
+  // Empty state component matching ClientsTable design
+  const emptyState = isEmptyState ? (
+    <TableRow 
+      className="hover:bg-transparent"
+      style={{ 
+        backgroundColor: 'var(--color-base-surface-page-background)', 
+        borderBottomColor: 'var(--color-neutral-5)',
+        height: '100%'
+      }}
+    >
+      <TableCell 
+        colSpan={isAgency ? 8 : 8} 
+        className="text-left" 
+        style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px' }}
+      >
+        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+          <div className="flex flex-col items-start gap-2">
+            <h2 className="display-8-medium">Your best work starts here</h2>
+            <span className="text-sm-regular text-neutral-11">
+              {isAgency 
+                ? 'Clients can submit requests from their portal, or you can add one on their behalf.'
+                : 'Ask questions, share updates, or request new work directly from your agency.'
+              }
+            </span>
+          </div>
+          {onNewRequest && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+              onClick={onNewRequest}
+            >
+              <Plus size={16} weight="regular" />
+              {isAgency ? 'New request' : 'Submit request'}
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  ) : null
+
   return (
     <div className="w-full min-w-0">
       {/* Search section - Sticky */}
       <div className="sticky top-10 z-1 bg-[var(--color-base-surface-page-background)] pt-5 pb-4 px-5 rounded-t-lg">
         <div className="flex items-center justify-between w-full">
-          <SearchInput
-            placeholder="Search requests"
-            value={searchQuery}
-            onChange={(value) => {
-              setSearchQuery(value)
-              onSearchChange?.(value)
-            }}
-            count={requestCount}
-            countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
-          />
+          <div className="flex items-center gap-3">
+            <SearchInput
+              placeholder="Search by title, project, or status…"
+              value={searchQuery}
+              onChange={(value) => {
+                setSearchQuery(value)
+                onSearchChange?.(value)
+              }}
+              count={requestCount}
+              countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
+            />
+            {isAgency && (
+              <Tooltip delayDuration={400}>
+                <TooltipTrigger asChild>
+                  <Badge 
+                    variant="outline" 
+                    className="text-xs border-0"
+                    style={{
+                      borderRadius: 'var(--radius-1-max, 3px)',
+                      backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                      border: 'none',
+                      cursor: 'default'
+                    }}
+                  >
+                    <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+                    <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client visible</span>
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={8}>
+                  Both you and your client can see this
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
@@ -345,7 +426,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" align="center" sideOffset={4}>
-                Assigned to me
+                {isAgency ? 'Assigned to me' : 'Submitted by me'}
               </TooltipContent>
             </Tooltip>
             <Button
@@ -365,13 +446,14 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               }}
             >
               <Plus size={16} className="mr-1" />
-              New request
+              {isAgency ? 'New request' : 'Submit request'}
             </Button>
           </div>
         </div>
       </div>
 
       {/* Table Header - Sticky */}
+      {(unfilteredTotalCount > 0 || hasActiveFilters) && (
       <div className="sticky top-[112px] z-10 bg-[var(--color-base-surface-page-background)] px-5">
         <Table className="table-fixed w-full border-collapse">
           <TableHeader>
@@ -379,15 +461,31 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               <TableHead className="w-[25%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Title
               </TableHead>
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Submitted by
-              </TableHead>
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Project
-              </TableHead>
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Assignee
-              </TableHead>
+              {isAgency ? (
+                <>
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    Submitted by
+                  </TableHead>
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    Project
+                  </TableHead>
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    Assignee
+                  </TableHead>
+                </>
+              ) : (
+                <>
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    Owner
+                  </TableHead>
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    Project
+                  </TableHead>
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    Submitted by
+                  </TableHead>
+                </>
+              )}
               <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Status
               </TableHead>
@@ -401,6 +499,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           </TableHeader>
         </Table>
       </div>
+      )}
 
       {/* Table Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
@@ -416,90 +515,177 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             virtualItems={virtualItems}
             rowVirtualizer={rowVirtualizer}
             onRowClick={(request) => handleRowClick(request.id)}
+            emptyState={isEmptyState ? emptyState : undefined}
             renderRow={(request) => (
               <>
                 <TableCell className="w-[25%] py-0 truncate">
                   {request.title}
                 </TableCell>
 
-                <TableCell 
-                  className="w-[15%] py-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <ListRow
-                    avatar
-                    avatarUrl={request.submittedBy.avatarUrl}
-                    text={request.submittedBy.name}
-                    variant="stacked"
-                    className="min-w-0"
-                    onClick={() => {
-                      const nameParts = request.submittedBy.name.split(' ')
-                      handleContactClick({
-                        id: request.submittedBy.id,
-                        first_name: nameParts[0] || '',
-                        last_name: nameParts.slice(1).join(' ') || '',
-                        email: request.submittedBy.email,
-                        avatar_url: request.submittedBy.avatarUrl || '',
-                        job_title: request.submittedBy.jobTitle || '',
-                        organization: {
-                          id: request.submittedBy.orgId,
-                          name: request.submittedBy.orgName,
-                          logo_url: request.submittedBy.orgLogo || ''
-                        }
-                      })
-                    }}
-                  />
-                </TableCell>
+                {isAgency ? (
+                  <>
+                    <TableCell 
+                      className="w-[15%] py-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ListRow
+                        avatar
+                        avatarUrl={request.submittedBy.avatarUrl}
+                        text={request.submittedBy.name}
+                        variant="stacked"
+                        className="min-w-0"
+                        onClick={() => {
+                          const nameParts = request.submittedBy.name.split(' ')
+                          handleContactClick({
+                            id: request.submittedBy.id,
+                            first_name: nameParts[0] || '',
+                            last_name: nameParts.slice(1).join(' ') || '',
+                            email: request.submittedBy.email,
+                            avatar_url: request.submittedBy.avatarUrl || '',
+                            job_title: request.submittedBy.jobTitle || '',
+                            organization: {
+                              id: request.submittedBy.orgId,
+                              name: request.submittedBy.orgName,
+                              logo_url: request.submittedBy.orgLogo || ''
+                            }
+                          })
+                        }}
+                      />
+                    </TableCell>
 
-                <TableCell className="w-[15%] py-0">
-                  <Badge variant="neutral" className="text-xs">
-                    {request.type === 'general' ? 'General request' : request.type}
-                  </Badge>
-                </TableCell>
+                    <TableCell className="w-[15%] py-0">
+                      <Badge variant="neutral" className="text-xs">
+                        {request.type === 'general' ? 'General request' : request.type}
+                      </Badge>
+                    </TableCell>
 
-                <TableCell 
-                  className="w-[15%] py-0"
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                >
-                  <ListRow
-                    ref={assigneeListRowRef}
-                    avatar={true}
-                    avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
-                    avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                    text={!request.assignee ? "Unassigned" : request.assignee.name}
-                    textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                    variant="stacked"
-                    className="min-w-0 min-h-[32px]"
-                    onClick={() => {
-                      // Assignee click handled by combobox
-                    }}
-                    comboboxOptions={comboboxOptions}
-                    onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
-                    comboboxPlaceholder="Search members..."
-                    comboboxWidth="240px"
-                    clearable={!!request.assignee}
-                    onClear={() => handleClearAssignee(request.id)}
-                  />
-                </TableCell>
+                    <TableCell 
+                      className="w-[15%] py-0"
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    >
+                      <ListRow
+                        ref={assigneeListRowRef}
+                        avatar={true}
+                        avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
+                        avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
+                        text={!request.assignee ? "Unassigned" : request.assignee.name}
+                        textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
+                        variant="stacked"
+                        className="min-w-0 min-h-[32px]"
+                        onClick={() => {
+                          // Assignee click handled by combobox
+                        }}
+                        comboboxOptions={comboboxOptions}
+                        onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
+                        comboboxPlaceholder="Search members..."
+                        comboboxWidth="240px"
+                        clearable={!!request.assignee}
+                        onClear={() => handleClearAssignee(request.id)}
+                      />
+                    </TableCell>
+                  </>
+                ) : (
+                  <>
+                    <TableCell 
+                      className="w-[15%] py-0"
+                      onClick={request.assignee ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
+                    >
+                      <ListRow
+                        avatar={true}
+                        avatarUrl={request.assignee ? request.assignee.avatarUrl : undefined}
+                        avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
+                        text={!request.assignee ? "Unassigned" : request.assignee.name}
+                        textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
+                        variant="stacked"
+                        className="min-w-0"
+                        nonInteractive={!request.assignee}
+                        onClick={request.assignee ? () => {
+                          const nameParts = request.assignee!.name.split(' ')
+                          const assigneeMember = agencyMembers.find(member => member.id === request.assignee!.id)
+                          handleContactClick({
+                            id: request.assignee!.id,
+                            first_name: nameParts[0] || '',
+                            last_name: nameParts.slice(1).join(' ') || '',
+                            email: request.assignee!.email,
+                            avatar_url: request.assignee!.avatarUrl || '',
+                            job_title: assigneeMember?.jobTitle,
+                            organization: {
+                              id: agencyOrganization?.id || '',
+                              name: agencyOrganization?.name || '',
+                              logo_url: agencyOrganization?.logoUrl || ''
+                            }
+                          })
+                        } : undefined}
+                      />
+                    </TableCell>
 
-                <TableCell 
-                  className="w-[15%] py-0" 
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <InlineEdit
-                    type="badge"
-                    value={request.status}
-                    options={[
-                      { value: 'new', label: 'New' },
-                      { value: 'in_review', label: 'In review' },
-                      { value: 'accepted', label: 'Accepted' },
-                      { value: 'canceled', label: 'Canceled' },
-                    ]}
-                    onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
-                    badgeComponent="request"
-                    className="truncate h-6 rounded-[8px]"
-                  />
-                </TableCell>
+                    <TableCell className="w-[15%] py-0">
+                      <Badge variant="neutral" className="text-xs">
+                        {request.type === 'general' ? 'General request' : request.type}
+                      </Badge>
+                    </TableCell>
+
+                    <TableCell 
+                      className="w-[15%] py-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ListRow
+                        avatar
+                        avatarUrl={request.submittedBy.avatarUrl}
+                        text={request.submittedBy.name}
+                        variant="stacked"
+                        className="min-w-0"
+                        onClick={() => {
+                          const nameParts = request.submittedBy.name.split(' ')
+                          handleContactClick({
+                            id: request.submittedBy.id,
+                            first_name: nameParts[0] || '',
+                            last_name: nameParts.slice(1).join(' ') || '',
+                            email: request.submittedBy.email,
+                            avatar_url: request.submittedBy.avatarUrl || '',
+                            job_title: request.submittedBy.jobTitle || '',
+                            organization: {
+                              id: request.submittedBy.orgId,
+                              name: request.submittedBy.orgName,
+                              logo_url: request.submittedBy.orgLogo || ''
+                            }
+                          })
+                        }}
+                      />
+                    </TableCell>
+                  </>
+                )}
+
+                {isAgency ? (
+                  <TableCell 
+                    className="w-[15%] py-0" 
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <InlineEdit
+                      type="badge"
+                      value={request.status}
+                      options={[
+                        { value: 'new', label: 'New' },
+                        { value: 'in_review', label: 'In review' },
+                        { value: 'accepted', label: 'Accepted' },
+                        { value: 'canceled', label: 'Canceled' },
+                      ]}
+                      onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
+                      badgeComponent="request"
+                      className="truncate h-6 rounded-[8px]"
+                    />
+                  </TableCell>
+                ) : (
+                  <TableCell className="w-[15%] py-0">
+                    <RequestBadge 
+                      variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
+                      size="sm" 
+                      showText={true}
+                      customLabel={request.status === 'new' ? 'Submitted' : undefined}
+                      className="inline-flex"
+                    />
+                  </TableCell>
+                )}
 
                 <TableCell className="w-[15%] py-0 truncate">
                   {request.createdAt}
@@ -531,10 +717,12 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                           <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           View details
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setOpenActionsDropdown(null)}>
-                          <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Convert to task
-                        </DropdownMenuItem>
+                        {isAgency && (
+                          <DropdownMenuItem onClick={() => setOpenActionsDropdown(null)}>
+                            <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                            Convert to task
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => {
                           setOpenActionsDropdown(null)
                           handleCopyLink(request.id, request.connectionId)

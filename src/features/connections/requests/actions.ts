@@ -202,7 +202,7 @@ export async function updateRequestDescription(requestId: string, description: s
  */
 export async function fetchRequestsForConnection(
   connectionId: string,
-  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string }
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; createdByUserId?: string }
 ) {
   // Import the server function dynamically to avoid circular dependencies
   const { getRequestsForConnection } = await import('../server')
@@ -221,8 +221,112 @@ export async function fetchRequestById(
 }
 
 /**
+ * Fetch comments for a request (server action wrapper for client components)
+ */
+export async function fetchCommentsForRequest(requestId: string) {
+  const { getCommentsForRequest } = await import('../server')
+  return await getCommentsForRequest(requestId)
+}
+
+export async function fetchCommentsForRequests(requestIds: string[]) {
+  const { getCommentsForRequests } = await import('../server')
+  return await getCommentsForRequests(requestIds)
+}
+
+/**
  * Soft delete a request
  */
+export async function createComment(
+  requestId: string,
+  text: string
+) {
+  const supabase = await createClient();
+  const context = await getActiveContext();
+  
+  if (!context?.user?.id || !context?.organization?.id) {
+    throw new Error('User not authenticated');
+  }
+  
+  if (isDev()) {
+    console.log('createComment called with:', { 
+      requestId, 
+      text,
+      createdByUserId: context.user.id
+    });
+  }
+  
+  const { data, error } = await supabase
+    .from('request_comments')
+    .insert({
+      request_id: requestId,
+      body: text,
+      created_by_user_id: context.user.id
+    })
+    .select()
+    .single();
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Error creating comment:', error);
+    }
+    throw new Error(`Failed to create comment: ${error.message}`);
+  }
+  
+  if (isDev()) {
+    console.log('Comment created successfully:', data);
+  }
+  
+  return {
+    id: data.id,
+    requestId: data.request_id,
+    text: data.body,
+    createdByUserId: data.created_by_user_id,
+    createdAt: data.created_at
+  };
+}
+
+/**
+ * Delete a comment
+ */
+export async function deleteComment(commentId: string) {
+  const supabase = await createClient();
+  const context = await getActiveContext();
+  
+  if (!context?.user?.id) {
+    throw new Error('User not authenticated');
+  }
+  
+  if (isDev()) {
+    console.log('deleteComment called with:', { commentId });
+  }
+  
+  const now = new Date().toISOString();
+  
+  const { data, error } = await supabase
+    .from('request_comments')
+    .update({ 
+      deleted_at: now,
+      updated_at: now
+    })
+    .eq('id', commentId)
+    .eq('created_by_user_id', context.user.id) // Only allow deleting own comments
+    .select()
+    .single();
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Error deleting comment:', error);
+    }
+    throw new Error(`Failed to delete comment: ${error.message}`);
+  }
+  
+  if (isDev()) {
+    console.log('Comment deleted successfully:', data);
+  }
+  
+  return { success: true, data };
+}
+
 export async function deleteRequest(requestId: string) {
   const supabase = await createClient();
   const context = await getActiveContext();

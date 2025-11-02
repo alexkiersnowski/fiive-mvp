@@ -35,6 +35,7 @@ type InlineEditProps =
       preventNewLines?: boolean // If true, Enter saves (no newlines) and pasted content is stripped of newlines (default: false)
       style?: React.CSSProperties // Inline styles
       nonInteractive?: boolean // If true, makes the field non-editable (display only)
+      linkifyUrls?: boolean // If true, automatically converts URLs to clickable links in display mode (default: false)
     }
   | { 
       type: 'badge'
@@ -225,6 +226,68 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       return value
     }
 
+    // URL detection and linkification utility for multiline text
+    const linkifyText = (text: string): React.ReactNode[] => {
+      if (!text) return []
+      
+      // URL regex pattern: matches http://, https://, www., and domain patterns
+      // Also handles URLs that may be followed by punctuation
+      const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+[^\s]*)/gi
+      
+      const parts: React.ReactNode[] = []
+      let lastIndex = 0
+      let match
+      
+      while ((match = urlRegex.exec(text)) !== null) {
+        // Add text before the URL
+        if (match.index > lastIndex) {
+          parts.push(text.substring(lastIndex, match.index))
+        }
+        
+        // Extract the URL
+        let url = match[0]
+        
+        // Remove trailing punctuation that shouldn't be part of the URL
+        // But keep punctuation that's commonly part of URLs (/, ?, &, =, etc.)
+        url = url.replace(/[.,;:!?]+$/, '')
+        
+        // Ensure www. URLs have http:// prefix
+        let href = url
+        if (url.startsWith('www.')) {
+          href = `https://${url}`
+        } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
+          href = `https://${url}`
+        }
+        
+        // Add the link element
+        parts.push(
+          React.createElement('a', {
+            key: `link-${match.index}`,
+            href: href,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            onClick: (e: React.MouseEvent) => e.stopPropagation(), // Prevent triggering inline edit
+            style: {
+              color: 'var(--color-interactive-neutral-default)',
+              textDecoration: 'underline',
+              textDecorationColor: 'var(--color-interactive-neutral-default)',
+              cursor: 'pointer'
+            },
+            className: 'hover:opacity-80'
+          }, url)
+        )
+        
+        lastIndex = match.index + match[0].length
+      }
+      
+      // Add remaining text after last URL
+      if (lastIndex < text.length) {
+        parts.push(text.substring(lastIndex))
+      }
+      
+      return parts.length > 0 ? parts : [text]
+    }
+
     if (isEditing) {
       // Multi-line editing with textarea
       const multiline = 'multiline' in props ? props.multiline : false
@@ -286,7 +349,11 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
             onBlur={handleSave}
             placeholder={props.editingPlaceholder || props.placeholder}
             maxLength={props.maxLength}
-            style={props.style || {}}
+            style={{
+              ...(props.style || {}),
+              overflowWrap: 'break-word',
+              wordBreak: 'break-word'
+            }}
             className={cn(
               "resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-1 py-1 rounded-sm !min-h-0",
               props.textClass || "text-sm-regular",
@@ -326,6 +393,16 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     }
 
     const multiline = 'multiline' in props ? props.multiline : false
+    const linkifyUrls = 'linkifyUrls' in props ? props.linkifyUrls : false
+    const displayValue = formatDisplayValue(props.value)
+    
+    // For multiline text with linkifyUrls enabled, apply linkification to make URLs clickable
+    const renderedContent = multiline && linkifyUrls && props.value ? (
+      <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {linkifyText(props.value)}
+      </span>
+    ) : displayValue
+    
     return (
       <div
         className={cn(
@@ -339,11 +416,12 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
         style={{
           cursor: props.nonInteractive ? 'default' : 'pointer',
           ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {}),
+          ...(multiline ? { overflowWrap: 'break-word', wordBreak: 'break-word' } : {}),
           ...(props.style || {})
         }}
         onClick={() => !props.nonInteractive && setIsEditing(true)}
       >
-        {formatDisplayValue(props.value)}
+        {renderedContent}
       </div>
     )
   }
@@ -377,7 +455,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       }
       
       if (props.badgeComponent === 'request') {
-        return <RequestBadge variant={tempValue as RequestVariant} size="sm" showText={true} />
+        return <RequestBadge variant={tempValue as RequestVariant} size="sm" showText={true} customLabel={displayLabel} />
       }
       
       // Default to neutral badge styling (like "Design" in request table)
@@ -458,7 +536,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
                         }
                         
                         if (props.badgeComponent === 'request') {
-                          return <RequestBadge variant={option.value as RequestVariant} size="sm" showText={true} />
+                          return <RequestBadge variant={option.value as RequestVariant} size="sm" showText={true} customLabel={option.label} />
                         }
                         
                         return (

@@ -4,14 +4,16 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useEffect, useRef } from 'react';
+import { Badge } from '@/components/ui/badge';
 
 interface ConnectionTabsProps {
   connectionId: string;
   baseRoute: 'clients' | 'agencies';
   currentUserType: 'agency' | 'client';
+  newRequestsCount?: number;
 }
 
-export function ConnectionTabs({ connectionId, baseRoute, currentUserType }: ConnectionTabsProps) {
+export function ConnectionTabs({ connectionId, baseRoute, currentUserType, newRequestsCount }: ConnectionTabsProps) {
   const pathname = usePathname();
   const previousPathnameRef = useRef(pathname);
 
@@ -108,7 +110,14 @@ export function ConnectionTabs({ connectionId, baseRoute, currentUserType }: Con
                     ? { font: 'var(--typography-text-sm-medium)', borderRadius: 'var(--radius-1, 3px)' } 
                     : { font: 'var(--typography-text-sm-regular)', borderRadius: 'var(--radius-1, 3px)' }}
                 >
+                  <span className="inline-flex items-center gap-2">
                   {tab.name}
+                    {tab.name === 'Requests' && currentUserType === 'agency' && newRequestsCount !== undefined && newRequestsCount > 0 && (
+                      <Badge variant="neutral">
+                        {newRequestsCount}
+                      </Badge>
+                    )}
+                  </span>
                 </span>
               </span>
             </Link>

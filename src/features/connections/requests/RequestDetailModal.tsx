@@ -20,6 +20,11 @@ interface RequestDetailModalProps {
       name: string
       logoUrl?: string
     }
+    agency?: {
+      id: string
+      name: string
+      logoUrl?: string
+    }
     submittedBy?: {
       id: string
       name: string
@@ -36,6 +41,7 @@ interface RequestDetailModalProps {
     status?: 'new' | 'in_review' | 'accepted' | 'canceled'
     createdAt?: string
     createdByOrgId?: string
+    createdByOrgType?: 'agency' | 'client'
   } | null
   agencyMembers?: Array<{
     id: string
@@ -52,20 +58,55 @@ interface RequestDetailModalProps {
   onRequestDeleted?: (requestId: string) => void
   connectionId: string
   currentOrgId: string
+  variant?: 'agency' | 'client'
+  activeUser?: {
+    id: string
+    firstName: string
+    lastName: string
+    avatarUrl?: string
+  }
+  initialComments?: Array<{
+    id: string
+    userId: string
+    userName: string
+    userAvatar?: string
+    createdAt: Date
+    text: string
+  }>
+  onCommentsUpdate?: (comments: Array<{
+    id: string
+    userId: string
+    userName: string
+    userAvatar?: string
+    createdAt: Date
+    text: string
+  }>) => void
 }
 
-export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, onClose, onExpand, onRequestUpdate, onRequestDeleted, connectionId, currentOrgId }: RequestDetailModalProps) {
+export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, onClose, onExpand, onRequestUpdate, onRequestDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailModalProps) {
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
-  // Determine if this is a client-submitted request (locked for editing)
-  const isClientSubmitted = requestData?.createdByOrgId && requestData.createdByOrgId !== currentOrgId
+  // Determine if the request is locked for editing based on view context and organization type
+  // Agency view: locked if created by client
+  // Client view: locked if created by agency
+  const isLocked = (() => {
+    if (!requestData?.createdByOrgType) return false
+    if (variant === 'agency') {
+      return requestData.createdByOrgType === 'client'
+    } else {
+      return requestData.createdByOrgType === 'agency'
+    }
+  })()
   
-  // Determine dialog title based on who created the request
+  // Determine dialog title based on organization type that created the request
   const getDialogTitle = () => {
-    if (!requestData?.createdByOrgId) return 'Request'
+    if (!requestData?.createdByOrgType) return 'Request'
     
-    const isAgencyCreated = requestData.createdByOrgId === currentOrgId
-    return isAgencyCreated ? 'Request — Agency created' : 'Request — Client submitted'
+    if (requestData.createdByOrgType === 'agency') {
+      return variant === 'client' ? 'Request — Created by your agency' : 'Request — Agency created'
+    } else {
+      return variant === 'client' ? 'Request — Submitted to your agency' : 'Request — Client submitted'
+    }
   }
   
   // Handle delete request (optimistic)
@@ -100,7 +141,7 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
             <DialogTitle className="!text-[12px] !leading-[20px] !font-normal !tracking-[0.0025rem] !text-[var(--color-base-text-tertiary)]">
               {getDialogTitle()}
             </DialogTitle>
-            {isClientSubmitted && (
+            {isLocked && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="flex items-center justify-center">
@@ -113,7 +154,10 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="center" sideOffset={8}>
                   <div className="text-xs text-center">
-                    You can update status and assignee only
+                    {variant === 'client' 
+                      ? 'Created on your behalf. View and comment only.'
+                      : 'You can update status and assignee only'
+                    }
                   </div>
                 </TooltipContent>
               </Tooltip>
@@ -136,15 +180,17 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
-                  <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                  Convert to task
-                </DropdownMenuItem>
+                {variant === 'agency' && (
+                  <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                    <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                    Convert to task
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {!isClientSubmitted && (
+                {!isLocked && (
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 
@@ -190,6 +236,7 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
               title={requestData.title}
               description={requestData.description}
               client={requestData.client}
+              agency={requestData.agency}
               submittedBy={requestData.submittedBy}
               assignee={requestData.assignee}
               agencyMembers={agencyMembers}
@@ -198,7 +245,12 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
               createdAt={requestData.createdAt}
               onRequestUpdate={onRequestUpdate}
               createdByOrgId={requestData.createdByOrgId}
+              createdByOrgType={requestData.createdByOrgType}
               currentOrgId={currentOrgId}
+              variant={variant}
+              activeUser={activeUser}
+              initialComments={initialComments}
+              onCommentsUpdate={onCommentsUpdate}
             />
           </div>
         )}

@@ -1,5 +1,5 @@
 import { RequestDetailContent } from '@/features/connections/requests/RequestDetailContent'
-import { getRequestById, getAgencyMembersForConnection, getConnectionPartnerName } from '@/features/connections/server'
+import { getRequestById, getAgencyMembersForConnection, getConnectionPartnerName, getCommentsForRequest } from '@/features/connections/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { notFound } from 'next/navigation'
 
@@ -10,9 +10,10 @@ export default async function AgencyRequestDetailPage({
 }) {
   const { connectionId, requestId } = await params
   
-  // Fetch request data, agency members, and context in parallel
-  const [request, agencyMembers, context] = await Promise.all([
+  // Fetch request data, comments, agency members, and context in parallel
+  const [request, comments, agencyMembers, context] = await Promise.all([
     getRequestById(requestId, connectionId),
+    getCommentsForRequest(requestId),
     getAgencyMembersForConnection(connectionId),
     getActiveContext()
   ])
@@ -34,6 +35,7 @@ export default async function AgencyRequestDetailPage({
       title={request.title}
       description={request.description}
       client={request.client}
+      agency={request.agency}
       submittedBy={request.submittedBy}
       assignee={request.assignee}
       agencyMembers={agencyMembers}
@@ -42,9 +44,18 @@ export default async function AgencyRequestDetailPage({
       createdAt={request.createdAt}
       mode="page"
       createdByOrgId={request.createdByOrgId}
+      createdByOrgType={request.createdByOrgType}
       currentOrgId={context.organization.id}
       connectionId={connectionId}
       partnerName={partnerName || undefined}
+      variant={context.variant}
+      activeUser={context.user ? {
+        id: context.user.id,
+        firstName: context.user.firstName,
+        lastName: context.user.lastName,
+        avatarUrl: context.user.avatarUrl
+      } : undefined}
+      initialComments={comments}
     />
   )
 }

@@ -36,13 +36,32 @@ export function VirtualTableBody<T extends { id: string }>({
 }: VirtualTableBodyProps<T>) {
   // Empty state guard
   if (items.length === 0) {
+    // Parent supplied a custom empty state (e.g., true empty state with custom layout)
     if (emptyState) {
-      return <>{emptyState}</>
+      return (
+        <Table noWrapper className="table-fixed w-full border-collapse">
+          <TableBody>
+            {emptyState}
+          </TableBody>
+        </Table>
+      )
     }
+    // Default "No results" when filters return nothing
     return (
-      <div className="py-10 text-center text-[var(--color-base-text-tertiary)]">
-        No items found
-      </div>
+      <Table noWrapper className="table-fixed w-full border-collapse">
+        <TableBody>
+          <TableRow className="hover:bg-transparent">
+            <td 
+              colSpan={1000} 
+              className="text-center py-8"
+            >
+              <span className="text-sm-regular text-[var(--color-base-text-tertiary)]">
+                No results found
+              </span>
+            </td>
+          </TableRow>
+        </TableBody>
+      </Table>
     )
   }
 

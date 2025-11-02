@@ -99,6 +99,7 @@ export type ConnectionSnapshot = {
     avatarUrl?: string;
     jobTitle?: string;
   }>;
+  newRequestsCount?: number;
 };
 
 // Card configuration type (following home pattern)

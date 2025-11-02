@@ -15,7 +15,7 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
   ]);
 
   return (
-    <Card className="w-full gap-0">
+    <Card className="w-full gap-0 h-full">
       <RequestsPageClient 
         connectionId={connectionId} 
         initialRequests={requestsData.requests} 

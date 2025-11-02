@@ -8,6 +8,7 @@ export type StatusVariant = "new" | "in_review" | "accepted" | "canceled"
 interface StatusButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant: StatusVariant
   asChild?: boolean
+  customLabel?: string
 }
 
 const statusStyles = {
@@ -37,7 +38,7 @@ const statusStyles = {
   }
 }
 
-export function StatusButton({ variant, className, children, asChild = false, ...props }: StatusButtonProps) {
+export function StatusButton({ variant, className, children, asChild = false, customLabel, ...props }: StatusButtonProps) {
   const style = statusStyles[variant]
   
   const hoverClass = variant === 'canceled' 
@@ -45,6 +46,7 @@ export function StatusButton({ variant, className, children, asChild = false, ..
     : `hover:bg-[${style.hoverBg}]`
   
   const Comp = asChild ? Slot : "button"
+  const displayLabel = customLabel || style.label
   
   return (
     <Comp
@@ -59,7 +61,7 @@ export function StatusButton({ variant, className, children, asChild = false, ..
       }}
       {...props}
     >
-      <span>{style.label}</span>
+      <span>{displayLabel}</span>
       {children}
     </Comp>
   )

@@ -280,6 +280,21 @@ export const getConnectionSnapshot = cache(async (
     }
   }
   
+  // Fetch count of new requests for this connection (only for agency view)
+  let newRequestsCount: number | undefined = undefined;
+  if (currentUserType === 'agency') {
+    const { count, error: countError } = await supabase
+      .from('requests')
+      .select('*', { count: 'exact', head: true })
+      .eq('connection_id', connectionId)
+      .eq('status', 'new')
+      .is('deleted_at', null);
+    
+    if (!countError && count !== null) {
+      newRequestsCount = count;
+    }
+  }
+  
   return {
     connection: {
       id: connection.id,
@@ -317,7 +332,8 @@ export const getConnectionSnapshot = cache(async (
     },
     currentUserType,
     clientMembers,
-    agencyMembers
+    agencyMembers,
+    newRequestsCount
   };
 });
 
@@ -357,8 +373,14 @@ export interface Request {
     name: string
     logoUrl?: string
   }
+  agency?: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
   createdAt: string
   createdByOrgId: string
+  createdByOrgType?: 'agency' | 'client'
 }
 
 // Cache connection info separately to avoid duplicate fetches
@@ -384,11 +406,11 @@ export interface RequestsWithCount {
 
 export const getRequestsForConnection = cache(async (
   connectionId: string,
-  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string }
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; createdByUserId?: string }
 ): Promise<RequestsWithCount> => {
   const isDev = process.env.NODE_ENV !== 'production';
   const startTime = isDev ? performance.now() : 0;
-  const { limit = 50, offset = 0, searchQuery, assignedToUserId } = options || {};
+  const { limit = 50, offset = 0, searchQuery, assignedToUserId, createdByUserId } = options || {};
   const supabase = await createClient();
   
   // Fetch the connection info (cached, shared with getAgencyMembersForConnection)
@@ -408,14 +430,20 @@ export const getRequestsForConnection = cache(async (
     return { requests: [], totalCount: 0 };
   }
   
-  // Fetch client organization details (can run in parallel with requests query)
+  // Fetch client and agency organization details (can run in parallel with requests query)
   const clientOrgPromise = supabase
     .from('organizations')
     .select('id, name, logo_url')
     .eq('id', connection.client_id)
     .single();
   
-  // Fetch requests and client org in parallel (they don't depend on each other)
+  const agencyOrgPromise = supabase
+    .from('organizations')
+    .select('id, name, logo_url')
+    .eq('id', connection.agency_id)
+    .single();
+  
+  // Fetch requests and orgs in parallel (they don't depend on each other)
   const requestsStartTime = isDev ? performance.now() : 0;
   
   // Normalize search query for status matching
@@ -462,6 +490,10 @@ export const getRequestsForConnection = cache(async (
     baseQuery = baseQuery.eq('assignee_user_id', assignedToUserId);
   }
   
+  if (createdByUserId) {
+    baseQuery = baseQuery.eq('created_by_user_id', createdByUserId);
+  }
+  
   // Apply search filter if searchQuery is provided
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
@@ -499,6 +531,10 @@ export const getRequestsForConnection = cache(async (
     requestsQuery = requestsQuery.eq('assignee_user_id', assignedToUserId);
   }
   
+  if (createdByUserId) {
+    requestsQuery = requestsQuery.eq('created_by_user_id', createdByUserId);
+  }
+  
   // Apply search filter if searchQuery is provided
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
@@ -514,18 +550,20 @@ export const getRequestsForConnection = cache(async (
     requestsQuery = requestsQuery.or(orParts.join(','));
   }
   
-  const [countResult, requestsResult, clientOrgResult] = await Promise.all([
+  const [countResult, requestsResult, clientOrgResult, agencyOrgResult] = await Promise.all([
     baseQuery,
     requestsQuery
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1),
-    clientOrgPromise
+    clientOrgPromise,
+    agencyOrgPromise
   ]);
   
   const requestsTime = isDev ? performance.now() - requestsStartTime : 0;
   const { data: requests, error } = requestsResult;
   const { count, error: countError } = countResult;
   const { data: clientOrg, error: clientOrgError } = clientOrgResult;
+  const { data: agencyOrg, error: agencyOrgError } = agencyOrgResult;
   
   if (error) {
     if (isDev) {
@@ -552,45 +590,66 @@ export const getRequestsForConnection = cache(async (
     // Non-critical - we can continue with connection.client_id as fallback
   }
   
-  // Fetch all unique user IDs for submitted by and assignees
+  if (agencyOrgError && isDev) {
+    console.error('Error fetching agency organization:', agencyOrgError);
+    // Non-critical - we can continue with connection.agency_id as fallback
+  }
+  
+  // Fetch all unique user IDs for submitted by and assignees, and unique org IDs for created_by_org_id
   const userIds = new Set<string>();
+  const orgIds = new Set<string>();
   requests?.forEach(request => {
     if (request.created_by_user_id) userIds.add(request.created_by_user_id);
     if (request.assignee_user_id) userIds.add(request.assignee_user_id);
+    if (request.created_by_org_id) orgIds.add(request.created_by_org_id);
   });
   
-  // Fetch user profiles and memberships in parallel (they don't depend on each other)
+  // Fetch user profiles, memberships, and organization types in parallel
   let profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
   let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  let orgTypeMap: Record<string, 'agency' | 'client'> = {};
   let parallelTime = 0;
-  if (userIds.size > 0) {
+  if (userIds.size > 0 || orgIds.size > 0) {
     const userIdArray = Array.from(userIds);
+    const orgIdArray = Array.from(orgIds);
     
-    // Run both queries in parallel
+    // Run all queries in parallel
     const parallelStartTime = isDev ? performance.now() : 0;
-    const [profilesResult, membershipsResult] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('id, first_name, last_name, email, avatar_url, job_title')
-        .in('id', userIdArray),
-      supabase
-        .from('memberships')
-        .select(`
-          user_id,
-          org_id,
-          organizations!inner(
-            id,
-            name,
-            logo_url
-          )
-        `)
-        .in('user_id', userIdArray)
+    const profilesPromise = supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, avatar_url, job_title')
+      .in('id', userIdArray);
+    
+    const membershipsPromise = supabase
+      .from('memberships')
+      .select(`
+        user_id,
+        org_id,
+        organizations!inner(
+          id,
+          name,
+          logo_url
+        )
+      `)
+      .in('user_id', userIdArray);
+    
+    const orgTypesPromise = orgIdArray.length > 0
+      ? supabase
+          .from('organizations')
+          .select('id, type')
+          .in('id', orgIdArray)
+      : Promise.resolve({ data: null, error: null });
+    
+    const [profilesResult, membershipsResult, orgTypesResult] = await Promise.all([
+      profilesPromise,
+      membershipsPromise,
+      orgTypesPromise
     ]);
     parallelTime = isDev ? performance.now() - parallelStartTime : 0;
     
     // Process profiles
     if (!profilesResult.error && profilesResult.data) {
-      profilesMap = profilesResult.data.reduce((acc, profile) => {
+      profilesMap = profilesResult.data.reduce((acc: typeof profilesMap, profile: { id: string; first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }) => {
         acc[profile.id] = profile;
         return acc;
       }, {} as typeof profilesMap);
@@ -598,7 +657,7 @@ export const getRequestsForConnection = cache(async (
     
     // Process memberships
     if (!membershipsResult.error && membershipsResult.data) {
-      membershipsResult.data.forEach(membership => {
+      membershipsResult.data.forEach((membership: { user_id: string; org_id: string; organizations: { id: string; name: string; logo_url?: string } | { id: string; name: string; logo_url?: string }[] }) => {
         const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
         if (org) {
           userOrgMap[membership.user_id] = {
@@ -606,6 +665,15 @@ export const getRequestsForConnection = cache(async (
             orgName: org.name,
             orgLogo: org.logo_url || undefined
           };
+        }
+      });
+    }
+    
+    // Process organization types
+    if (orgTypesResult && !orgTypesResult.error && orgTypesResult.data) {
+      orgTypesResult.data.forEach((org: { id: string; type: string }) => {
+        if (org.type === 'agency' || org.type === 'client') {
+          orgTypeMap[org.id] = org.type as 'agency' | 'client';
         }
       });
     }
@@ -646,6 +714,11 @@ export const getRequestsForConnection = cache(async (
         name: clientOrg?.name || 'Unknown Client',
         logoUrl: clientOrg?.logo_url
       },
+      agency: {
+        id: agencyOrg?.id || connection.agency_id,
+        name: agencyOrg?.name || 'Unknown Agency',
+        logoUrl: agencyOrg?.logo_url
+      },
       createdAt: request.created_at ? (() => {
         const date = new Date(request.created_at);
         const day = date.getDate();
@@ -653,7 +726,8 @@ export const getRequestsForConnection = cache(async (
         const year = date.getFullYear();
         return `${day} ${month} ${year}`;
       })() : '',
-      createdByOrgId: request.created_by_org_id
+      createdByOrgId: request.created_by_org_id,
+      createdByOrgType: request.created_by_org_id ? orgTypeMap[request.created_by_org_id] : undefined
     };
   });
   
@@ -793,10 +867,10 @@ export const getRequestById = cache(async (
     console.log('getRequestById called with:', { requestId, connectionId });
   }
   
-  // Fetch the connection to get client_id
+  // Fetch the connection to get client_id and agency_id
   const { data: connection, error: connectionError } = await supabase
     .from('connections')
-    .select('client_id')
+    .select('client_id, agency_id')
     .eq('id', connectionId)
     .single();
   
@@ -817,17 +891,29 @@ export const getRequestById = cache(async (
     return null;
   }
   
-  // Fetch client organization details
-  const { data: clientOrg, error: clientOrgError } = await supabase
-    .from('organizations')
-    .select('id, name, logo_url')
-    .eq('id', connection.client_id)
-    .single();
+  // Fetch client and agency organization details in parallel
+  const [clientOrgResult, agencyOrgResult] = await Promise.all([
+    supabase
+      .from('organizations')
+      .select('id, name, logo_url')
+      .eq('id', connection.client_id)
+      .single(),
+    supabase
+      .from('organizations')
+      .select('id, name, logo_url')
+      .eq('id', connection.agency_id)
+      .single()
+  ]);
   
-  if (clientOrgError) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('Error fetching client organization:', clientOrgError);
-    }
+  const { data: clientOrg, error: clientOrgError } = clientOrgResult;
+  const { data: agencyOrg, error: agencyOrgError } = agencyOrgResult;
+  
+  if (clientOrgError && process.env.NODE_ENV !== 'production') {
+    console.error('Error fetching client organization:', clientOrgError);
+  }
+  
+  if (agencyOrgError && process.env.NODE_ENV !== 'production') {
+    console.error('Error fetching agency organization:', agencyOrgError);
   }
   
   // Fetch the specific request
@@ -960,6 +1046,11 @@ export const getRequestById = cache(async (
       name: clientOrg?.name || 'Unknown Client',
       logoUrl: clientOrg?.logo_url
     },
+    agency: {
+      id: agencyOrg?.id || connection.agency_id,
+      name: agencyOrg?.name || 'Unknown Agency',
+      logoUrl: agencyOrg?.logo_url
+    },
     createdAt: request.created_at ? (() => {
       const date = new Date(request.created_at);
       const day = date.getDate();
@@ -967,6 +1058,154 @@ export const getRequestById = cache(async (
       const year = date.getFullYear();
       return `${day} ${month} ${year}`;
     })() : '',
-    createdByOrgId: request.created_by_org_id
+    createdByOrgId: request.created_by_org_id,
+    createdByOrgType: request.created_by_org_id ? (await supabase
+      .from('organizations')
+      .select('type')
+      .eq('id', request.created_by_org_id)
+      .single()).data?.type as 'agency' | 'client' | undefined : undefined
   };
+});
+
+export interface Comment {
+  id: string
+  userId: string
+  userName: string
+  userAvatar?: string
+  createdAt: Date
+  text: string
+}
+
+/**
+ * Get all comments for a request, excluding soft-deleted ones
+ */
+export const getCommentsForRequest = cache(async (
+  requestId: string
+): Promise<Comment[]> => {
+  const supabase = await createClient();
+  
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('getCommentsForRequest called with:', { requestId });
+  }
+  
+  const { data: comments, error } = await supabase
+    .from('request_comments')
+    .select(`
+      id,
+      body,
+      created_at,
+      created_by_user_id,
+      profiles!request_comments_created_by_user_id_fkey (
+        first_name,
+        last_name,
+        avatar_url
+      )
+    `)
+    .eq('request_id', requestId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+  
+  if (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching comments:', error);
+    }
+    return [];
+  }
+  
+  if (!comments || comments.length === 0) {
+    return [];
+  }
+  
+  // Transform the data to match the Comment interface
+  const formattedComments: Comment[] = comments.map(comment => {
+    const profile = Array.isArray(comment.profiles) ? comment.profiles[0] : comment.profiles;
+    const firstName = profile?.first_name || '';
+    const lastName = profile?.last_name || '';
+    const fullName = `${firstName} ${lastName}`.trim() || 'Unknown User';
+    
+    return {
+      id: comment.id,
+      userId: comment.created_by_user_id,
+      userName: fullName,
+      userAvatar: profile?.avatar_url || undefined,
+      createdAt: new Date(comment.created_at),
+      text: comment.body
+    };
+  });
+  
+  return formattedComments;
+});
+
+/**
+ * Get all comments for multiple requests, excluding soft-deleted ones
+ * Returns a map keyed by requestId for instant lookup
+ */
+export const getCommentsForRequests = cache(async (
+  requestIds: string[]
+): Promise<Record<string, Comment[]>> => {
+  if (!requestIds.length) {
+    return {};
+  }
+
+  const supabase = await createClient();
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('getCommentsForRequests called with:', { requestIds: requestIds.length });
+  }
+
+  const { data: comments, error } = await supabase
+    .from('request_comments')
+    .select(`
+      id,
+      body,
+      created_at,
+      created_by_user_id,
+      request_id,
+      profiles!request_comments_created_by_user_id_fkey (
+        first_name,
+        last_name,
+        avatar_url
+      )
+    `)
+    .in('request_id', requestIds)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching comments:', error);
+    }
+    return {};
+  }
+
+  if (!comments || comments.length === 0) {
+    return {};
+  }
+
+  // Transform the data to match the Comment interface and group by request_id
+  const groupedComments: Record<string, Comment[]> = {};
+
+  comments.forEach(comment => {
+    const profile = Array.isArray(comment.profiles) ? comment.profiles[0] : comment.profiles;
+    const firstName = profile?.first_name || '';
+    const lastName = profile?.last_name || '';
+    const fullName = `${firstName} ${lastName}`.trim() || 'Unknown User';
+
+    const formattedComment: Comment = {
+      id: comment.id,
+      userId: comment.created_by_user_id,
+      userName: fullName,
+      userAvatar: profile?.avatar_url || undefined,
+      createdAt: new Date(comment.created_at),
+      text: comment.body
+    };
+
+    const requestId = comment.request_id;
+    if (!groupedComments[requestId]) {
+      groupedComments[requestId] = [];
+    }
+    groupedComments[requestId].push(formattedComment);
+  });
+
+  return groupedComments;
 });

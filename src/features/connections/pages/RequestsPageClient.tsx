@@ -7,8 +7,8 @@ import { useConnection } from '../ConnectionContext';
 import RequestsTable from '../requests/RequestsTable';
 import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
-import type { Request } from '../server';
-import { fetchRequestsForConnection, fetchRequestById } from '../requests/actions';
+import type { Request, Comment } from '../server';
+import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequest, fetchCommentsForRequests } from '../requests/actions';
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../requests/constants';
 
 interface RequestsPageClientProps {
@@ -27,7 +27,7 @@ interface RequestsPageClientProps {
 
 // Client component wrapper that handles all client-side interactivity
 export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, agencyMembers }: RequestsPageClientProps) {
-  const { snapshot, context } = useConnection();
+  const { snapshot, context, setIsEmpty, setNewRequestsCount } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -46,8 +46,11 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const [requests, setRequests] = useState<Request[]>(initiallyAssigned ? [] : initialRequests)
   // Optimistic new requests disabled (relying on real-time updates)
   
-  // Total count state
+  // Total count state (filtered)
   const [totalCount, setTotalCount] = useState<number>(initiallyAssigned ? 0 : initialTotalCount)
+  
+  // Unfiltered total count state (total requests for connection regardless of filters)
+  const [unfilteredTotalCount, setUnfilteredTotalCount] = useState<number>(initialTotalCount)
   
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -79,6 +82,34 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const isMountedRef = useRef(true)
   // no optimistic reconcile attempts (disabled)
   
+  // Comments map keyed by requestId for instant lookup
+  const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>({})
+  
+  // Fetch unfiltered total count on mount
+  useEffect(() => {
+    const fetchUnfilteredCount = async () => {
+      try {
+        const result = await fetchRequestsForConnection(connectionId, {
+          limit: 1, // We only need the count, not the data
+          offset: 0
+          // No filters - this gives us the total count for the connection
+        })
+        if (!isMountedRef.current) return
+        setUnfilteredTotalCount(result.totalCount)
+      } catch (error) {
+        if (isDev()) {
+          console.error('Failed to fetch unfiltered count:', error)
+        }
+      }
+    }
+    fetchUnfilteredCount()
+  }, [connectionId])
+
+  // Update isEmpty in context when unfilteredTotalCount changes
+  useEffect(() => {
+    setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
+  }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
+  
   // DRY: refresh first page (used by realtime fallback and deletes under search)
   const refreshFirstPage = useCallback(async () => {
     try {
@@ -86,7 +117,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         limit: PAGE_SIZE,
         offset: 0,
         searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe ? context.user?.id : undefined
+        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
       })
       if (!isMountedRef.current) return
       setRequests(result.requests)
@@ -133,6 +165,24 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
   }, [])
 
+  // Fetch comments for initial requests on mount
+  useEffect(() => {
+    const initialIds = initialRequests.map(r => r.id)
+    if (initialIds.length > 0) {
+      fetchCommentsForRequests(initialIds)
+        .then(map => {
+          if (isMountedRef.current) {
+            setCommentsByRequest(map)
+          }
+        })
+        .catch(error => {
+          if (isDev()) {
+            console.error('Error fetching initial comments:', error)
+          }
+        })
+    }
+  }, [])
+
   // Helper to merge arrays by id while preserving order and uniqueness
   function mergeUniqueById<T extends { id: string }>(base: T[], incoming: T[]): T[] {
     const seen = new Set(base.map(i => i.id))
@@ -167,7 +217,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             limit: PAGE_SIZE,
             offset: 0,
             searchQuery: debouncedSearchQuery || undefined,
-            assignedToUserId: context.user?.id
+            assignedToUserId: context.variant === 'agency' ? context.user?.id : undefined,
+            createdByUserId: context.variant === 'client' ? context.user?.id : undefined
           })
           if (!isMountedRef.current) return
           setRequests(result.requests)
@@ -205,7 +256,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           limit: PAGE_SIZE,
           offset: 0,
           searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: assignedToMe ? context.user?.id : undefined
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
         })
 
         if (isMountedRef.current) {
@@ -285,7 +337,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         limit: PAGE_SIZE, 
         offset,
         searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe ? context.user?.id : undefined
+        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
       })
       
       // Clear timeout - only if we still own this request
@@ -354,6 +407,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             if (!req) return
             prependUnique(req)
             setTotalCount(c => c + 1)
+            setUnfilteredTotalCount(c => c + 1)
           } catch (_) {
             // fallback to full refresh if single-row fetch fails
             await refreshFirstPage()
@@ -374,7 +428,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           // Handle soft delete locally
           if (updated.deleted_at) {
             const wasRemoved = removeById(updated.id)
-            if (wasRemoved) setTotalCount(c => Math.max(0, c - 1))
+            if (wasRemoved) {
+              setTotalCount(c => Math.max(0, c - 1))
+              setUnfilteredTotalCount(c => Math.max(0, c - 1))
+            }
             return
           }
           // For non-delete updates, we can refresh or fetch single row; keep it simple: fetch single row and merge
@@ -429,6 +486,22 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         setCurrentOffset(nextOffset)
       }
       
+      // Fetch comments for the new requests
+      const newIds = prefetchedRequests.map(r => r.id)
+      if (newIds.length > 0) {
+        fetchCommentsForRequests(newIds)
+          .then(map => {
+            if (isMountedRef.current) {
+              setCommentsByRequest(prev => ({ ...prev, ...map }))
+            }
+          })
+          .catch(error => {
+            if (isDev()) {
+              console.error('Error fetching comments for prefetched requests:', error)
+            }
+          })
+      }
+      
       // Clear prefetched data
       setPrefetchedRequests([])
       setPrefetchedOffset(null)
@@ -475,7 +548,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         limit: PAGE_SIZE, 
         offset: currentOffset,
         searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe ? context.user?.id : undefined
+        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
       })
       
       // Only update state if component is still mounted
@@ -491,6 +565,23 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           setTotalCount(result.totalCount)
           const nextOffset = currentOffset + PAGE_SIZE
           setCurrentOffset(nextOffset)
+          
+          // Fetch comments for the new requests
+          const newIds = result.requests.map(r => r.id)
+          if (newIds.length > 0) {
+            fetchCommentsForRequests(newIds)
+              .then(map => {
+                if (isMountedRef.current) {
+                  setCommentsByRequest(prev => ({ ...prev, ...map }))
+                }
+              })
+              .catch(error => {
+                if (isDev()) {
+                  console.error('Error fetching comments for on-demand requests:', error)
+                }
+              })
+          }
+          
           // If we got fewer than PAGE_SIZE, there are no more
           if (result.requests.length < PAGE_SIZE) {
             setHasMore(false)
@@ -524,15 +615,23 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     else newSearchParams.delete('assigned')
     const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
     router.replace(newUrl, { scroll: false })
-    // Reset pagination and fetch first page
-    setIsBootstrapping(true)
-    ;(async () => {
+    
+    // Cancel all in-flight requests
+    inFlightRequests.current.clear()
+    isLoadingMore.current = false
+    // Clear all prefetch timeouts
+    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
+    prefetchTimeouts.current.clear()
+    
+    // Fetch new results (keep previous results visible during fetch, like search)
+    const fetchFilteredResults = async () => {
       try {
         const result = await fetchRequestsForConnection(connectionId, {
           limit: PAGE_SIZE,
           offset: 0,
           searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: next ? context.user?.id : undefined
+          assignedToUserId: next && context.variant === 'agency' ? context.user?.id : undefined,
+          createdByUserId: next && context.variant === 'client' ? context.user?.id : undefined
         })
         if (!isMountedRef.current) return
         setRequests(result.requests)
@@ -541,12 +640,18 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         setCurrentOffset(PAGE_SIZE)
         setPrefetchedRequests([])
         setPrefetchedOffset(null)
-      } catch (_) {
-      } finally {
-        setIsBootstrapping(false)
+      } catch (error) {
+        if (isDev()) {
+          console.error('Failed to fetch filtered results:', error)
+        }
+        if (isMountedRef.current) {
+          setHasMore(false)
+        }
       }
-    })()
-  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id])
+    }
+    
+    fetchFilteredResults()
+  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id, context.variant])
 
   // Prefetch next batch when initial requests load or after consuming prefetched data
   useEffect(() => {
@@ -593,6 +698,11 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       name: string
       logoUrl?: string
     }
+    agency?: {
+      id: string
+      name: string
+      logoUrl?: string
+    }
     submittedBy?: {
       id: string
       name: string
@@ -609,15 +719,27 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     status?: 'new' | 'in_review' | 'accepted' | 'canceled'
     createdAt?: string
     createdByOrgId?: string
+    createdByOrgType?: 'agency' | 'client'
   } | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isNewModalOpen, setIsNewModalOpen] = useState(false)
+  const [selectedRequestComments, setSelectedRequestComments] = useState<Array<{
+    id: string
+    userId: string
+    userName: string
+    userAvatar?: string
+    createdAt: Date
+    text: string
+  }>>([])
 
   function getRequestById(requestId: string) {
     return requests.find(r => r.id === requestId)
   }
 
   function handleRequestUpdate(requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' }) {
+    // Get the original request to compare status changes
+    const originalRequest = requests.find(r => r.id === requestId)
+    
     // Update requests list optimistically
     setRequests(prevRequests =>
       prevRequests.map(req =>
@@ -633,25 +755,82 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         ? { ...prev, ...updates }
         : prev
     )
+    
+    // Update badge count for agency view if status changed
+    if (context.variant === 'agency' && updates.status && originalRequest) {
+      const wasNew = originalRequest.status === 'new'
+      const isNowNew = updates.status === 'new'
+      
+      // Increment count if status changed TO 'new'
+      if (!wasNew && isNowNew) {
+        setNewRequestsCount(prev => (prev || 0) + 1)
+      }
+      // Decrement count if status changed FROM 'new'
+      else if (wasNew && !isNowNew) {
+        setNewRequestsCount(prev => Math.max(0, (prev || 0) - 1))
+      }
+    }
   }
 
   function handleRowClick(requestId: string) {
     const request = getRequestById(requestId)
     if (request) {
+      // Get comments from pre-fetched map (instant, no fetch)
+      const comments = commentsByRequest[requestId] ?? []
+      
+      // Optional fallback: if comments not found in cache (edge case), lazy-load that one request
+      if (!(requestId in commentsByRequest)) {
+        // Comments not in cache yet (edge case), fetch just this one
+        fetchCommentsForRequest(requestId)
+          .then(fetchedComments => {
+            if (isMountedRef.current) {
+              setCommentsByRequest(prev => ({ ...prev, [requestId]: fetchedComments }))
+              setSelectedRequestComments(fetchedComments)
+            }
+          })
+          .catch(() => {
+            // Keep empty array on error
+            if (isMountedRef.current) {
+              setSelectedRequestComments([])
+            }
+          })
+      }
+      
+      // Open modal immediately with request data and comments
       setSelectedRequest({
         requestId: request.id,
         title: request.title,
         description: request.description,
         client: request.client,
+        agency: request.agency,
         submittedBy: request.submittedBy,
         assignee: request.assignee,
         type: request.type,
         status: request.status,
         createdAt: request.createdAt,
-        createdByOrgId: request.createdByOrgId
+        createdByOrgId: request.createdByOrgId,
+        createdByOrgType: request.createdByOrgType
       })
+      setSelectedRequestComments(comments)
       setIsModalOpen(true)
     }
+  }
+
+  function handleTableRequestDeleted(requestId: string) {
+    // Get the deleted request to check if it was 'new' status
+    const deletedRequest = requests.find(r => r.id === requestId)
+    
+    // Optimistically remove request from table
+    setRequests(prev => prev.filter(r => r.id !== requestId))
+    
+    // Update badge count if deleted request was 'new' status in agency view
+    if (context.variant === 'agency' && deletedRequest?.status === 'new') {
+      setNewRequestsCount(prev => Math.max(0, (prev || 0) - 1))
+    }
+    
+    // Decrement total count
+    setTotalCount(c => Math.max(0, c - 1))
+    setUnfilteredTotalCount(c => Math.max(0, c - 1))
   }
 
   function handleModalClose() {
@@ -660,6 +839,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     // Small delay to let animation finish
     setTimeout(() => {
       setSelectedRequest(null)
+      setSelectedRequestComments([])
     }, 300)
   }
 
@@ -723,7 +903,13 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
 
     setRequests(prev => [optimisticRow, ...prev])
     setTotalCount(c => c + 1)
-  }, [connectionId, context.user, context.organization, snapshot.partner])
+    setUnfilteredTotalCount(c => c + 1)
+    
+    // Optimistically update badge count for agency view
+    if (context.variant === 'agency') {
+      setNewRequestsCount(prev => (prev || 0) + 1)
+    }
+  }, [connectionId, context.user, context.organization, snapshot.partner, context.variant, setNewRequestsCount])
 
   async function handleRequestCreated({ requestId, tempId }: { requestId: string; tempId?: string }) {
     try {
@@ -746,6 +932,12 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         // no-op for count
       } else {
         setTotalCount(c => c + 1)
+        setUnfilteredTotalCount(c => c + 1)
+      }
+      
+      // Update badge count if request is new and we're in agency view (only if no temp was present)
+      if (!tempId && context.variant === 'agency' && req.status === 'new') {
+        setNewRequestsCount(prev => (prev || 0) + 1)
       }
     } catch (error) {
       if (isDev()) {
@@ -772,10 +964,18 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           onLoadMore={handleLoadMore}
         onSearchChange={setSearchQuery}
         totalCount={totalCount}
+        unfilteredTotalCount={unfilteredTotalCount}
           parentRef={parentRef}
         assignedToMe={assignedToMe}
         onToggleAssignedToMe={handleToggleAssignedToMe}
         isBootstrapping={isBootstrapping}
+        isAgency={context.variant === 'agency'}
+        agencyOrganization={context.variant === 'client' ? {
+          id: snapshot.agency.id,
+          name: snapshot.agency.name,
+          logoUrl: snapshot.agency.logo || undefined
+        } : undefined}
+        onRequestDeleted={handleTableRequestDeleted}
       />
       </div>
 
@@ -787,9 +987,33 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         onClose={handleModalClose}
         onExpand={handleExpand}
         onRequestUpdate={handleRequestUpdate}
+        onCommentsUpdate={(comments) => {
+          // Update comments cache when comments are created/deleted in modal
+          if (selectedRequest?.requestId) {
+            setCommentsByRequest(prev => ({
+              ...prev,
+              [selectedRequest.requestId]: comments
+            }))
+            // Also update selectedRequestComments so modal shows updated comments immediately
+            setSelectedRequestComments(comments)
+          }
+        }}
         onRequestDeleted={(requestId) => {
+          // Get the deleted request to check if it was 'new' status
+          const deletedRequest = requests.find(r => r.id === requestId)
+          
           // Optimistically remove request from table
           setRequests(prev => prev.filter(r => r.id !== requestId))
+          
+          // Update badge count if deleted request was 'new' status in agency view
+          if (context.variant === 'agency' && deletedRequest?.status === 'new') {
+            setNewRequestsCount(prev => Math.max(0, (prev || 0) - 1))
+          }
+          
+          // Decrement counts
+          setTotalCount(c => Math.max(0, c - 1))
+          setUnfilteredTotalCount(c => Math.max(0, c - 1))
+          
           // Safety: reconcile with DB shortly after in case delete fails or is delayed
           setTimeout(async () => {
             try {
@@ -810,6 +1034,14 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         }}
         connectionId={connectionId}
         currentOrgId={currentOrgId}
+        variant={context.variant}
+        activeUser={context.user ? {
+          id: context.user.id,
+          firstName: context.user.firstName,
+          lastName: context.user.lastName,
+          avatarUrl: context.user.avatarUrl
+        } : undefined}
+        initialComments={selectedRequestComments}
       />
       
       {/* New Request Modal - For creating new requests */}
@@ -826,6 +1058,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         onRequestCreated={handleRequestCreated}
         connectionId={connectionId}
         currentOrgId={currentOrgId}
+        variant={context.variant}
       />
     </>
   );

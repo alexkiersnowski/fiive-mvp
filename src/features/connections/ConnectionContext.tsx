@@ -1,12 +1,16 @@
 'use client'
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState, Dispatch, SetStateAction } from 'react';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 
 interface ConnectionContextValue {
   snapshot: ConnectionSnapshot;
   context: EnhancedModeContext;
+  isEmpty: boolean;
+  setIsEmpty: Dispatch<SetStateAction<boolean>>;
+  newRequestsCount: number | undefined;
+  setNewRequestsCount: Dispatch<SetStateAction<number | undefined>>;
 }
 
 const ConnectionContext = createContext<ConnectionContextValue | null>(null);
@@ -15,9 +19,12 @@ export function ConnectionProvider({
   snapshot, 
   context, 
   children 
-}: ConnectionContextValue & { children: React.ReactNode }) {
+}: { snapshot: ConnectionSnapshot; context: EnhancedModeContext; children: React.ReactNode }) {
+  const [isEmpty, setIsEmpty] = useState(false);
+  const [newRequestsCount, setNewRequestsCount] = useState(snapshot.newRequestsCount);
+  
   return (
-    <ConnectionContext.Provider value={{ snapshot, context }}>
+    <ConnectionContext.Provider value={{ snapshot, context, isEmpty, setIsEmpty, newRequestsCount, setNewRequestsCount }}>
       {children}
     </ConnectionContext.Provider>
   );

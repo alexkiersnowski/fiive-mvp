@@ -13,6 +13,7 @@ interface RequestBadgeProps {
   children?: React.ReactNode
   showText?: boolean
   showIconRight?: boolean
+  customLabel?: string
 }
 
 const requestStyles = {
@@ -56,7 +57,7 @@ const tooltipLabels = {
   canceled: "Canceled"
 }
 
-export function RequestBadge({ variant, size = "sm", className, showText = false, showIconRight = false }: RequestBadgeProps) {
+export function RequestBadge({ variant, size = "sm", className, showText = false, showIconRight = false, customLabel }: RequestBadgeProps) {
   // Validate variant and provide fallback
   const validVariant = Object.keys(requestStyles).includes(variant) ? variant : 'new'
   
@@ -69,6 +70,7 @@ export function RequestBadge({ variant, size = "sm", className, showText = false
     : {}
   
   const textClass = size === "lg" ? "text-sm-medium" : "text-xs"
+  const displayLabel = customLabel || tooltipLabels[variant]
 
   return (
     <Badge
@@ -78,7 +80,7 @@ export function RequestBadge({ variant, size = "sm", className, showText = false
     >
       {showText && (
         <span style={{ color: textColorStyles.color }} className="truncate">
-          {tooltipLabels[variant]}
+          {displayLabel}
         </span>
       )}
       {showIconRight && size === "lg" && (

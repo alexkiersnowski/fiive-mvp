@@ -35,9 +35,10 @@ interface NewRequestModalProps {
   onRequestCreated?: (payload: { requestId: string; tempId?: string }) => void
   connectionId: string
   currentOrgId: string
+  variant?: 'agency' | 'client'
 }
 
-export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, onRequestOptimistic, onRequestCreated, connectionId, currentOrgId }: NewRequestModalProps) {
+export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, onRequestOptimistic, onRequestCreated, connectionId, currentOrgId, variant = 'agency' }: NewRequestModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
@@ -144,7 +145,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
         <div className="w-full flex items-center justify-between h-fit flex-shrink-0 pl-10 pr-4 py-4">
           <div className="flex items-center gap-2">
             <DialogTitle className="!text-[12px] !leading-[20px] !font-normal !tracking-[0.0025rem] !text-[var(--color-base-text-tertiary)]">
-              New request
+              {variant === 'client' ? 'Submit request' : 'New request'}
             </DialogTitle>
           </div>
           <div className="flex gap-0">
@@ -220,24 +221,26 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
                 className="h-6"
               />
 
-              {/* Assignee */}
-              <ListRow
-                avatar={true}
-                avatarUrl={selectedAssignee?.avatarUrl}
-                text={selectedAssignee ? `${selectedAssignee.firstName} ${selectedAssignee.lastName}` : 'Assignee'}
-                textColor={!selectedAssignee ? 'var(--color-base-text-tertiary)' : undefined}
-                comboboxOptions={agencyMembers.map(member => ({
-                  value: member.id,
-                  label: `${member.firstName} ${member.lastName}`,
-                  avatar: member.avatarUrl
-                }))}
-                onComboboxSelect={(value: string) => setAssigneeUserId(value)}
-                comboboxPlaceholder="Search members…"
-                clearable={!!selectedAssignee}
-                onClear={() => setAssigneeUserId(null)}
-                borderRadius="4px"
-                className="[&>*]:!rounded-[4px]"
-              />
+              {/* Assignee - Only for agency view */}
+              {variant === 'agency' && (
+                <ListRow
+                  avatar={true}
+                  avatarUrl={selectedAssignee?.avatarUrl}
+                  text={selectedAssignee ? `${selectedAssignee.firstName} ${selectedAssignee.lastName}` : 'Assignee'}
+                  textColor={!selectedAssignee ? 'var(--color-base-text-tertiary)' : undefined}
+                  comboboxOptions={agencyMembers.map(member => ({
+                    value: member.id,
+                    label: `${member.firstName} ${member.lastName}`,
+                    avatar: member.avatarUrl
+                  }))}
+                  onComboboxSelect={(value: string) => setAssigneeUserId(value)}
+                  comboboxPlaceholder="Search members…"
+                  clearable={!!selectedAssignee}
+                  onClear={() => setAssigneeUserId(null)}
+                  borderRadius="4px"
+                  className="[&>*]:!rounded-[4px]"
+                />
+              )}
             </div>
           </div>
         </div>
@@ -249,7 +252,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
             className="!h-[32px] cursor-pointer"
             disabled={!canCreate}
           >
-            Create request
+            {variant === 'client' ? 'Submit request' : 'Create request'}
           </Button>
         </DialogFooter>
       </DialogContent>
