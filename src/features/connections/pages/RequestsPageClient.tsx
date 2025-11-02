@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useTransition } from 'react'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { useRouter, useParams, usePathname, useSearchParams } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useConnection } from '../ConnectionContext';
 import RequestsTable from '../requests/RequestsTable';
 import { RequestDetailModal } from '../requests/RequestDetailModal'
@@ -64,6 +64,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   // Buffer initial empty render with skeleton when assigned=me
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
   
+  // useTransition for non-urgent state updates (improves UI responsiveness)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_isPending, startTransition] = useTransition()
+  
   // Loading state lock to prevent concurrent loadMore calls
   const isLoadingMore = useRef(false)
   
@@ -121,16 +125,19 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
       })
       if (!isMountedRef.current) return
-      setRequests(result.requests)
-      setTotalCount(result.totalCount)
-      setHasMore(result.requests.length === PAGE_SIZE)
-      setCurrentOffset(PAGE_SIZE)
-      setPrefetchedRequests([])
-      setPrefetchedOffset(null)
+      // Large state update - use transition for non-urgent render
+      startTransition(() => {
+        setRequests(result.requests)
+        setTotalCount(result.totalCount)
+        setHasMore(result.requests.length === PAGE_SIZE)
+        setCurrentOffset(PAGE_SIZE)
+        setPrefetchedRequests([])
+        setPrefetchedOffset(null)
+      })
     } catch (_) {
       // ignore
     }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id])
+  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, startTransition])
 
   // DRY: prepend unique request by id
   const prependUnique = useCallback((request: Request) => {
@@ -261,13 +268,16 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         })
 
         if (isMountedRef.current) {
-          setRequests(result.requests)
-          setTotalCount(result.totalCount)
-          const newHasMore = result.requests.length === PAGE_SIZE
-          setHasMore(newHasMore)
-          setCurrentOffset(PAGE_SIZE)
-          setPrefetchedRequests([])
-          setPrefetchedOffset(null)
+          // Large state update - use transition for non-urgent render
+          startTransition(() => {
+            setRequests(result.requests)
+            setTotalCount(result.totalCount)
+            const newHasMore = result.requests.length === PAGE_SIZE
+            setHasMore(newHasMore)
+            setCurrentOffset(PAGE_SIZE)
+            setPrefetchedRequests([])
+            setPrefetchedOffset(null)
+          })
         }
       } catch (error) {
         if (isDev()) {
@@ -280,7 +290,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
 
     fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id])
+  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, startTransition])
   
   // Prefetch next batch of requests with timeout protection
   const prefetchNext = useCallback(async (offset: number) => {

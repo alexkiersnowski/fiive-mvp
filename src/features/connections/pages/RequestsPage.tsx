@@ -1,4 +1,5 @@
 import { Card } from '@/components/ui/card';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { getRequestsForConnection, getAgencyMembersForConnection } from '../server';
 import RequestsPageClient from './RequestsPageClient';
 import { PAGE_SIZE } from '../requests/constants';
@@ -16,12 +17,14 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
 
   return (
     <Card className="w-full gap-0 h-full">
-      <RequestsPageClient 
-        connectionId={connectionId} 
-        initialRequests={requestsData.requests} 
-        initialTotalCount={requestsData.totalCount}
-        agencyMembers={agencyMembers} 
-      />
+      <ErrorBoundary>
+        <RequestsPageClient 
+          connectionId={connectionId} 
+          initialRequests={requestsData.requests} 
+          initialTotalCount={requestsData.totalCount}
+          agencyMembers={agencyMembers} 
+        />
+      </ErrorBoundary>
     </Card>
   );
 }

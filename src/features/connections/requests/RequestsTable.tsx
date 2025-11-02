@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -76,6 +76,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
   const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
   
+  // Loading guard refs to prevent rapid-fire mutations
+  const isMutingAssignee = useRef(false)
+  const isMutingStatus = useRef(false)
+  
   // Profile Card state
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [selectedContact, setSelectedContact] = useState<{
@@ -99,31 +103,39 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   // Use total count from database, fallback to displayed requests count if not provided
   const requestCount = totalCount !== undefined ? totalCount : optimisticRequests.length
   
-  // Transform agency members to combobox options
-  const comboboxOptions = agencyMembers.map(member => ({
-    value: member.id,
-    label: `${member.firstName} ${member.lastName}`,
-    avatar: member.avatarUrl,
-    email: member.email
-  }))
+  // Transform agency members to combobox options (memoized to prevent recreation)
+  const comboboxOptions = useMemo(() => 
+    agencyMembers.map(member => ({
+      value: member.id,
+      label: `${member.firstName} ${member.lastName}`,
+      avatar: member.avatarUrl,
+      email: member.email
+    })),
+    [agencyMembers]
+  )
 
-  // Sort options
-  const sortOptions = [
+  // Sort options (memoized to prevent recreation)
+  const sortOptions = useMemo(() => [
     { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
     { value: 'status', label: 'Status', buttonLabel: 'Status' }
-  ]
+  ], [])
 
-  const getCurrentSortLabel = () => {
-    return sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Created'
-  }
+  // Current sort label (memoized based on sortValue)
+  const currentSortLabel = useMemo(() => 
+    sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Created',
+    [sortOptions, sortValue]
+  )
 
   const handleSortChange = (newSortValue: string) => {
     setSortValue(newSortValue)
     // Sort will be applied when we implement actual data
   }
 
-  // Assignee handlers
+  // Assignee handlers with loading guard
   const handleAssigneeSelect = async (requestId: string, memberId: string) => {
+    // Prevent rapid-fire mutations
+    if (isMutingAssignee.current) return
+    
     const selectedMember = agencyMembers.find(member => member.id === memberId)
     if (selectedMember) {
       const newAssignee = {
@@ -147,6 +159,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         onRequestUpdate(requestId, { assignee: newAssignee })
       }
       
+      // Set loading guard
+      isMutingAssignee.current = true
+      
       try {
         await updateRequestAssignee(requestId, memberId)
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
@@ -165,11 +180,17 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             onRequestUpdate(requestId, { assignee: originalRequest.assignee })
           }
         }
+      } finally {
+        // Clear loading guard
+        isMutingAssignee.current = false
       }
     }
   }
 
   const handleClearAssignee = async (requestId: string) => {
+    // Prevent rapid-fire mutations
+    if (isMutingAssignee.current) return
+    
     // Optimistic update
     setOptimisticRequests(prev => 
       prev.map(req => 
@@ -183,6 +204,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     if (onRequestUpdate) {
       onRequestUpdate(requestId, { assignee: null })
     }
+    
+    // Set loading guard
+    isMutingAssignee.current = true
     
     try {
       await updateRequestAssignee(requestId, null)
@@ -202,11 +226,17 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           onRequestUpdate(requestId, { assignee: originalRequest.assignee })
         }
       }
+    } finally {
+      // Clear loading guard
+      isMutingAssignee.current = false
     }
   }
 
-  // Status handler
+  // Status handler with loading guard
   const handleStatusChange = async (requestId: string, newStatus: string) => {
+    // Prevent rapid-fire mutations
+    if (isMutingStatus.current) return
+    
     const validStatuses = ['new', 'in_review', 'accepted', 'canceled'] as const
     if (!validStatuses.includes(newStatus as any)) {
       if (process.env.NODE_ENV !== 'production') {
@@ -230,6 +260,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     if (onRequestUpdate) {
       onRequestUpdate(requestId, { status: typedStatus })
     }
+    
+    // Set loading guard
+    isMutingStatus.current = true
     
     try {
       await updateRequestStatus(requestId, typedStatus)
@@ -255,6 +288,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           onRequestUpdate(requestId, { status: originalRequest.status })
         }
       }
+    } finally {
+      // Clear loading guard
+      isMutingStatus.current = false
     }
   }
 
@@ -434,7 +470,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               className="text-sm-regular h-[32px] flex items-center gap-2 shadow-none cursor-default pointer-events-none"
             >
               <SortAscending size={16} />
-              {getCurrentSortLabel()}
+              {currentSortLabel}
             </Button>
             <Button
               variant="default"

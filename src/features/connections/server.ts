@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { escapeForILike } from '@/lib/utils';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
+import * as formatters from './formatters';
 
 /**
  * Lightweight validation to check if the current user's organization has access to a connection.
@@ -606,8 +607,8 @@ export const getRequestsForConnection = cache(async (
   
   // Fetch user profiles, memberships, and organization types in parallel
   let profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
-  let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
-  let orgTypeMap: Record<string, 'agency' | 'client'> = {};
+  const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  const orgTypeMap: Record<string, 'agency' | 'client'> = {};
   let parallelTime = 0;
   if (userIds.size > 0 || orgIds.size > 0) {
     const userIdArray = Array.from(userIds);
@@ -691,43 +692,27 @@ export const getRequestsForConnection = cache(async (
       description: request.description || '',
       status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled',
       type: request.type,
-      submittedBy: {
-        id: request.created_by_user_id,
-        name: submittedByProfile 
-          ? `${submittedByProfile.first_name || ''} ${submittedByProfile.last_name || ''}`.trim() || 'Unknown User'
-          : 'Unknown User',
-        email: submittedByProfile?.email || '',
-        avatarUrl: submittedByProfile?.avatar_url || undefined,
-        jobTitle: submittedByProfile?.job_title || undefined,
-        orgId: userOrgMap[request.created_by_user_id]?.orgId || '',
-        orgName: userOrgMap[request.created_by_user_id]?.orgName || '',
-        orgLogo: userOrgMap[request.created_by_user_id]?.orgLogo
-      },
-      assignee: request.assignee_user_id && assigneeProfile ? {
-        id: request.assignee_user_id,
-        name: `${assigneeProfile.first_name || ''} ${assigneeProfile.last_name || ''}`.trim() || 'Unknown User',
-        email: assigneeProfile.email,
-        avatarUrl: assigneeProfile.avatar_url || undefined
-      } : null,
-      client: {
-        id: clientOrg?.id || connection.client_id,
-        name: clientOrg?.name || 'Unknown Client',
-        logoUrl: clientOrg?.logo_url
-      },
-      agency: {
-        id: agencyOrg?.id || connection.agency_id,
-        name: agencyOrg?.name || 'Unknown Agency',
-        logoUrl: agencyOrg?.logo_url
-      },
-      createdAt: request.created_at ? (() => {
-        const date = new Date(request.created_at);
-        const day = date.getDate();
-        const month = date.toLocaleDateString('en-US', { month: 'short' });
-        const year = date.getFullYear();
-        return `${day} ${month} ${year}`;
-      })() : '',
+      submittedBy: formatters.buildSubmittedBy(
+        request.created_by_user_id,
+        submittedByProfile,
+        userOrgMap
+      ),
+      assignee: formatters.buildAssignee(request.assignee_user_id, assigneeProfile),
+      client: formatters.buildOrganization(
+        clientOrg?.id || connection.client_id,
+        clientOrg?.name,
+        clientOrg?.logo_url,
+        'Unknown Client'
+      ),
+      agency: formatters.buildOrganization(
+        agencyOrg?.id || connection.agency_id,
+        agencyOrg?.name,
+        agencyOrg?.logo_url,
+        'Unknown Agency'
+      ),
+      createdAt: formatters.formatRequestDate(request.created_at),
       createdByOrgId: request.created_by_org_id,
-      createdByOrgType: request.created_by_org_id ? orgTypeMap[request.created_by_org_id] : undefined
+      createdByOrgType: formatters.getOrgType(request.created_by_org_id, orgTypeMap)
     };
   });
   
@@ -1016,6 +1001,17 @@ export const getRequestById = cache(async (
   const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] : null;
   const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] : null;
   
+  // Fetch org type separately for this single request
+  let orgType: 'agency' | 'client' | undefined = undefined;
+  if (request.created_by_org_id) {
+    const { data: orgTypeData } = await supabase
+      .from('organizations')
+      .select('type')
+      .eq('id', request.created_by_org_id)
+      .single();
+    orgType = orgTypeData?.type as 'agency' | 'client' | undefined;
+  }
+
   return {
     id: request.id,
     connectionId: connectionId,
@@ -1023,47 +1019,27 @@ export const getRequestById = cache(async (
     description: request.description || '',
     status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled',
     type: request.type,
-    submittedBy: {
-      id: request.created_by_user_id,
-      name: submittedByProfile 
-        ? `${submittedByProfile.first_name || ''} ${submittedByProfile.last_name || ''}`.trim() || 'Unknown User'
-        : 'Unknown User',
-      email: submittedByProfile?.email || '',
-      avatarUrl: submittedByProfile?.avatar_url || undefined,
-      jobTitle: submittedByProfile?.job_title || undefined,
-      orgId: userOrgMap[request.created_by_user_id]?.orgId || '',
-      orgName: userOrgMap[request.created_by_user_id]?.orgName || '',
-      orgLogo: userOrgMap[request.created_by_user_id]?.orgLogo
-    },
-    assignee: request.assignee_user_id && assigneeProfile ? {
-      id: request.assignee_user_id,
-      name: `${assigneeProfile.first_name || ''} ${assigneeProfile.last_name || ''}`.trim() || 'Unknown User',
-      email: assigneeProfile.email,
-      avatarUrl: assigneeProfile.avatar_url || undefined
-    } : null,
-    client: {
-      id: clientOrg?.id || connection.client_id,
-      name: clientOrg?.name || 'Unknown Client',
-      logoUrl: clientOrg?.logo_url
-    },
-    agency: {
-      id: agencyOrg?.id || connection.agency_id,
-      name: agencyOrg?.name || 'Unknown Agency',
-      logoUrl: agencyOrg?.logo_url
-    },
-    createdAt: request.created_at ? (() => {
-      const date = new Date(request.created_at);
-      const day = date.getDate();
-      const month = date.toLocaleDateString('en-US', { month: 'short' });
-      const year = date.getFullYear();
-      return `${day} ${month} ${year}`;
-    })() : '',
+    submittedBy: formatters.buildSubmittedBy(
+      request.created_by_user_id,
+      submittedByProfile,
+      userOrgMap
+    ),
+    assignee: formatters.buildAssignee(request.assignee_user_id, assigneeProfile),
+    client: formatters.buildOrganization(
+      clientOrg?.id || connection.client_id,
+      clientOrg?.name,
+      clientOrg?.logo_url,
+      'Unknown Client'
+    ),
+    agency: formatters.buildOrganization(
+      agencyOrg?.id || connection.agency_id,
+      agencyOrg?.name,
+      agencyOrg?.logo_url,
+      'Unknown Agency'
+    ),
+    createdAt: formatters.formatRequestDate(request.created_at),
     createdByOrgId: request.created_by_org_id,
-    createdByOrgType: request.created_by_org_id ? (await supabase
-      .from('organizations')
-      .select('type')
-      .eq('id', request.created_by_org_id)
-      .single()).data?.type as 'agency' | 'client' | undefined : undefined
+    createdByOrgType: orgType
   };
 });
 
