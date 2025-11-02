@@ -511,7 +511,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                     <>
                       <BreadcrumbItem>
                         <BreadcrumbLink asChild>
-                          <Link href={`/${baseRoute}/${connectionId}`}>
+                          <Link href={`/${baseRoute}/${connectionId}/overview`}>
                             {partnerName}
                           </Link>
                         </BreadcrumbLink>
@@ -615,7 +615,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       {/* Left Column / Main Content */}
       <div className="flex-[2] flex flex-col">
         {/* Title with Badge - Sticky */}
-        <div className="flex-shrink-0 pb-5 pr-8">
+        <div className="flex-shrink-0 pb-4 pr-8">
           <div className="flex items-start gap-3">
             <div data-inline-edit="title" className="flex-1 min-w-0">
               <InlineEdit
@@ -623,7 +623,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 type="text"
                 value={titleValue}
                 onSave={handleTitleSave}
-                placeholder="Add a title..."
+                placeholder="Request title"
                 textClass="display-7-medium text-primary"
                 multiline={true}
                 maxLength={255}
@@ -688,7 +688,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
             placeholder={
               !canEdit && !descriptionValue.trim()
                 ? 'No description'
-                : 'Add a description...'
+                : 'Add description…'
             }
             textClass="text-md-regular"
             multiline={true}

@@ -28,7 +28,7 @@ export default function ProjectsCard({ snapshot, context }: { snapshot: Connecti
           )}
         </div>
         {isAgency && (
-          <Tooltip delayDuration={400}>
+          <Tooltip delayDuration={250}>
             <TooltipTrigger asChild>
               <Badge 
                 variant="outline" 
@@ -45,7 +45,7 @@ export default function ProjectsCard({ snapshot, context }: { snapshot: Connecti
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
-              Both you and your client can see this
+              Your client can see this. Only your agency can edit.
             </TooltipContent>
           </Tooltip>
         )}

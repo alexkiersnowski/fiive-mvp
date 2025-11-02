@@ -28,7 +28,7 @@ export default function ResourcesCard({ snapshot, context }: { snapshot: Connect
           )}
         </div>
         {isAgency && (
-          <Tooltip delayDuration={400}>
+          <Tooltip delayDuration={250}>
             <TooltipTrigger asChild>
               <Badge 
                 variant="outline" 

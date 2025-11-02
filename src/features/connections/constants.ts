@@ -1,5 +1,5 @@
 /**
- * Constants for requests table pagination and virtual scroll
+ * Shared constants for connections features (requests, projects, etc.)
  */
 
 export const PAGE_SIZE = 50;

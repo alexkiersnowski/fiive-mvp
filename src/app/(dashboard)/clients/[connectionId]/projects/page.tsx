@@ -1,6 +1,11 @@
 import { ProjectsPage } from '@/features/connections/pages/ProjectsPage';
 
-export default function ClientProjectsPage() {
-  return <ProjectsPage />;
+interface ClientProjectsPageProps {
+  params: Promise<{ connectionId: string }>
+}
+
+export default async function ClientProjectsPage({ params }: ClientProjectsPageProps) {
+  const { connectionId } = await params;
+  return <ProjectsPage connectionId={connectionId} />;
 }
 

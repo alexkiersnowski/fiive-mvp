@@ -32,7 +32,7 @@ export default function RequestsCard({ snapshot, context }: { snapshot: Connecti
           )}
         </div>
         {isAgency && (
-          <Tooltip delayDuration={400}>
+          <Tooltip delayDuration={250}>
             <TooltipTrigger asChild>
               <Badge 
                 variant="outline" 

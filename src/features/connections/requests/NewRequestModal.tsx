@@ -173,7 +173,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
                 onSave={setTitle}
                 onChange={setTitle}
                 onTab={() => descriptionRef.current?.startEditing()}
-                placeholder="Add title…"
+                placeholder="Request title"
                 className="display-7-medium"
                 multiline={true}
                 preventNewLines={true}

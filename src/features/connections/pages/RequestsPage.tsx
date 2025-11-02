@@ -2,7 +2,7 @@ import { Card } from '@/components/ui/card';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { getRequestsForConnection, getAgencyMembersForConnection } from '../server';
 import RequestsPageClient from './RequestsPageClient';
-import { PAGE_SIZE } from '../requests/constants';
+import { PAGE_SIZE } from '../constants';
 
 interface RequestsPageProps {
   connectionId: string

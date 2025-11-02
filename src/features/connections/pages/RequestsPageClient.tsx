@@ -9,7 +9,7 @@ import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
 import type { Request, Comment } from '../server';
 import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequest, fetchCommentsForRequests } from '../requests/actions';
-import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../requests/constants';
+import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
 
 interface RequestsPageClientProps {
   connectionId: string

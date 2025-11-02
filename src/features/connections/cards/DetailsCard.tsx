@@ -47,7 +47,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
         <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
           Overview
         </CardTitle>
-        <Tooltip delayDuration={400}>
+        <Tooltip delayDuration={250}>
           <TooltipTrigger asChild>
             <Badge 
               variant="outline" 

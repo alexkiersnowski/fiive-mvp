@@ -419,7 +419,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
             />
             {isAgency && (
-              <Tooltip delayDuration={400}>
+              <Tooltip delayDuration={250}>
                 <TooltipTrigger asChild>
                   <Badge 
                     variant="outline" 

@@ -38,7 +38,7 @@ export default function AboutCard() {
           About
         </CardTitle>
         {snapshot.currentUserType === 'agency' && (
-          <Tooltip delayDuration={400}>
+          <Tooltip delayDuration={250}>
             <TooltipTrigger asChild>
               <Badge 
                 variant="outline" 

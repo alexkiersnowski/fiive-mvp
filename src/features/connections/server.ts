@@ -1185,3 +1185,234 @@ export const getCommentsForRequests = cache(async (
 
   return groupedComments;
 });
+
+// ============================================================================
+// PROJECTS - PLACEHOLDER FUNCTIONS WITH MOCK DATA
+// ============================================================================
+// NOTE: These functions return mock data until the projects table is created in Supabase.
+// When the table exists, replace these implementations with real Supabase queries.
+
+export interface Project {
+  id: string
+  connectionId: string
+  title: string
+  description: string
+  status: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
+  type: string | null
+  submittedBy: {
+    id: string
+    name: string
+    email: string
+    avatarUrl?: string
+    jobTitle?: string
+    orgId: string
+    orgName: string
+    orgLogo?: string
+  }
+  assignee: {
+    id: string
+    name: string
+    email: string
+    avatarUrl?: string
+  } | null
+  budget: string
+  client: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
+  agency?: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
+  startDate: string
+  endDate: string
+  createdAt: string
+  requestsCount: number
+  tasksCount: number
+  createdByOrgId: string
+  createdByOrgType?: 'agency' | 'client'
+}
+
+export interface ProjectsWithCount {
+  projects: Project[]
+  totalCount: number
+}
+
+// Mock Project data for UI development
+const generateMockProjects = (connectionId: string, count: number = 10): Project[] => {
+  const mockProjects: Project[] = []
+  const statuses: Array<'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'> = ['planned', 'active', 'on_hold', 'completed', 'canceled']
+  
+  for (let i = 0; i < count; i++) {
+    const daysAgo = Math.floor(Math.random() * 90)
+    const createdAt = new Date()
+    createdAt.setDate(createdAt.getDate() - daysAgo)
+    
+    // Generate a random start date (between 0-120 days ago)
+    const startDaysAgo = Math.floor(Math.random() * 120)
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - startDaysAgo)
+    
+    // Generate a random end date (between startDate and 180 days in the future)
+    const endDaysAgo = Math.floor(Math.random() * 180) - Math.floor(Math.random() * 60)
+    const endDate = new Date()
+    endDate.setDate(endDate.getDate() - endDaysAgo)
+    
+    mockProjects.push({
+      id: `mock-project-${i + 1}`,
+      connectionId,
+      title: `Mock Project ${i + 1}`,
+      description: `This is a mock project description ${i + 1}. Used for UI development until the projects table is created in Supabase.`,
+      status: statuses[Math.floor(Math.random() * statuses.length)],
+      type: i % 3 === 0 ? 'general' : null,
+      submittedBy: {
+        id: `mock-user-${i % 3}`,
+        name: `User ${i % 3 + 1}`,
+        email: `user${i % 3 + 1}@example.com`,
+        avatarUrl: undefined,
+        jobTitle: 'Developer',
+        orgId: 'mock-org-1',
+        orgName: 'Mock Organization',
+        orgLogo: undefined
+      },
+      assignee: i % 2 === 0 ? {
+        id: 'mock-assignee-1',
+        name: 'Assigned User',
+        email: 'assignee@example.com',
+        avatarUrl: undefined
+      } : null,
+      budget: `€${Math.floor(Math.random() * 1000000).toLocaleString('en-US', { useGrouping: true })}`,
+      client: {
+        id: 'mock-client-1',
+        name: 'Mock Client',
+        logoUrl: undefined
+      },
+      agency: {
+        id: 'mock-agency-1',
+        name: 'Mock Agency',
+        logoUrl: undefined
+      },
+      startDate: formatters.formatRequestDate(startDate.toISOString()),
+      endDate: formatters.formatRequestDate(endDate.toISOString()),
+      createdAt: formatters.formatRequestDate(createdAt.toISOString()),
+      requestsCount: Math.floor(Math.random() * 20) + 1, // Random number between 1-20
+      tasksCount: Math.floor(Math.random() * 15) + 1, // Random number between 1-15
+      createdByOrgId: 'mock-org-1',
+      createdByOrgType: i % 2 === 0 ? 'agency' : 'client'
+    })
+  }
+  
+  return mockProjects
+}
+
+export const getProjectsForConnection = cache(async (
+  connectionId: string,
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; createdByUserId?: string }
+): Promise<ProjectsWithCount> => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  const { limit = 50, offset = 0, searchQuery, assignedToUserId, createdByUserId } = options || {};
+  
+  if (isDev) {
+    console.log('[Projects] getProjectsForConnection called (MOCK DATA):', { connectionId, limit, offset, searchQuery, assignedToUserId, createdByUserId });
+  }
+  
+  // Generate mock projects
+  let allProjects = generateMockProjects(connectionId, 10)
+  
+  // Apply filters (mock implementation)
+  if (searchQuery && searchQuery.trim()) {
+    const query = searchQuery.toLowerCase()
+    allProjects = allProjects.filter(p => 
+      p.title.toLowerCase().includes(query) ||
+      p.description.toLowerCase().includes(query)
+    )
+  }
+  
+  if (assignedToUserId) {
+    allProjects = allProjects.filter(p => p.assignee?.id === assignedToUserId)
+  }
+  
+  if (createdByUserId) {
+    allProjects = allProjects.filter(p => p.submittedBy.id === createdByUserId)
+  }
+  
+  const totalCount = allProjects.length
+  const paginatedProjects = allProjects.slice(offset, offset + limit)
+  
+  return {
+    projects: paginatedProjects,
+    totalCount
+  }
+});
+
+export const getProjectById = cache(async (
+  projectId: string,
+  connectionId: string
+): Promise<Project | null> => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  
+  if (isDev) {
+    console.log('[Projects] getProjectById called (MOCK DATA):', { projectId, connectionId });
+  }
+  
+  // Generate mock projects and find the one matching the ID
+  const mockProjects = generateMockProjects(connectionId, 50)
+  const project = mockProjects.find(p => p.id === projectId)
+  
+  return project || null
+});
+
+export const getCommentsForProject = cache(async (
+  projectId: string
+): Promise<Array<{
+  id: string
+  userId: string
+  userName: string
+  userAvatar?: string
+  createdAt: Date
+  text: string
+}>> => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  
+  if (isDev) {
+    console.log('[Projects] getCommentsForProject called (MOCK DATA):', { projectId });
+  }
+  
+  // Return empty array for now - comments can be added later
+  return []
+});
+
+export const getCommentsForProjects = cache(async (
+  projectIds: string[]
+): Promise<Record<string, Array<{
+  id: string
+  userId: string
+  userName: string
+  userAvatar?: string
+  createdAt: Date
+  text: string
+}>>> => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  
+  if (isDev) {
+    console.log('[Projects] getCommentsForProjects called (MOCK DATA):', { projectIds });
+  }
+  
+  // Return empty map for now - comments can be added later
+  const result: Record<string, Array<{
+    id: string
+    userId: string
+    userName: string
+    userAvatar?: string
+    createdAt: Date
+    text: string
+  }>> = {}
+  
+  projectIds.forEach(id => {
+    result[id] = []
+  })
+  
+  return result
+});

@@ -32,7 +32,7 @@ export default function TasksCard({ snapshot, context }: { snapshot: ConnectionS
           )}
         </div>
         {isAgency && (
-          <Tooltip delayDuration={400}>
+          <Tooltip delayDuration={250}>
             <TooltipTrigger asChild>
               <Badge 
                 variant="outline" 

@@ -13,6 +13,7 @@ import { StatusBadge, StatusVariant } from './connection-badge'
 import { EngagementBadge, EngagementVariant } from './engagement-badge'
 import { HealthBadge, HealthVariant } from './health-badge'
 import { RequestBadge, RequestVariant } from './request-badge'
+import { ProjectBadge, ProjectVariant } from './project-badge'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from './command'
 
@@ -46,7 +47,7 @@ type InlineEditProps =
       searchable?: boolean
       searchPlaceholder?: string
       clearable?: boolean
-      badgeComponent?: 'connection' | 'engagement' | 'health' | 'request'
+      badgeComponent?: 'connection' | 'engagement' | 'health' | 'request' | 'project'
       placeholder?: string
       dividerIndex?: number // Index where to insert a divider (after this index)
       popoverWidth?: string // Custom width for the popover dropdown (e.g., '400px')
@@ -458,6 +459,10 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
         return <RequestBadge variant={tempValue as RequestVariant} size="sm" showText={true} customLabel={displayLabel} />
       }
       
+      if (props.badgeComponent === 'project') {
+        return <ProjectBadge variant={tempValue as ProjectVariant} size="sm" showText={true} customLabel={displayLabel} />
+      }
+      
       // Default to neutral badge styling (like "Design" in request table)
       return (
         <Badge variant="neutral" className="text-xs">
@@ -537,6 +542,10 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
                         
                         if (props.badgeComponent === 'request') {
                           return <RequestBadge variant={option.value as RequestVariant} size="sm" showText={true} customLabel={option.label} />
+                        }
+                        
+                        if (props.badgeComponent === 'project') {
+                          return <ProjectBadge variant={option.value as ProjectVariant} size="sm" showText={true} customLabel={option.label} />
                         }
                         
                         return (

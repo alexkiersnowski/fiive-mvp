@@ -1,26 +1,30 @@
-'use client'
+import { Card } from '@/components/ui/card';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { getProjectsForConnection, getAgencyMembersForConnection } from '../server';
+import ProjectsPageClient from './ProjectsPageClient';
+import { PAGE_SIZE } from '../constants';
 
-import { useConnection } from '../ConnectionContext';
-import { Card, CardTitle } from '@/components/ui/card';
+interface ProjectsPageProps {
+  connectionId: string
+}
 
-export function ProjectsPage() {
-  const { snapshot, context } = useConnection();
-  const isAgency = context.variant === 'agency';
-  const title = isAgency ? 'Projects' : 'Projects';
+// Server component that fetches data from Supabase (mock data for now)
+export async function ProjectsPage({ connectionId }: ProjectsPageProps) {
+  const [projectsData, agencyMembers] = await Promise.all([
+    getProjectsForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
+    getAgencyMembersForConnection(connectionId)
+  ]);
 
   return (
-    <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-            {title}
-          </CardTitle>
-        </div>
-      </div>
-      <div className="flex-1">
-        {/* Content area for projects table, forms, etc. */}
-      </div>
+    <Card className="w-full gap-0 h-full">
+      <ErrorBoundary>
+        <ProjectsPageClient 
+          connectionId={connectionId} 
+          initialProjects={projectsData.projects} 
+          initialTotalCount={projectsData.totalCount}
+          agencyMembers={agencyMembers} 
+        />
+      </ErrorBoundary>
     </Card>
   );
 }
-
