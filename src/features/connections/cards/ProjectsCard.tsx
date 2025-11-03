@@ -10,7 +10,7 @@ export default function ProjectsCard({ snapshot, context }: { snapshot: Connecti
   const isAgency = context.variant === 'agency';
   const title = isAgency ? 'Projects' : 'Projects';
   const description = isAgency 
-    ? 'No projects yet. Projects give you and your client a shared view of work. Link tasks and requests to projects, track budgets, and mark progress.'
+    ? 'No projects yet. Projects give you and your client a shared view of work. Link tasks and requests to projects and mark progress.'
     : '';
   const buttonText = isAgency ? 'Add project' : 'View all projects';
 

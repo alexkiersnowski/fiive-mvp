@@ -112,3 +112,11 @@ export function getOrgType(
   return orgTypeMap[orgId];
 }
 
+/**
+ * Format a project date as "DD MMM YYYY" (e.g., "15 Jan 2024")
+ * Reuses the same logic as formatRequestDate for consistency
+ */
+export function formatProjectDate(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+  return formatRequestDate(dateString);
+}

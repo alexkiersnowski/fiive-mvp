@@ -58,9 +58,12 @@ export function ConnectionLayout({ snapshot, context, baseRoute, children }: Con
   // Check if we're on a request detail page (pattern: /agencies/[connectionId]/requests/[requestId] or /clients/[connectionId]/requests/[requestId])
   const isRequestDetailPage = /\/requests\/[^/]+$/.test(pathname);
   
-  // For request detail pages, render children directly without ConnectionProvider
-  // RequestDetailContent doesn't use ConnectionProvider and DashboardLayout handles styling
-  if (isRequestDetailPage) {
+  // Check if we're on a project detail page (pattern: /agencies/[connectionId]/projects/[projectId] or /clients/[connectionId]/projects/[projectId])
+  const isProjectDetailPage = /\/projects\/[^/]+$/.test(pathname);
+  
+  // For request or project detail pages, render children directly without ConnectionProvider
+  // RequestDetailContent and ProjectDetailContent don't use ConnectionProvider and DashboardLayout handles styling
+  if (isRequestDetailPage || isProjectDetailPage) {
     return <>{children}</>;
   }
   

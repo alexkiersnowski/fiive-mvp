@@ -53,6 +53,7 @@ interface ProjectsTableProps {
 }
 
 export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onProjectDeleted }: ProjectsTableProps) {
+  
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -61,6 +62,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   const [sortValue, setSortValue] = useState('newest_first')
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<{projectId: string; projectName: string} | null>(null)
   
   // Optimistic UI state for projects
   const [optimisticProjects, setOptimisticProjects] = useState<Project[]>(projects)
@@ -329,24 +332,40 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     })
   }
   
-  const handleDeleteProject = async (projectId: string) => {
-    // Optimistically remove project from table
-    setOptimisticProjects(prev => prev.filter(p => p.id !== projectId))
-    
-    // Notify parent for badge count updates
-    onProjectDeleted?.(projectId)
-    
-    try {
-      await deleteProject(projectId)
+  const handleDeleteProject = (projectId: string) => {
+    const project = optimisticProjects.find(p => p.id === projectId)
+    if (project) {
+      setPendingDelete({ projectId, projectName: project.title })
+      setDeleteDialogOpen(true)
+    }
+  }
+
+  const confirmDeleteProject = async () => {
+    if (pendingDelete) {
+      // Close dialog immediately
+      setDeleteDialogOpen(false)
+      setPendingDelete(null)
+      
+      // Show success toast immediately
       toast.success('Project deleted')
+      
+      // Optimistically remove project from table
+      setOptimisticProjects(prev => prev.filter(p => p.id !== pendingDelete.projectId))
+      
+      // Notify parent for badge count updates
+      onProjectDeleted?.(pendingDelete.projectId)
+      
+      // Delete in background
+      deleteProject(pendingDelete.projectId).catch((error) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error deleting project:', error)
+        }
+        toast.error('Failed to delete project')
+        // Revert optimistic update on error
+        setOptimisticProjects(projects)
+      })
+      
       router.refresh() // Refresh to get updated data from server
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Error deleting project:', error)
-      }
-      toast.error('Failed to delete project')
-      // Revert optimistic update on error
-      setOptimisticProjects(projects)
     }
   }
 
@@ -383,10 +402,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
           <div className="flex flex-col items-start gap-2">
             <h2 className="display-8-medium">Your best work starts here</h2>
             <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Create projects to organize and track work with your clients.'
-                : 'Projects help organize and track work with your agency.'
-              }
+              Projects give your team and client a shared view of work and progress
             </span>
           </div>
           {onNewProject && (
@@ -510,39 +526,33 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
               </TableHead>
               {isAgency ? (
                 <>
-                  <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                     Start date
                   </TableHead>
-                  <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                     End date
-                  </TableHead>
-                  <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Value
                   </TableHead>
                 </>
               ) : (
                 <>
-                  <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                     Owner
                   </TableHead>
-                  <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                     End date
                   </TableHead>
-                  <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Value
-                  </TableHead>
-                  <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                     Start date
                   </TableHead>
                 </>
               )}
-              <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Requests
               </TableHead>
-              <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Tasks
               </TableHead>
-              <TableHead className="w-[12.5%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Status
               </TableHead>
               <TableHead className="w-[44px] p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
@@ -577,22 +587,28 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
 
                 {isAgency ? (
                   <>
-                    <TableCell className="w-[12.5%] py-0 truncate">
-                      {project.startDate}
+                    <TableCell className="w-[15%] py-0 truncate">
+                      <span 
+                        className="text-sm-regular" 
+                        style={project.startDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
+                      >
+                        {project.startDate || "No start date"}
+                      </span>
                     </TableCell>
 
-                    <TableCell className="w-[12.5%] py-0 truncate">
-                      {project.endDate}
-                    </TableCell>
-
-                    <TableCell className="w-[12.5%] py-0 truncate">
-                      {project.budget}
+                    <TableCell className="w-[15%] py-0 truncate">
+                      <span 
+                        className="text-sm-regular" 
+                        style={project.endDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
+                      >
+                        {project.endDate || "No end date"}
+                      </span>
                     </TableCell>
                   </>
                 ) : (
                   <>
                     <TableCell 
-                      className="w-[12.5%] py-0"
+                      className="w-[15%] py-0"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <ListRow
@@ -620,31 +636,37 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                       />
                     </TableCell>
 
-                    <TableCell className="w-[12.5%] py-0 truncate">
-                      {project.endDate}
+                    <TableCell className="w-[15%] py-0 truncate">
+                      <span 
+                        className="text-sm-regular" 
+                        style={project.endDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
+                      >
+                        {project.endDate || "No end date"}
+                      </span>
                     </TableCell>
 
-                    <TableCell className="w-[12.5%] py-0 truncate">
-                      {project.budget}
-                    </TableCell>
-
-                    <TableCell className="w-[12.5%] py-0 truncate">
-                      {project.startDate}
+                    <TableCell className="w-[15%] py-0 truncate">
+                      <span 
+                        className="text-sm-regular" 
+                        style={project.startDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
+                      >
+                        {project.startDate || "No start date"}
+                      </span>
                     </TableCell>
                   </>
                 )}
 
-                <TableCell className="w-[12.5%] py-0 truncate">
+                <TableCell className="w-[15%] py-0 truncate">
                   {project.requestsCount}
                 </TableCell>
 
-                <TableCell className="w-[12.5%] py-0 truncate">
+                <TableCell className="w-[15%] py-0 truncate">
                   {project.tasksCount}
                 </TableCell>
 
                 {isAgency ? (
                   <TableCell 
-                    className="w-[12.5%] py-0" 
+                    className="w-[15%] py-0" 
                     onClick={(e) => e.stopPropagation()}
                   >
                     <InlineEdit
@@ -663,7 +685,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                     />
                   </TableCell>
                 ) : (
-                  <TableCell className="w-[12.5%] py-0">
+                  <TableCell className="w-[15%] py-0">
                     <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} />
                   </TableCell>
                 )}
@@ -722,6 +744,40 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
           )}
         </div>
       </div>
+
+      {/* Delete Project Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent style={{ padding: '24px', width: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto">
+          <DialogHeader className="space-y-0">
+            <DialogTitle className="display-5-medium mb-0">
+              Delete project &quot;{pendingDelete?.projectName}&quot;?
+            </DialogTitle>
+          </DialogHeader>
+          <DialogDescription 
+            className="text-sm-regular mb-0"
+          >
+            Deleting this project will unlink all related tasks and requests. This action cannot be undone.
+          </DialogDescription>
+          <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
+            <Button 
+              variant="ghost" 
+              onClick={() => setDeleteDialogOpen(false)}
+              style={{ height: '40px' }}
+              className="cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={confirmDeleteProject}
+              style={{ height: '40px' }}
+              className="cursor-pointer"
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Profile Card Dialog */}
       {selectedContact && (

@@ -43,8 +43,9 @@ export default async function AgencyProjectDetailPage({
       status={project.status}
       startDate={project.startDate}
       endDate={project.endDate}
-      budget={project.budget}
       createdAt={project.createdAt}
+      requestsCount={project.requestsCount}
+      tasksCount={project.tasksCount}
       mode="page"
       createdByOrgId={project.createdByOrgId}
       createdByOrgType={project.createdByOrgType}

@@ -37,7 +37,10 @@ interface RequestDetailModalProps {
       email: string
       avatarUrl?: string
     } | null
-    type?: string | null
+    project?: {
+      id: string
+      name: string
+    } | null
     status?: 'new' | 'in_review' | 'accepted' | 'canceled'
     createdAt?: string
     createdByOrgId?: string
@@ -51,10 +54,14 @@ interface RequestDetailModalProps {
     avatarUrl?: string
     jobTitle?: string
   }>
+  projects?: Array<{
+    id: string
+    name: string
+  }>
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => void
   onRequestDeleted?: (requestId: string) => void
   connectionId: string
   currentOrgId: string
@@ -83,7 +90,7 @@ interface RequestDetailModalProps {
   }>) => void
 }
 
-export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, onClose, onExpand, onRequestUpdate, onRequestDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailModalProps) {
+export function RequestDetailModal({ requestData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onRequestUpdate, onRequestDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailModalProps) {
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // Determine if the request is locked for editing based on view context and organization type
@@ -240,13 +247,15 @@ export function RequestDetailModal({ requestData, agencyMembers = [], isOpen, on
               submittedBy={requestData.submittedBy}
               assignee={requestData.assignee}
               agencyMembers={agencyMembers}
-              type={requestData.type}
+              projects={projects}
+              project={requestData.project}
               status={requestData.status}
               createdAt={requestData.createdAt}
               onRequestUpdate={onRequestUpdate}
               createdByOrgId={requestData.createdByOrgId}
               createdByOrgType={requestData.createdByOrgType}
               currentOrgId={currentOrgId}
+              connectionId={connectionId}
               variant={variant}
               activeUser={activeUser}
               initialComments={initialComments}

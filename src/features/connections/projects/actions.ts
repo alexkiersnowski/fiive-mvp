@@ -1,26 +1,22 @@
 'use server'
 
+import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { isDev } from '../constants'
 
 /**
- * PLACEHOLDER PROJECT ACTIONS - MOCK IMPLEMENTATION
- * 
- * These functions simulate async behavior but do NOT touch the database yet.
- * When the projects table is created in Supabase, replace these with real implementations
- * that match the pattern from requests/actions.ts
- */
-
-/**
- * Create a new project (MOCK)
+ * Create a new project
  */
 export async function createProject(
   connectionId: string,
   title: string,
   description: string = '',
-  type: string | null = 'general',
-  assigneeUserId: string | null = null
+  type: string | null = null,
+  assigneeUserId: string | null = null,
+  startDate?: string | null,
+  endDate?: string | null
 ) {
+  const supabase = await createClient();
   const context = await getActiveContext();
   
   if (!context?.user?.id || !context?.organization?.id) {
@@ -28,127 +24,251 @@ export async function createProject(
   }
   
   if (isDev()) {
-    console.log('[Projects] createProject called (MOCK):', { 
+    console.log('createProject called with:', { 
       connectionId, 
       title, 
       description, 
       type, 
       assigneeUserId,
+      startDate,
+      endDate,
       createdByUserId: context.user.id,
       createdByOrgId: context.organization.id
     });
   }
   
-  // Simulate async delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  // Convert date strings to date format if provided
+  const start_date = startDate ? new Date(startDate).toISOString().split('T')[0] : null;
+  const end_date = endDate ? new Date(endDate).toISOString().split('T')[0] : null;
   
-  // Return mock data
-  const mockProject = {
-    id: `mock-project-${Date.now()}`,
+  // Build insert object with required fields
+  // created_at and updated_at are handled by DB defaults (now())
+  const insertData: {
+    connection_id: string;
+    name: string;
+    description: string;
+    status: string;
+    start_date?: string | null;
+    end_date?: string | null;
+    created_by_user_id: string;
+    [key: string]: any; // Allow for optional fields that may not exist yet
+  } = {
     connection_id: connectionId,
-    title,
-    description,
-    type,
+    name: title,
+    description: description,
     status: 'planned',
-    assignee_user_id: assigneeUserId,
-    created_by_user_id: context.user.id,
-    created_by_org_id: context.organization.id,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    start_date: start_date,
+    end_date: end_date,
+    created_by_user_id: context.user.id
   };
   
-  if (isDev()) {
-    console.log('[Projects] Mock project created:', mockProject);
+  // Note: assignee_user_id and created_by_org_id columns do not exist in schema
+  
+  const { data, error } = await supabase
+    .from('projects')
+    .insert(insertData)
+    .select()
+    .single();
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Error creating project:', error);
+    }
+    throw new Error(`Failed to create project: ${error.message}`);
   }
   
-  return mockProject;
+  if (isDev()) {
+    console.log('Project created successfully:', data);
+  }
+  return data;
 }
 
 /**
- * Update the assignee of a project (MOCK)
+ * Update the assignee of a project
+ * Note: assignee_user_id column does not exist in schema, so this is a no-op
+ * Kept for API compatibility but will not perform any database operation
  */
 export async function updateProjectAssignee(projectId: string, assigneeUserId: string | null) {
   if (isDev()) {
-    console.log('[Projects] updateProjectAssignee called (MOCK):', { projectId, assigneeUserId });
+    console.log('updateProjectAssignee called (no-op): assignee_user_id column does not exist in schema', { projectId, assigneeUserId });
   }
-  
-  // Simulate async delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  // Return mock data
-  const mockProject = {
-    id: projectId,
-    assignee_user_id: assigneeUserId,
-    updated_at: new Date().toISOString()
-  };
-  
-  return mockProject;
+  // Return a mock response since the column doesn't exist
+  // This maintains API compatibility while avoiding database errors
+  return { id: projectId };
 }
 
 /**
- * Update the status of a project (MOCK)
+ * Update the status of a project
  */
 export async function updateProjectStatus(
   projectId: string, 
   status: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
 ) {
+  const supabase = await createClient();
+  
   if (isDev()) {
-    console.log('[Projects] updateProjectStatus called (MOCK):', { projectId, status });
+    console.log('updateProjectStatus called with:', { projectId, status });
   }
   
-  // Simulate async delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ 
+      status: status,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', projectId)
+    .select()
+    .single();
   
-  // Return mock data
-  const mockProject = {
-    id: projectId,
-    status: status,
-    updated_at: new Date().toISOString()
-  };
+  if (error) {
+    if (isDev()) {
+      console.error('Error updating project status:', error);
+    }
+    throw new Error(`Failed to update status: ${error.message}`);
+  }
   
-  return mockProject;
+  if (isDev()) {
+    console.log('Project status updated successfully:', data);
+  }
+  return data;
 }
 
 /**
- * Update the title of a project (MOCK)
+ * Update the title of a project (updates name column)
  */
 export async function updateProjectTitle(projectId: string, title: string) {
+  const supabase = await createClient();
+  
   if (isDev()) {
-    console.log('[Projects] updateProjectTitle called (MOCK):', { projectId, title });
+    console.log('updateProjectTitle called with:', { projectId, title });
   }
   
-  // Simulate async delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ 
+      name: title,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', projectId)
+    .select()
+    .single();
   
-  // Return mock data
-  const mockProject = {
-    id: projectId,
-    title: title,
-    updated_at: new Date().toISOString()
-  };
+  if (error) {
+    if (isDev()) {
+      console.error('Error updating project title:', error);
+    }
+    throw new Error(`Failed to update title: ${error.message}`);
+  }
   
-  return mockProject;
+  if (isDev()) {
+    console.log('Project title updated successfully:', data);
+  }
+  return data;
 }
 
 /**
- * Update the description of a project (MOCK)
+ * Update the description of a project
  */
 export async function updateProjectDescription(projectId: string, description: string) {
+  const supabase = await createClient();
+  
   if (isDev()) {
-    console.log('[Projects] updateProjectDescription called (MOCK):', { projectId, description });
+    console.log('updateProjectDescription called with:', { projectId, description });
   }
   
-  // Simulate async delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ 
+      description: description,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', projectId)
+    .select()
+    .single();
   
-  // Return mock data
-  const mockProject = {
-    id: projectId,
-    description: description,
-    updated_at: new Date().toISOString()
-  };
+  if (error) {
+    if (isDev()) {
+      console.error('Error updating project description:', error);
+    }
+    throw new Error(`Failed to update description: ${error.message}`);
+  }
   
-  return mockProject;
+  if (isDev()) {
+    console.log('Project description updated successfully:', data);
+  }
+  return data;
+}
+
+/**
+ * Update the start date of a project
+ */
+export async function updateProjectStartDate(projectId: string, startDate: string | null) {
+  const supabase = await createClient();
+  
+  if (isDev()) {
+    console.log('updateProjectStartDate called with:', { projectId, startDate });
+  }
+  
+  // Convert date string to date format if provided, otherwise set to null
+  const start_date = startDate ? new Date(startDate).toISOString().split('T')[0] : null;
+  
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ 
+      start_date: start_date,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', projectId)
+    .select()
+    .single();
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Error updating project start date:', error);
+    }
+    throw new Error(`Failed to update start date: ${error.message}`);
+  }
+  
+  if (isDev()) {
+    console.log('Project start date updated successfully:', data);
+  }
+  return data;
+}
+
+/**
+ * Update the end date of a project
+ */
+export async function updateProjectEndDate(projectId: string, endDate: string | null) {
+  const supabase = await createClient();
+  
+  if (isDev()) {
+    console.log('updateProjectEndDate called with:', { projectId, endDate });
+  }
+  
+  // Convert date string to date format if provided, otherwise set to null
+  const end_date = endDate ? new Date(endDate).toISOString().split('T')[0] : null;
+  
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ 
+      end_date: end_date,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', projectId)
+    .select()
+    .single();
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Error updating project end date:', error);
+    }
+    throw new Error(`Failed to update end date: ${error.message}`);
+  }
+  
+  if (isDev()) {
+    console.log('Project end date updated successfully:', data);
+  }
+  return data;
 }
 
 /**
@@ -251,9 +371,10 @@ export async function deleteComment(commentId: string) {
 }
 
 /**
- * Soft delete a project (MOCK)
+ * Soft delete a project
  */
 export async function deleteProject(projectId: string) {
+  const supabase = await createClient();
   const context = await getActiveContext();
   
   if (!context?.user?.id) {
@@ -261,24 +382,38 @@ export async function deleteProject(projectId: string) {
   }
   
   if (isDev()) {
-    console.log('[Projects] deleteProject called (MOCK):', { 
+    console.log('deleteProject called with:', { 
       projectId, 
       deletedByUserId: context.user.id,
       currentOrgId: context.organization.id
     });
   }
   
-  // Simulate async delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  // Return mock data
-  const mockProject = {
-    id: projectId,
-    deleted_at: new Date().toISOString(),
-    deleted_by_user_id: context.user.id,
-    updated_at: new Date().toISOString()
+  // Soft delete: UPDATE deleted_at and deleted_by_user_id
+  const now = new Date().toISOString();
+  const updateData = {
+    deleted_at: now,
+    deleted_by_user_id: context.user.id, // Always set to the active user who initiated the delete
+    updated_at: now
   };
   
-  return mockProject;
+  const { data, error } = await supabase
+    .from('projects')
+    .update(updateData)
+    .eq('id', projectId)
+    .select()
+    .single();
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Error deleting project:', error);
+    }
+    throw new Error(`Failed to delete project: ${error.message}`);
+  }
+  
+  if (isDev()) {
+    console.log('Project deleted successfully:', data);
+  }
+  return data;
 }
 

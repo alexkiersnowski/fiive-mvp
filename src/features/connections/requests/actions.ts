@@ -12,7 +12,7 @@ export async function createRequest(
   connectionId: string,
   title: string,
   description: string = '',
-  type: string | null = 'general',
+  projectId: string | null = null,
   assigneeUserId: string | null = null
 ) {
   const supabase = await createClient();
@@ -27,7 +27,7 @@ export async function createRequest(
       connectionId, 
       title, 
       description, 
-      type, 
+      projectId, 
       assigneeUserId,
       createdByUserId: context.user.id,
       createdByOrgId: context.organization.id
@@ -40,7 +40,7 @@ export async function createRequest(
       connection_id: connectionId,
       title: title,
       description: description,
-      type: type,
+      project_id: projectId,
       status: 'new',
       assignee_user_id: assigneeUserId,
       created_by_user_id: context.user.id,
@@ -198,6 +198,39 @@ export async function updateRequestDescription(requestId: string, description: s
 }
 
 /**
+ * Update the type (project) of a request
+ */
+export async function updateRequestProject(requestId: string, projectId: string | null) {
+  const supabase = await createClient();
+  
+  if (isDev()) {
+    console.log('updateRequestProject called with:', { requestId, projectId });
+  }
+  
+  const { data, error } = await supabase
+    .from('requests')
+    .update({ 
+      project_id: projectId,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', requestId)
+    .select()
+    .single();
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Error updating request project:', error);
+    }
+    throw new Error(`Failed to update project: ${error.message}`);
+  }
+  
+  if (isDev()) {
+    console.log('Request project updated successfully:', data);
+  }
+  return data;
+}
+
+/**
  * Fetch requests for a connection (server action for client components)
  */
 export async function fetchRequestsForConnection(
@@ -231,6 +264,16 @@ export async function fetchCommentsForRequest(requestId: string) {
 export async function fetchCommentsForRequests(requestIds: string[]) {
   const { getCommentsForRequests } = await import('../server')
   return await getCommentsForRequests(requestIds)
+}
+
+/**
+ * Fetch projects for a connection (server action for client components)
+ */
+export async function fetchProjectsForConnection(connectionId: string) {
+  const { getProjectsForConnection } = await import('../server')
+  const result = await getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
+  // Return just the projects array with id and title
+  return result.projects.map(p => ({ id: p.id, name: p.title }))
 }
 
 /**

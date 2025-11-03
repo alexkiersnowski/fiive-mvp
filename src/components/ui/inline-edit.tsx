@@ -37,6 +37,7 @@ type InlineEditProps =
       style?: React.CSSProperties // Inline styles
       nonInteractive?: boolean // If true, makes the field non-editable (display only)
       linkifyUrls?: boolean // If true, automatically converts URLs to clickable links in display mode (default: false)
+      validationText?: (value: string, isEditing: boolean) => React.ReactNode | React.ReactNode // Validation text shown below input when editing. Function receives current tempValue and isEditing boolean, returns validation content. Or static ReactNode.
     }
   | { 
       type: 'badge'
@@ -52,6 +53,7 @@ type InlineEditProps =
       dividerIndex?: number // Index where to insert a divider (after this index)
       popoverWidth?: string // Custom width for the popover dropdown (e.g., '400px')
       badgeBorderRadius?: string // Custom border radius for badge (e.g., '8px')
+      maxHeight?: string // Custom max height for the command list dropdown (e.g., '200px')
       nonInteractive?: boolean // If true, makes the field non-editable (display only)
     }
   | {
@@ -293,108 +295,134 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       // Multi-line editing with textarea
       const multiline = 'multiline' in props ? props.multiline : false
       const preventNewLines = 'preventNewLines' in props ? props.preventNewLines : false
+      const validationText = 'validationText' in props ? props.validationText : undefined
       
       if (multiline) {
+        const validationContent = validationText 
+          ? (typeof validationText === 'function' ? validationText(tempValue, true) : validationText)
+          : null
+        
         return (
-          <Textarea
-            ref={textareaRef}
-            value={tempValue}
-            onChange={(e) => {
-              const newValue = e.target.value
-              setTempValue(newValue)
-              if (props.type === 'text' && props.onChange) {
-                props.onChange(newValue)
-              }
-            }}
-            onPaste={(e) => {
-              if (preventNewLines) {
-                const pastedText = e.clipboardData.getData('text')
-                // Only prevent default if there are newlines to clean
-                if (/\r?\n/.test(pastedText)) {
+          <div className="flex flex-col">
+            <Textarea
+              ref={textareaRef}
+              value={tempValue}
+              onChange={(e) => {
+                const newValue = e.target.value
+                setTempValue(newValue)
+                if (props.type === 'text' && props.onChange) {
+                  props.onChange(newValue)
+                }
+              }}
+              onPaste={(e) => {
+                if (preventNewLines) {
+                  const pastedText = e.clipboardData.getData('text')
+                  // Only prevent default if there are newlines to clean
+                  if (/\r?\n/.test(pastedText)) {
+                    e.preventDefault()
+                    const cleanedText = pastedText.replace(/\r?\n/g, '')
+                    
+                    // Get selection to handle overwrite vs append
+                    const textarea = e.currentTarget
+                    const start = textarea.selectionStart
+                    const end = textarea.selectionEnd
+                    const newValue = tempValue.substring(0, start) + cleanedText + tempValue.substring(end)
+                    setTempValue(newValue)
+                    
+                    // Move cursor to end of pasted content
+                    setTimeout(() => {
+                      textarea.selectionStart = textarea.selectionEnd = start + cleanedText.length
+                    }, 0)
+                  }
+                  // If no newlines, let native paste happen to preserve undo
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Tab' && props.type === 'text' && props.onTab) {
                   e.preventDefault()
-                  const cleanedText = pastedText.replace(/\r?\n/g, '')
-                  
-                  // Get selection to handle overwrite vs append
-                  const textarea = e.currentTarget
-                  const start = textarea.selectionStart
-                  const end = textarea.selectionEnd
-                  const newValue = tempValue.substring(0, start) + cleanedText + tempValue.substring(end)
-                  setTempValue(newValue)
-                  
-                  // Move cursor to end of pasted content
-                  setTimeout(() => {
-                    textarea.selectionStart = textarea.selectionEnd = start + cleanedText.length
-                  }, 0)
-                }
-                // If no newlines, let native paste happen to preserve undo
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Tab' && props.type === 'text' && props.onTab) {
-                e.preventDefault()
-                handleSave()
-                props.onTab()
-              } else if (e.key === 'Enter' && preventNewLines) {
-                e.preventDefault()
-                handleSave()
-                // If onTab is provided, also navigate to next field
-                if (props.type === 'text' && props.onTab) {
+                  handleSave()
                   props.onTab()
+                } else if (e.key === 'Enter' && preventNewLines) {
+                  e.preventDefault()
+                  handleSave()
+                  // If onTab is provided, also navigate to next field
+                  if (props.type === 'text' && props.onTab) {
+                    props.onTab()
+                  }
+                } else if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setTempValue(props.value)
+                  setIsEditing(false)
                 }
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                setTempValue(props.value)
-                setIsEditing(false)
-              }
-            }}
-            onBlur={handleSave}
-            placeholder={props.editingPlaceholder || props.placeholder}
-            maxLength={props.maxLength}
-            style={{
-              ...(props.style || {}),
-              overflowWrap: 'break-word',
-              wordBreak: 'break-word'
-            }}
-            className={cn(
-              "resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-1 py-1 rounded-sm !min-h-0",
-              props.textClass || "text-sm-regular",
-              props.className
+              }}
+              onBlur={handleSave}
+              placeholder={props.editingPlaceholder || props.placeholder}
+              maxLength={props.maxLength}
+              style={{
+                ...(props.style || {}),
+                overflowWrap: 'break-word',
+                wordBreak: 'break-word'
+              }}
+              className={cn(
+                "resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-1 py-1 rounded-sm !min-h-0",
+                props.textClass || "text-sm-regular",
+                props.className
+              )}
+            />
+            {/* Validation text - reserve space to prevent layout shift */}
+            {validationContent && (
+              <div className="h-5 flex items-start mt-2">
+                {validationContent}
+              </div>
             )}
-          />
+          </div>
         )
       }
       
       // Single-line editing with input
+      const validationContent = validationText 
+        ? (typeof validationText === 'function' ? validationText(tempValue, true) : validationText)
+        : null
+      
       return (
-        <div className="relative flex items-center">
-          {props.currency && (
-            <span className="absolute left-2 text-sm-regular pointer-events-none" style={{ color: 'var(--color-base-text-primary)' }}>
-              {props.currency}
-            </span>
-          )}
-          <Input
-            ref={inputRef}
-            value={tempValue}
-            onChange={handleNumericChange}
-            onKeyDown={handleKeyDown}
-            onBlur={handleSave}
-            placeholder={props.editingPlaceholder || props.placeholder}
-            maxLength={props.maxLength}
-            style={props.style || {}}
-            className={cn(
-              "py-1 h-auto rounded-sm",
-              props.textClass || "text-sm-regular",
-              !props.showBorder && "border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
-              props.currency ? "pl-6 pr-1" : "px-1",
-              props.className
+        <div className="flex flex-col">
+          <div className="relative flex items-center">
+            {props.currency && (
+              <span className="absolute left-2 text-sm-regular pointer-events-none" style={{ color: 'var(--color-base-text-primary)' }}>
+                {props.currency}
+              </span>
             )}
-          />
+            <Input
+              ref={inputRef}
+              value={tempValue}
+              onChange={handleNumericChange}
+              onKeyDown={handleKeyDown}
+              onBlur={handleSave}
+              placeholder={props.editingPlaceholder || props.placeholder}
+              maxLength={props.maxLength}
+              style={props.style || {}}
+              className={cn(
+                "py-1 h-auto rounded-sm",
+                props.textClass || "text-sm-regular",
+                !props.showBorder && "border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+                props.currency ? "pl-6 pr-1" : "px-1",
+                props.className
+              )}
+            />
+          </div>
+          {/* Validation text - reserve space to prevent layout shift */}
+          {validationContent && (
+            <div className="h-5 flex items-start mt-2">
+              {validationContent}
+            </div>
+          )}
         </div>
       )
     }
 
     const multiline = 'multiline' in props ? props.multiline : false
     const linkifyUrls = 'linkifyUrls' in props ? props.linkifyUrls : false
+    const validationText = 'validationText' in props ? props.validationText : undefined
     const displayValue = formatDisplayValue(props.value)
     
     // For multiline text with linkifyUrls enabled, apply linkification to make URLs clickable
@@ -404,25 +432,38 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       </span>
     ) : displayValue
     
+    // Check for persistent validation (when not editing)
+    const persistentValidation = validationText 
+      ? (typeof validationText === 'function' ? validationText(props.value, false) : validationText)
+      : null
+    
     return (
-      <div
-        className={cn(
-          "py-1 px-1 rounded-sm transition-colors duration-75",
-          props.textClass || "text-sm-regular",
-          !multiline && "truncate",
-          multiline && "whitespace-pre-wrap",
-          !props.nonInteractive && "hover:bg-[var(--color-interactive-surface-hover)]",
-          props.className
+      <div className="flex flex-col">
+        <div
+          className={cn(
+            "py-1 px-1 rounded-sm transition-colors duration-75",
+            props.textClass || "text-sm-regular",
+            !multiline && "truncate",
+            multiline && "whitespace-pre-wrap",
+            !props.nonInteractive && "hover:bg-[var(--color-interactive-surface-hover)]",
+            props.className
+          )}
+          style={{
+            cursor: props.nonInteractive ? 'default' : 'pointer',
+            ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {}),
+            ...(multiline ? { overflowWrap: 'break-word', wordBreak: 'break-word' } : {}),
+            ...(props.style || {})
+          }}
+          onClick={() => !props.nonInteractive && setIsEditing(true)}
+        >
+          {renderedContent}
+        </div>
+        {/* Persistent validation when not editing (only shows if validationText returns content) */}
+        {persistentValidation && (
+          <div className="h-5 flex items-start mt-2">
+            {persistentValidation}
+          </div>
         )}
-        style={{
-          cursor: props.nonInteractive ? 'default' : 'pointer',
-          ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {}),
-          ...(multiline ? { overflowWrap: 'break-word', wordBreak: 'break-word' } : {}),
-          ...(props.style || {})
-        }}
-        onClick={() => !props.nonInteractive && setIsEditing(true)}
-      >
-        {renderedContent}
       </div>
     )
   }
@@ -507,7 +548,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
           </div>
         </PopoverTrigger>
         <PopoverContent 
-          className="inline-edit-popover w-full min-w-48 p-0" 
+          className="p-0" 
           align="start"
           style={{ width: props.type === 'badge' && props.popoverWidth ? props.popoverWidth : 'var(--radix-popover-trigger-width)' }}
         >
@@ -517,7 +558,10 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
                 <CommandInput placeholder={props.searchPlaceholder || "Search options..."} className="!h-auto !py-2 px-4 text-sm" />
               </div>
             )}
-            <CommandList>
+            <CommandList 
+              className={props.maxHeight ? undefined : undefined}
+              style={props.maxHeight ? { maxHeight: props.maxHeight, overflowY: 'auto', overflowX: 'hidden' } : undefined}
+            >
               <CommandEmpty>No options found.</CommandEmpty>
               <CommandGroup>
                 {props.options.map((option, index) => (

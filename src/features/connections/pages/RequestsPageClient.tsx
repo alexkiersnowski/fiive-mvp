@@ -23,10 +23,14 @@ interface RequestsPageClientProps {
     avatarUrl?: string
     jobTitle?: string
   }>
+  projects: Array<{
+    id: string
+    name: string
+  }>
 }
 
 // Client component wrapper that handles all client-side interactivity
-export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, agencyMembers }: RequestsPageClientProps) {
+export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, agencyMembers, projects }: RequestsPageClientProps) {
   const { snapshot, context, setIsEmpty, setNewRequestsCount } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
@@ -725,7 +729,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       email: string
       avatarUrl?: string
     } | null
-    type?: string | null
+    project?: {
+      id: string
+      name: string
+    } | null
     status?: 'new' | 'in_review' | 'accepted' | 'canceled'
     createdAt?: string
     createdByOrgId?: string
@@ -746,7 +753,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     return requests.find(r => r.id === requestId)
   }
 
-  function handleRequestUpdate(requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' }) {
+  function handleRequestUpdate(requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; project?: { id: string; name: string } | null }) {
     // Get the original request to compare status changes
     const originalRequest = requests.find(r => r.id === requestId)
     
@@ -815,7 +822,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         agency: request.agency,
         submittedBy: request.submittedBy,
         assignee: request.assignee,
-        type: request.type,
+        project: request.project,
         status: request.status,
         createdAt: request.createdAt,
         createdByOrgId: request.createdByOrgId,
@@ -873,7 +880,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     tempId: string
     title: string
     description: string
-    type: string | null
+    projectId: string | null
+    projectName?: string | null
     assigneeUserId: string | null
   }) => {
     const today = (() => {
@@ -890,7 +898,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       title: payload.title,
       description: payload.description || '',
       status: 'new',
-      type: payload.type,
+      project: payload.projectId && payload.projectName ? { id: payload.projectId, name: payload.projectName } : null,
       submittedBy: {
         id: context.user?.id || '',
         name: `${context.user?.firstName || ''} ${context.user?.lastName || ''}`.trim() || 'You',
@@ -993,6 +1001,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       <RequestDetailModal
         requestData={selectedRequest}
         agencyMembers={agencyMembers}
+        projects={projects}
         isOpen={isModalOpen}
         onClose={handleModalClose}
         onExpand={handleExpand}

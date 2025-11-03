@@ -16,7 +16,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { CommentInput } from '@/components/ui/comment-input'
 import { CommentItem } from '@/components/ui/comment-item'
 import Link from 'next/link'
-import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee, deleteRequest, createComment, deleteComment, fetchCommentsForRequest } from './actions'
+import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee, updateRequestProject, deleteRequest, createComment, deleteComment, fetchCommentsForRequest, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
 
 interface Comment {
@@ -62,11 +62,18 @@ interface RequestDetailContentProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  type?: string | null
+  projects?: Array<{
+    id: string
+    name: string
+  }>
+  project?: {
+    id: string
+    name: string
+  } | null
   status?: 'new' | 'in_review' | 'accepted' | 'canceled'
   createdAt?: string
   mode?: 'modal' | 'page'
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -84,7 +91,7 @@ interface RequestDetailContentProps {
   onCommentsUpdate?: (comments: Comment[]) => void
 }
 
-export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -168,11 +175,56 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   const [descriptionValue, setDescriptionValue] = useState(description)
   const [statusValue, setStatusValue] = useState(status)
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
-  const [requestType, setRequestType] = useState(type || 'general')
+  const [requestProject, setRequestProject] = useState<{ id: string; name: string } | null>(project || null)
   const [titleResetKey, setTitleResetKey] = useState(0)
   const [assigneeValue, setAssigneeValue] = useState(assignee)
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>(initialProjects)
   
   const [comments, setComments] = useState<Comment[]>(initialComments)
+  
+  // Initialize projects list with current project if available (to prevent flicker)
+  // and merge with initial projects from props
+  useEffect(() => {
+    if (project && project.id && project.name) {
+      // Add current project to list immediately if not already present
+      setProjects(prev => {
+        const exists = prev.some(p => p.id === project.id)
+        if (exists) return prev
+        return [{ id: project.id, name: project.name }, ...prev]
+      })
+    }
+  }, [project])
+  
+  // Update projects list when initialProjects prop changes (e.g., when modal opens with fresh data)
+  useEffect(() => {
+    if (initialProjects.length > 0) {
+      setProjects(prev => {
+        // Merge initial projects with existing, avoiding duplicates
+        const existingIds = new Set(prev.map(p => p.id))
+        const newProjects = initialProjects.filter(p => !existingIds.has(p.id))
+        return [...prev, ...newProjects]
+      })
+    }
+  }, [initialProjects])
+  
+  // Fallback: Fetch projects on mount if connectionId is available and no initial projects provided
+  // This handles edge cases where projects weren't prefetched (e.g., direct navigation to detail page)
+  useEffect(() => {
+    if (connectionId && initialProjects.length === 0) {
+      fetchProjectsForConnection(connectionId)
+        .then(fetchedProjects => {
+          // Merge with existing projects, avoiding duplicates
+          setProjects(prev => {
+            const existingIds = new Set(prev.map(p => p.id))
+            const newProjects = fetchedProjects.filter(p => !existingIds.has(p.id))
+            return [...prev, ...newProjects]
+          })
+        })
+        .catch(error => {
+          console.error('Error fetching projects:', error)
+        })
+    }
+  }, [connectionId, initialProjects.length])
   
   // Handle comment submission with optimistic update
   const handleCommentSubmit = async (text: string) => {
@@ -401,10 +453,31 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     }
   }
 
-  const handleRequestTypeSave = (value: string) => {
-    setRequestType(value)
-    // TODO: Save to database
-    console.log('Saving request type:', value)
+  const handleProjectSave = async (projectId: string) => {
+    // Find the selected project from the fetched projects list
+    const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId) || null
+    
+    // Optimistic update
+    const previousProject = requestProject
+    setRequestProject(selectedProject)
+    
+    // Update parent (table) optimistically
+    if (onRequestUpdate) {
+      onRequestUpdate(requestId, { project: selectedProject })
+    }
+    
+    try {
+      await updateRequestProject(requestId, projectId === 'general' ? null : projectId)
+      router.refresh() // Refresh to get updated data from server
+    } catch (error) {
+      console.error('Failed to update request project:', error)
+      toast.error('Failed to update request project')
+      // Revert optimistic update on error
+      setRequestProject(previousProject)
+      if (onRequestUpdate) {
+        onRequestUpdate(requestId, { project: previousProject })
+      }
+    }
   }
 
   const handleStatusChange = async (newStatus: string) => {
@@ -424,9 +497,17 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     
     try {
       await updateRequestStatus(requestId, validStatus)
+      const statusLabels = {
+        new: 'New',
+        in_review: 'In review',
+        accepted: 'Accepted',
+        canceled: 'Canceled'
+      }
+      toast.success(`Status updated to ${statusLabels[validStatus]}`)
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
       console.error('Failed to update status:', error)
+      toast.error('Failed to update status')
       // Revert optimistic update on error
       setStatusValue(previousStatus)
       if (onRequestUpdate) {
@@ -456,9 +537,11 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       
       try {
         await updateRequestAssignee(requestId, memberId)
+        toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
         router.refresh() // Refresh to get updated data from server
       } catch (error) {
         console.error('Failed to update assignee:', error)
+        toast.error('Failed to update assignee')
         // Revert optimistic update on error
         setAssigneeValue(previousAssignee)
         if (onRequestUpdate) {
@@ -480,9 +563,11 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     
     try {
       await updateRequestAssignee(requestId, null)
+      toast.success('Assignee removed')
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
       console.error('Failed to clear assignee:', error)
+      toast.error('Failed to clear assignee')
       // Revert optimistic update on error
       setAssigneeValue(previousAssignee)
       if (onRequestUpdate) {
@@ -782,18 +867,20 @@ export function RequestDetailContent({ requestId, title, description, client, ag
             <div className="w-3/5 min-w-0">
               <InlineEdit
                 type="badge"
-                value={requestType}
+                value={requestProject ? requestProject.id : 'general'}
                 options={[
-                  { value: 'general', label: 'General request' }
-                  // TODO: Fetch real projects from database
+                  { value: 'general', label: 'General request' },
+                  ...projects.map(p => ({ value: p.id, label: p.name }))
                 ]}
-                onSave={handleRequestTypeSave}
+                onSave={handleProjectSave}
                 searchPlaceholder="Search projects…"
                 clearable={false}
                 dividerIndex={0}
-                placeholder="Add project"
-                popoverWidth="3/5"
-                className="h-6 truncate"
+                placeholder="General request"
+                popoverWidth="240px"
+                badgeBorderRadius="4px"
+                maxHeight="210px"
+                className="h-6"
                 nonInteractive={!canEdit}
               />
             </div>

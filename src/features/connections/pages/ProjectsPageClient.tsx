@@ -729,8 +729,9 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
     startDate?: string
     endDate?: string
-    budget?: string
     createdAt?: string
+    requestsCount?: number
+    tasksCount?: number
     createdByOrgId?: string
     createdByOrgType?: 'agency' | 'client'
   } | null>(null)
@@ -809,8 +810,9 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         status: project.status,
         startDate: project.startDate,
         endDate: project.endDate,
-        budget: project.budget,
         createdAt: project.createdAt,
+        requestsCount: project.requestsCount,
+        tasksCount: project.tasksCount,
         createdByOrgId: project.createdByOrgId,
         createdByOrgType: project.createdByOrgType
       })
@@ -865,6 +867,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     description: string
     type: string | null
     assigneeUserId: string | null
+    startDate: string
+    endDate: string
   }) => {
     const today = (() => {
       const d = new Date()
@@ -892,14 +896,13 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         orgLogo: undefined,
       },
       assignee: null,
-      budget: '€0',
       client: {
         id: snapshot.partner.id,
         name: snapshot.partner.name,
         logoUrl: snapshot.partner.logo,
       },
-      startDate: today,
-      endDate: today,
+      startDate: payload.startDate || '',
+      endDate: payload.endDate || '',
       createdAt: today,
       requestsCount: 0,
       tasksCount: 0,

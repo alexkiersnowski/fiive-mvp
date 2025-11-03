@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import React, { useState } from 'react'
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ProjectDetailContent } from './ProjectDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -9,6 +9,7 @@ import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icon
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import { deleteProject } from './actions'
+import type { Project } from '../server'
 
 interface ProjectDetailModalProps {
   projectData: {
@@ -41,8 +42,9 @@ interface ProjectDetailModalProps {
     status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
     startDate?: string
     endDate?: string
-    budget?: string
     createdAt?: string
+    requestsCount?: number
+    tasksCount?: number
     createdByOrgId?: string
     createdByOrgType?: 'agency' | 'client'
   } | null
@@ -88,15 +90,24 @@ interface ProjectDetailModalProps {
 
 export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, onClose, onExpand, onProjectUpdate, onProjectDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailModalProps) {
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   
   // Determine dialog title based on organization type that created the project
   const getDialogTitle = () => {
     return 'Project'
   }
   
-  // Handle delete project (optimistic)
-  const handleDeleteProject = async () => {
+  // Handle delete project click (opens confirmation dialog)
+  const handleDeleteProject = () => {
+    setDeleteDialogOpen(true)
+  }
+
+  // Confirm delete project (optimistic)
+  const confirmDeleteProject = async () => {
     if (!projectData?.projectId) return
+    
+    // Close confirmation dialog immediately
+    setDeleteDialogOpen(false)
     
     // Close modal immediately
     onClose()
@@ -115,6 +126,7 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
   }
   
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent 
         className="!max-w-[1080px] !max-h-[800px] !min-h-[500px] overflow-hidden !p-0 !gap-0 !flex !flex-col" 
@@ -198,8 +210,9 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
               status={projectData.status}
               startDate={projectData.startDate}
               endDate={projectData.endDate}
-              budget={projectData.budget}
               createdAt={projectData.createdAt}
+              requestsCount={projectData.requestsCount}
+              tasksCount={projectData.tasksCount}
               onProjectUpdate={onProjectUpdate}
               createdByOrgId={projectData.createdByOrgId}
               createdByOrgType={projectData.createdByOrgType}
@@ -213,6 +226,41 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
         )}
       </DialogContent>
     </Dialog>
+
+    {/* Delete Project Confirmation Dialog */}
+    <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <DialogContent style={{ padding: '24px', width: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto">
+        <DialogHeader className="space-y-0">
+          <DialogTitle className="display-5-medium mb-0">
+            Delete project &quot;{projectData?.title}&quot;?
+          </DialogTitle>
+        </DialogHeader>
+        <DialogDescription 
+          className="text-sm-regular mb-0"
+        >
+          Deleting this project will unlink all related tasks and requests. This action cannot be undone.
+        </DialogDescription>
+        <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
+          <Button 
+            variant="ghost" 
+            onClick={() => setDeleteDialogOpen(false)}
+            style={{ height: '40px' }}
+            className="cursor-pointer"
+          >
+            Cancel
+          </Button>
+          <Button 
+            variant="destructive"
+            onClick={confirmDeleteProject}
+            style={{ height: '40px' }}
+            className="cursor-pointer"
+          >
+            Delete
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </>
   )
 }
 

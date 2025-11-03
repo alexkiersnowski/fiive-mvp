@@ -25,7 +25,9 @@ export default function DashboardLayout({ data, context, children, initialIsColl
     pathname.split('/')[1] || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
   // Check if we're on a detail page (should use card variant, not full-width)
-  const isDetailPage = /^\/(clients|agencies)\/[^/]+\/requests\/[^/]+$/.test(pathname)
+  // Matches request detail pages: /agencies/[connectionId]/requests/[requestId] or /clients/[connectionId]/requests/[requestId]
+  // Matches project detail pages: /agencies/[connectionId]/projects/[projectId] or /clients/[connectionId]/projects/[projectId]
+  const isDetailPage = /^\/(clients|agencies)\/[^/]+\/(requests|projects)\/[^/]+$/.test(pathname)
   const isFullWidthPage = !isDetailPage && (['/home', '/clients', '/agencies'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/'))
   const isSettingsPage = pathname.startsWith('/settings')
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'

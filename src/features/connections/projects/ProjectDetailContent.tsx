@@ -4,16 +4,20 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ListRow } from '@/components/ui/list-row'
-import { DotsThree, FlowArrow, LinkSimple, Trash } from '@phosphor-icons/react'
+import { DotsThree, LinkSimple, Trash, CaretDown, Check } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
+import { ProjectBadge } from '@/components/ui/project-badge'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Link from 'next/link'
-import { updateProjectTitle, updateProjectDescription, updateProjectStatus, updateProjectAssignee, deleteProject } from './actions'
+import { updateProjectTitle, updateProjectDescription, updateProjectStatus, updateProjectAssignee, deleteProject, updateProjectStartDate, updateProjectEndDate } from './actions'
 import type { Project } from '../server'
 import { toast } from 'sonner'
-import { useConnection } from '../ConnectionContext'
+import { parse } from 'date-fns'
 
 interface Comment {
   id: string
@@ -62,10 +66,11 @@ interface ProjectDetailContentProps {
   status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
   startDate?: string
   endDate?: string
-  budget?: string
   createdAt?: string
+  requestsCount?: number
+  tasksCount?: number
   mode?: 'modal' | 'page'
-  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any; startDate?: string; endDate?: string; budget?: string }) => void
+  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any; startDate?: string; endDate?: string }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -83,30 +88,29 @@ interface ProjectDetailContentProps {
   onCommentsUpdate?: (comments: Comment[]) => void
 }
 
-export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, budget, createdAt, mode = 'modal', onProjectUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailContentProps) {
+export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, createdAt, requestsCount = 0, tasksCount = 0, mode = 'modal', onProjectUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { snapshot } = useConnection()
   
   // Determine base route for navigation
   const baseRoute = pathname?.startsWith('/agencies/') ? 'agencies' : 'clients'
   
-  // Helper function to map currency code to symbol
-  const getCurrencySymbol = (currencyCode: 'EUR' | 'USD' | 'GBP'): string => {
-    const symbols = {
-      EUR: '€',
-      USD: '$',
-      GBP: '£'
-    }
-    return symbols[currencyCode] || '€'
-  }
-  
   
   // State for actions dropdown
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   
-  // Handle delete project (optimistic)
-  const handleDeleteProject = async () => {
+  // Handle delete project click (opens confirmation dialog)
+  const handleDeleteProject = () => {
+    setDeleteDialogOpen(true)
+  }
+
+  // Confirm delete project (optimistic)
+  const confirmDeleteProject = async () => {
+    // Close dialog immediately
+    setDeleteDialogOpen(false)
+    
     // Show success toast immediately
     toast.success('Project deleted')
     
@@ -151,7 +155,6 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
   const [assigneeValue, setAssigneeValue] = useState(assignee)
   const [startDateValue, setStartDateValue] = useState(startDate || '')
   const [endDateValue, setEndDateValue] = useState(endDate || '')
-  const [budgetValue, setBudgetValue] = useState(budget || '')
   
   // Sync assignee when prop changes (for table → modal updates)
   useEffect(() => {
@@ -166,10 +169,6 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
   useEffect(() => {
     setEndDateValue(endDate || '')
   }, [endDate])
-
-  useEffect(() => {
-    setBudgetValue(budget || '')
-  }, [budget])
   
   // Track previous values for undo functionality
   const titleSnapshot = useRef(title)
@@ -331,9 +330,18 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     
     try {
       await updateProjectStatus(projectId, validStatus)
+      const statusLabels = {
+        planned: 'Planned',
+        active: 'Active',
+        on_hold: 'On hold',
+        completed: 'Completed',
+        canceled: 'Canceled'
+      }
+      toast.success(`Status updated to ${statusLabels[validStatus]}`)
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
       console.error('Failed to update status:', error)
+      toast.error('Failed to update status')
       // Revert optimistic update on error
       setStatusValue(previousStatus)
       if (onProjectUpdate) {
@@ -363,9 +371,11 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       
       try {
         await updateProjectAssignee(projectId, memberId)
+        toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
         router.refresh() // Refresh to get updated data from server
       } catch (error) {
         console.error('Failed to update assignee:', error)
+        toast.error('Failed to update assignee')
         // Revert optimistic update on error
         setAssigneeValue(previousAssignee)
         if (onProjectUpdate) {
@@ -387,9 +397,11 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     
     try {
       await updateProjectAssignee(projectId, null)
+      toast.success('Assignee removed')
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
       console.error('Failed to clear assignee:', error)
+      toast.error('Failed to clear assignee')
       // Revert optimistic update on error
       setAssigneeValue(previousAssignee)
       if (onProjectUpdate) {
@@ -409,8 +421,28 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
     
     try {
-      // TODO: Implement updateProjectStartDate action
-      // await updateProjectStartDate(projectId, value)
+      // Convert UI date format to ISO date string for database
+      // value is in format "d MMM yyyy" (e.g., "23 Oct 2025") from InlineEdit
+      const dateStr = value ? (() => {
+        try {
+          // Parse the formatted date string using date-fns
+          const parsed = parse(value, 'd MMM yyyy', new Date())
+          // Check if parsing was successful
+          if (isNaN(parsed.getTime())) return null
+          // Convert to date-only string (YYYY-MM-DD) for database
+          return parsed.toISOString().split('T')[0]
+        } catch {
+          // Fallback: try Date constructor
+          try {
+            const parsed = new Date(value)
+            return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0]
+          } catch {
+            return null
+          }
+        }
+      })() : null
+      
+      await updateProjectStartDate(projectId, dateStr)
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
       console.error('Failed to update start date:', error)
@@ -433,8 +465,28 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
     
     try {
-      // TODO: Implement updateProjectEndDate action
-      // await updateProjectEndDate(projectId, value)
+      // Convert UI date format to ISO date string for database
+      // value is in format "d MMM yyyy" (e.g., "23 Oct 2025") from InlineEdit
+      const dateStr = value ? (() => {
+        try {
+          // Parse the formatted date string using date-fns
+          const parsed = parse(value, 'd MMM yyyy', new Date())
+          // Check if parsing was successful
+          if (isNaN(parsed.getTime())) return null
+          // Convert to date-only string (YYYY-MM-DD) for database
+          return parsed.toISOString().split('T')[0]
+        } catch {
+          // Fallback: try Date constructor
+          try {
+            const parsed = new Date(value)
+            return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0]
+          } catch {
+            return null
+          }
+        }
+      })() : null
+      
+      await updateProjectEndDate(projectId, dateStr)
       router.refresh() // Refresh to get updated data from server
     } catch (error) {
       console.error('Failed to update end date:', error)
@@ -445,31 +497,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       }
     }
   }
-
-  const handleBudgetSave = async (value: string) => {
-    // Optimistic update
-    const previousBudget = budgetValue
-    setBudgetValue(value)
-    
-    // Update parent (table) optimistically
-    if (onProjectUpdate) {
-      onProjectUpdate(projectId, { budget: value })
-    }
-    
-    try {
-      // TODO: Implement updateProjectBudget action
-      // await updateProjectBudget(projectId, value)
-      router.refresh() // Refresh to get updated data from server
-    } catch (error) {
-      console.error('Failed to update budget:', error)
-      // Revert optimistic update on error
-      setBudgetValue(previousBudget)
-      if (onProjectUpdate) {
-        onProjectUpdate(projectId, { budget: previousBudget })
-      }
-    }
-  }
-
+  
   const statusOptions: { value: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled', label: string }[] = [
     { value: 'planned', label: 'Planned' },
     { value: 'active', label: 'Active' },
@@ -510,15 +538,6 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                   )}
                 </BreadcrumbList>
               </Breadcrumb>
-              {/* Informational text - not part of breadcrumb */}
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] leading-[20px] font-normal tracking-[0.0025rem]" style={{ color: 'var(--color-base-text-tertiary)' }}>
-                  —
-                </span>
-                <span className="text-[12px] leading-[20px] font-normal tracking-[0.0025rem]" style={{ color: 'var(--color-base-text-tertiary)' }}>
-                  Project
-                </span>
-              </div>
             </div>
             <DropdownMenu modal={false} open={isActionsDropdownOpen} onOpenChange={setIsActionsDropdownOpen}>
             <DropdownMenuTrigger asChild>
@@ -536,12 +555,6 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[200px]">
-              {variant === 'agency' && (
-                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
-                  <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                  Convert to task
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem onClick={() => {
                 handleCopyLink()
                 setIsActionsDropdownOpen(false)
@@ -586,6 +599,52 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 className="px-0"
               />
             </div>
+            {variant === 'agency' ? (
+              <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="mt-1.5 cursor-pointer"
+                    style={{ padding: 0, background: 'none', border: 'none' }}
+                  >
+                    <ProjectBadge variant={statusValue} size="lg" showText={true} showIconRight={true} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-full min-w-48 p-0"
+                  align="start"
+                  style={{ width: 'var(--radix-popover-trigger-width)' }}
+                >
+                  <Command>
+                    <CommandList>
+                      <CommandEmpty>No status found.</CommandEmpty>
+                      <CommandGroup>
+                        {statusOptions.map((option) => (
+                          <CommandItem
+                            key={option.value}
+                            value={option.value}
+                            onSelect={() => {
+                              handleStatusChange(option.value as string)
+                              setIsStatusDropdownOpen(false)
+                            }}
+                            className="flex items-center justify-between cursor-pointer"
+                          >
+                            <ProjectBadge variant={option.value} size="sm" showText />
+                            {option.value === statusValue && (
+                              <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
+                            )}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <div className="mt-1.5">
+                <ProjectBadge variant={statusValue} size="lg" showText={true} />
+              </div>
+            )}
           </div>
         </div>
         
@@ -614,8 +673,12 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
 
       {/* Right Column */}
       <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
-        {/* Detail rows */}
-        <div className="flex flex-col gap-2">
+          <h3 className="text-md-medium text-primary">
+          Details
+        </h3>
+        
+        {/* Detail rows - 32px below title */}
+        <div className="flex flex-col gap-2 mt-2">
           {/* Client/Agency Row */}
           <div className="flex items-center gap-4 h-6">
             <div className="w-2/5 min-w-0">
@@ -667,47 +730,63 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
             </div>
           </div>
 
-          {/* Value Row */}
+          {/* Requests Row */}
           <div className="flex items-center gap-4 h-6">
             <div className="w-2/5 min-w-0">
-              <p className="text-sm-regular text-secondary truncate">Value</p>
+              <p className="text-sm-regular text-secondary truncate">Requests</p>
             </div>
             <div className="w-3/5 min-w-0">
-              <InlineEdit
-                type="text"
-                value={budgetValue}
-                placeholder={`E.g. ${getCurrencySymbol(snapshot.agency.currencyCode)}250,000`}
-                editingPlaceholder="250,000"
-                currency={getCurrencySymbol(snapshot.agency.currencyCode)}
-                numeric={true}
-                showBorder={true}
-                onSave={handleBudgetSave}
-                className="h-[28px] truncate"
-              />
+              <span className="text-sm-regular text-primary ml-1">{requestsCount}</span>
             </div>
           </div>
 
-          {/* Status Row */}
+          {/* Tasks Row */}
           <div className="flex items-center gap-4 h-6">
             <div className="w-2/5 min-w-0">
-              <p className="text-sm-regular text-secondary truncate">Status</p>
+              <p className="text-sm-regular text-secondary truncate">Tasks</p>
             </div>
             <div className="w-3/5 min-w-0">
-              <InlineEdit
-                type="badge"
-                value={statusValue}
-                options={statusOptions.map(opt => ({ value: opt.value, label: opt.label }))}
-                onSave={handleStatusChange}
-                clearable={true}
-                badgeComponent="project"
-                placeholder="Add status"
-                className="h-[28px] truncate"
-              />
+              <span className="text-sm-regular text-primary ml-1">{tasksCount}</span>
             </div>
           </div>
+
         </div>
       </div>
       </div>
+
+      {/* Delete Project Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent style={{ padding: '24px', width: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto">
+          <DialogHeader className="space-y-0">
+            <DialogTitle className="display-5-medium mb-0">
+              Delete project &quot;{title}&quot;?
+            </DialogTitle>
+          </DialogHeader>
+          <DialogDescription 
+            className="text-sm-regular mb-0"
+          >
+            Deleting this project will unlink all related tasks and requests. This action cannot be undone.
+          </DialogDescription>
+          <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
+            <Button 
+              variant="ghost" 
+              onClick={() => setDeleteDialogOpen(false)}
+              style={{ height: '40px' }}
+              className="cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={confirmDeleteProject}
+              style={{ height: '40px' }}
+              className="cursor-pointer"
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

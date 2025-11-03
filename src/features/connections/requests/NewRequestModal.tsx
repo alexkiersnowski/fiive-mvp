@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { InlineEdit, InlineEditRef } from '@/components/ui/inline-edit'
 import { ListRow } from '@/components/ui/list-row'
 import { X } from '@phosphor-icons/react'
-import { createRequest } from './actions'
+import { createRequest, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
 
 interface NewRequestModalProps {
@@ -29,7 +29,8 @@ interface NewRequestModalProps {
     tempId: string
     title: string
     description: string
-    type: string | null
+    projectId: string | null
+    projectName?: string | null
     assigneeUserId: string | null
   }) => void
   onRequestCreated?: (payload: { requestId: string; tempId?: string }) => void
@@ -46,8 +47,20 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
   // Local state for form fields
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [type, setType] = useState('general')
+  const [projectId, setProjectId] = useState<string>('general')
   const [assigneeUserId, setAssigneeUserId] = useState<string | null>(null)
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+  
+  // Fetch projects when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      fetchProjectsForConnection(connectionId)
+        .then(setProjects)
+        .catch(error => {
+          console.error('Error fetching projects:', error)
+        })
+    }
+  }, [isOpen, connectionId])
   
   // Auto-focus title when modal opens and reset form when it closes
   useEffect(() => {
@@ -61,7 +74,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
       setTimeout(() => {
         setTitle('')
         setDescription('')
-        setType('general')
+        setProjectId('general')
         setAssigneeUserId(null)
       }, 300) // Match modal animation duration
     }
@@ -79,13 +92,18 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
     toast.success('Request created successfully')
     
     try {
+      // Look up project name from projects list
+      const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId)
+      const projectName = selectedProject ? selectedProject.name : null
+      
       // Emit optimistic row with temp id immediately
       const tempId = `temp-${Date.now()}`
       onRequestOptimistic?.({
         tempId,
         title,
         description,
-        type,
+        projectId: projectId === 'general' ? null : projectId,
+        projectName,
         assigneeUserId
       })
 
@@ -94,7 +112,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
         connectionId,
         title,
         description,
-        type,
+        projectId === 'general' ? null : projectId,
         assigneeUserId
       )
       // Notify parent with the created id so it can fetch and prepend the row
@@ -105,7 +123,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
       console.error('Error creating request:', error)
       toast.error('Failed to create request')
     }
-  }, [canCreate, connectionId, title, description, type, assigneeUserId, onRequestCreated, onRequestOptimistic, onClose])
+  }, [canCreate, connectionId, title, description, projectId, assigneeUserId, onRequestCreated, onRequestOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -130,9 +148,10 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
     ? agencyMembers.find(m => m.id === assigneeUserId) 
     : null
   
-  // Project options (TODO: Fetch real projects from database)
+  // Project options: General request + actual projects
   const projectOptions = [
-    { value: 'general', label: 'General request' }
+    { value: 'general', label: 'General request' },
+    ...projects.map(p => ({ value: p.id, label: p.name }))
   ]
   
   return (
@@ -210,14 +229,16 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
               {/* Project */}
               <InlineEdit
                 type="badge"
-                value={type}
+                value={projectId}
                 options={projectOptions}
-                onSave={setType}
+                onSave={setProjectId}
+                placeholder="General request"
                 searchPlaceholder="Search projects…"
                 clearable={false}
                 dividerIndex={0}
                 popoverWidth="240px"
                 badgeBorderRadius="4px"
+                maxHeight="210px"
                 className="h-6"
               />
 

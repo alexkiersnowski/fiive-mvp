@@ -1,5 +1,5 @@
 import { RequestDetailContent } from '@/features/connections/requests/RequestDetailContent'
-import { getRequestById, getAgencyMembersForConnection, getConnectionPartnerName, getCommentsForRequest } from '@/features/connections/server'
+import { getRequestById, getAgencyMembersForConnection, getConnectionPartnerName, getCommentsForRequest, getProjectsForConnection } from '@/features/connections/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { notFound } from 'next/navigation'
 
@@ -10,11 +10,12 @@ export default async function ClientRequestDetailPage({
 }) {
   const { connectionId, requestId } = await params
   
-  // Fetch request data, comments, agency members, and context in parallel
-  const [request, comments, agencyMembers, context] = await Promise.all([
+  // Fetch request data, comments, agency members, projects, and context in parallel
+  const [request, comments, agencyMembers, projectsData, context] = await Promise.all([
     getRequestById(requestId, connectionId),
     getCommentsForRequest(requestId),
     getAgencyMembersForConnection(connectionId),
+    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 }),
     getActiveContext()
   ])
   
@@ -29,6 +30,9 @@ export default async function ClientRequestDetailPage({
     notFound()
   }
   
+  // Transform projects to the format expected by RequestDetailContent
+  const projects = projectsData.projects.map(p => ({ id: p.id, name: p.title }))
+  
   return (
     <RequestDetailContent 
       requestId={request.id}
@@ -39,7 +43,8 @@ export default async function ClientRequestDetailPage({
       submittedBy={request.submittedBy}
       assignee={request.assignee}
       agencyMembers={agencyMembers}
-      type={request.type}
+      projects={projects}
+      project={request.project}
       status={request.status}
       createdAt={request.createdAt}
       mode="page"

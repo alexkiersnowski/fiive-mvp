@@ -590,9 +590,15 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     </TableCell>
 
                     <TableCell className="w-[15%] py-0">
-                      <Badge variant="neutral" className="text-xs">
-                        {request.type === 'general' ? 'General request' : request.type}
-                      </Badge>
+                      {request.project ? (
+                        <Badge variant="neutral" className="text-xs">
+                          {request.project.name}
+                        </Badge>
+                      ) : (
+                        <Badge variant="neutral" className="text-xs">
+                          General request
+                        </Badge>
+                      )}
                     </TableCell>
 
                     <TableCell 
@@ -656,9 +662,15 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     </TableCell>
 
                     <TableCell className="w-[15%] py-0">
-                      <Badge variant="neutral" className="text-xs">
-                        {request.type === 'general' ? 'General request' : request.type}
-                      </Badge>
+                      {request.project ? (
+                        <Badge variant="neutral" className="text-xs">
+                          {request.project.name}
+                        </Badge>
+                      ) : (
+                        <Badge variant="neutral" className="text-xs">
+                          General request
+                        </Badge>
+                      )}
                     </TableCell>
 
                     <TableCell 

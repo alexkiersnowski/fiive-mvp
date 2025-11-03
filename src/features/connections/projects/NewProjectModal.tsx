@@ -8,6 +8,7 @@ import { ListRow } from '@/components/ui/list-row'
 import { X } from '@phosphor-icons/react'
 import { createProject } from './actions'
 import { toast } from 'sonner'
+import { parse } from 'date-fns'
 
 interface NewProjectModalProps {
   client: {
@@ -31,6 +32,8 @@ interface NewProjectModalProps {
     description: string
     type: string | null
     assigneeUserId: string | null
+    startDate: string
+    endDate: string
   }) => void
   onProjectCreated?: (payload: { projectId: string; tempId?: string }) => void
   connectionId: string
@@ -86,16 +89,43 @@ export function NewProjectModal({ client, agencyMembers = [], isOpen, onClose, o
         title,
         description,
         type: null,
-        assigneeUserId: null
+        assigneeUserId: null,
+        startDate,
+        endDate
       })
+
+      // Parse dates from UI format ("d MMM yyyy") to ISO date strings for database
+      const parseDate = (dateStr: string | null | undefined): string | null => {
+        if (!dateStr || !dateStr.trim()) return null
+        try {
+          // Try parsing the formatted date string using date-fns
+          const parsed = parse(dateStr, 'd MMM yyyy', new Date())
+          if (isNaN(parsed.getTime())) return null
+          // Convert to date-only string (YYYY-MM-DD) for database
+          return parsed.toISOString().split('T')[0]
+        } catch {
+          // Fallback: try Date constructor
+          try {
+            const parsed = new Date(dateStr)
+            return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0]
+          } catch {
+            return null
+          }
+        }
+      }
+
+      const parsedStartDate = parseDate(startDate)
+      const parsedEndDate = parseDate(endDate)
 
       // Await the server insert to obtain the new project id
       const created = await createProject(
         connectionId,
         title,
         description,
-        null,
-        null
+        null, // type
+        null, // assigneeUserId
+        parsedStartDate,
+        parsedEndDate
       )
       // Notify parent with the created id so it can fetch and prepend the row
       if (created?.id) {
@@ -105,7 +135,7 @@ export function NewProjectModal({ client, agencyMembers = [], isOpen, onClose, o
       console.error('Error creating project:', error)
       toast.error('Failed to create project')
     }
-  }, [canCreate, connectionId, title, description, onProjectCreated, onProjectOptimistic, onClose])
+  }, [canCreate, connectionId, title, description, startDate, endDate, onProjectCreated, onProjectOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
