@@ -564,11 +564,21 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
             >
               <CommandEmpty>No options found.</CommandEmpty>
               <CommandGroup>
-                {props.options.map((option, index) => (
+                {props.options.map((option, index) => {
+                  // For search: use label as the value so cmdk can search by project name
+                  // This allows users to search by the visible label text instead of the UUID value
+                  const searchValue = option.label
+                  // Capture the actual value to pass to handleBadgeSelect
+                  const actualValue = option.value
+                  return (
                   <React.Fragment key={option.value}>
                     <CommandItem
-                      value={option.value}
-                      onSelect={() => handleBadgeSelect(option.value)}
+                      value={searchValue}
+                      onSelect={() => {
+                        // onSelect receives searchValue (label), but we need to pass actualValue
+                        // Since we captured actualValue in the closure, we can use it directly
+                        handleBadgeSelect(actualValue)
+                      }}
                       className="flex items-center justify-between cursor-pointer"
                     >
                       {(() => {
@@ -609,7 +619,8 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
                       </div>
                     )}
                   </React.Fragment>
-                ))}
+                  )
+                })}
               </CommandGroup>
             </CommandList>
           </Command>

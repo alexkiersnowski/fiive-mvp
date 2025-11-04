@@ -276,7 +276,7 @@ export async function updateProjectEndDate(projectId: string, endDate: string | 
  */
 export async function fetchProjectsForConnection(
   connectionId: string,
-  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; createdByUserId?: string }
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; createdByUserId?: string; sort?: string }
 ) {
   // Import the server function dynamically to avoid circular dependencies
   const { getProjectsForConnection } = await import('../server')

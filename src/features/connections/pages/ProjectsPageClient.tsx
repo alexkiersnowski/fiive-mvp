@@ -37,6 +37,16 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     try { return searchParams.get('assigned') === 'me' } catch { return false }
   })()
   
+  // MVP: read sort filter synchronously from URL before first fetch
+  const initialSort = (() => {
+    try { 
+      const sortParam = searchParams.get('sort')
+      // Validate sort value against allowed values
+      const validSorts = ['newest_first', 'project_asc', 'project_desc', 'end_date_asc']
+      return validSorts.includes(sortParam || '') ? sortParam : 'newest_first'
+    } catch { return 'newest_first' }
+  })()
+  
   // Get user avatar and organization from context
   const userAvatar = context.user?.avatarUrl || '';
   const userInitials = context.user?.firstName?.[0] + context.user?.lastName?.[0] || 'U';
@@ -56,6 +66,9 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
   const [assignedToMe, setAssignedToMe] = useState<boolean>(initiallyAssigned)
+  
+  // Sort state
+  const [sort, setSort] = useState<string>(initialSort)
   
   // Pagination state
   const [hasMore, setHasMore] = useState(initiallyAssigned ? true : initialProjects.length === PAGE_SIZE)
@@ -95,7 +108,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       try {
         const result = await fetchProjectsForConnection(connectionId, {
           limit: 1, // We only need the count, not the data
-          offset: 0
+          offset: 0,
+          sort: sort
           // No filters - this gives us the total count for the connection
         })
         if (!isMountedRef.current) return
@@ -107,7 +121,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       }
     }
     fetchUnfilteredCount()
-  }, [connectionId])
+  }, [connectionId, sort])
 
   // Update isEmpty in context when unfilteredTotalCount changes
   useEffect(() => {
@@ -122,7 +136,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         offset: 0,
         searchQuery: debouncedSearchQuery || undefined,
         assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+        sort: sort
       })
       if (!isMountedRef.current) return
       // Large state update - use transition for non-urgent render
@@ -137,7 +152,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     } catch (_) {
       // ignore
     }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, startTransition])
+  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, sort, startTransition])
 
   // DRY: prepend unique project by id
   const prependUnique = useCallback((project: Project) => {
@@ -225,7 +240,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
             offset: 0,
             searchQuery: debouncedSearchQuery || undefined,
             assignedToUserId: context.variant === 'agency' ? context.user?.id : undefined,
-            createdByUserId: context.variant === 'client' ? context.user?.id : undefined
+            createdByUserId: context.variant === 'client' ? context.user?.id : undefined,
+            sort: sort
           })
           if (!isMountedRef.current) return
           setProjects(result.projects)
@@ -264,7 +280,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           offset: 0,
           searchQuery: debouncedSearchQuery || undefined,
           assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+          sort: sort
         })
 
         if (isMountedRef.current) {
@@ -290,7 +307,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     }
 
     fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, startTransition])
+  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, sort, startTransition])
   
   // Prefetch next batch of projects with timeout protection
   const prefetchNext = useCallback(async (offset: number) => {
@@ -348,7 +365,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         offset,
         searchQuery: debouncedSearchQuery || undefined,
         assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+        sort: sort
       })
       
       // Clear timeout - only if we still own this project
@@ -393,7 +411,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       }
       inFlightProjects.current.delete(offset)
     }
-  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id])
+  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id, sort])
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {
@@ -613,7 +631,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       isLoadingMore.current = false
       inFlightProjects.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedProjects, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id])
+  }, [connectionId, hasMore, currentOffset, prefetchedProjects, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, sort])
 
   // Toggle handler and URL sync for Assigned to me
   const handleToggleAssignedToMe = useCallback(() => {
@@ -641,7 +659,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           offset: 0,
           searchQuery: debouncedSearchQuery || undefined,
           assignedToUserId: next && context.variant === 'agency' ? context.user?.id : undefined,
-          createdByUserId: next && context.variant === 'client' ? context.user?.id : undefined
+          createdByUserId: next && context.variant === 'client' ? context.user?.id : undefined,
+          sort: sort
         })
         if (!isMountedRef.current) return
         setProjects(result.projects)
@@ -661,7 +680,58 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     }
     
     fetchFilteredResults()
-  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id, context.variant])
+  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id, context.variant, sort])
+
+  // Sort change handler and URL sync
+  const handleSortChange = useCallback((newSort: string) => {
+    setSort(newSort)
+    // Update URL
+    const newSearchParams = new URLSearchParams(searchParams.toString())
+    if (newSort !== 'newest_first') {
+      newSearchParams.set('sort', newSort)
+    } else {
+      newSearchParams.delete('sort')
+    }
+    const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
+    router.replace(newUrl, { scroll: false })
+    
+    // Cancel all in-flight projects
+    inFlightProjects.current.clear()
+    isLoadingMore.current = false
+    // Clear all prefetch timeouts
+    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
+    prefetchTimeouts.current.clear()
+    
+    // Fetch new results with new sort (keep previous results visible during fetch, like search)
+    const fetchSortedResults = async () => {
+      try {
+        const result = await fetchProjectsForConnection(connectionId, {
+          limit: PAGE_SIZE,
+          offset: 0,
+          searchQuery: debouncedSearchQuery || undefined,
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+          sort: newSort
+        })
+        if (!isMountedRef.current) return
+        setProjects(result.projects)
+        setTotalCount(result.totalCount)
+        setHasMore(result.projects.length === PAGE_SIZE)
+        setCurrentOffset(PAGE_SIZE)
+        setPrefetchedProjects([])
+        setPrefetchedOffset(null)
+      } catch (error) {
+        if (isDev()) {
+          console.error('Failed to fetch sorted results:', error)
+        }
+        if (isMountedRef.current) {
+          setHasMore(false)
+        }
+      }
+    }
+    
+    fetchSortedResults()
+  }, [searchParams, pathname, router, connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant])
 
   // Prefetch next batch when initial projects load or after consuming prefetched data
   useEffect(() => {
@@ -978,6 +1048,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           logoUrl: snapshot.agency.logo || undefined
         } : undefined}
         onProjectDeleted={handleTableProjectDeleted}
+        initialSortValue={sort}
+        onSortChange={handleSortChange}
       />
       </div>
 
@@ -1019,7 +1091,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
               const result = await fetchProjectsForConnection(connectionId, {
                 limit: PAGE_SIZE,
                 offset: 0,
-                searchQuery: debouncedSearchQuery || undefined
+                searchQuery: debouncedSearchQuery || undefined,
+                sort: sort
               })
               if (!isMountedRef.current) return
               setProjects(result.projects)

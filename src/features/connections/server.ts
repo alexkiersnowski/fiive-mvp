@@ -496,6 +496,7 @@ export const getRequestsForConnection = cache(async (
     // Build OR list for search
     const orParts: string[] = [];
     orParts.push(`title.ilike.%${escaped}%`);
+    orParts.push(`project_name_cached.ilike.%${escaped}%`);
     if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
     baseQuery = baseQuery.or(orParts.join(','));
   }
@@ -533,6 +534,7 @@ export const getRequestsForConnection = cache(async (
     
     const orParts: string[] = [];
     orParts.push(`title.ilike.%${escaped}%`);
+    orParts.push(`project_name_cached.ilike.%${escaped}%`);
     if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
     requestsQuery = requestsQuery.or(orParts.join(','));
   }
@@ -1341,11 +1343,11 @@ const generateMockProjects = (connectionId: string, count: number = 10): Project
 
 export const getProjectsForConnection = cache(async (
   connectionId: string,
-  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; createdByUserId?: string }
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; createdByUserId?: string; sort?: string }
 ): Promise<ProjectsWithCount> => {
   const isDev = process.env.NODE_ENV !== 'production';
   const startTime = isDev ? performance.now() : 0;
-  const { limit = 50, offset = 0, searchQuery, assignedToUserId, createdByUserId } = options || {};
+  const { limit = 50, offset = 0, searchQuery, assignedToUserId, createdByUserId, sort = 'newest_first' } = options || {};
   const supabase = await createClient();
   
   // Fetch the connection info (cached, shared with getAgencyMembersForConnection)
@@ -1380,6 +1382,30 @@ export const getProjectsForConnection = cache(async (
   // Fetch projects and orgs in parallel
   const projectsStartTime = isDev ? performance.now() : 0;
   
+  // Normalize search query for project status matching
+  const normalizeProjectStatusQuery = (query: string): string | null => {
+    const normalized = query.toLowerCase().trim();
+    const PROJECT_STATUS_KEYWORDS: Record<string, 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'> = {
+      planned: 'planned',
+      plan: 'planned',
+      planning: 'planned',
+      active: 'active',
+      'on hold': 'on_hold',
+      onhold: 'on_hold',
+      on_hold: 'on_hold',
+      hold: 'on_hold',
+      paused: 'on_hold',
+      completed: 'completed',
+      complete: 'completed',
+      done: 'completed',
+      finished: 'completed',
+      canceled: 'canceled',
+      cancelled: 'canceled',
+      cancel: 'canceled'
+    };
+    return PROJECT_STATUS_KEYWORDS[normalized] ?? null;
+  };
+  
   // Build the base query for filtering (used for both count and data)
   let baseQuery = supabase
     .from('projects')
@@ -1387,8 +1413,20 @@ export const getProjectsForConnection = cache(async (
     .eq('connection_id', connectionId)
     .is('deleted_at', null);
   
-  // Note: Search query and filtering (assignedToUserId, createdByUserId) will be handled later
-  // For now, we only filter by connection_id and deleted_at
+  // Apply search filter if searchQuery is provided
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const trimmedQuery = searchQuery.trim();
+    const escaped = escapeForILike(trimmedQuery);
+    const matchedStatus = normalizeProjectStatusQuery(trimmedQuery);
+    
+    // Build OR list for search
+    const orParts: string[] = [];
+    orParts.push(`name.ilike.%${escaped}%`);
+    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
+    baseQuery = baseQuery.or(orParts.join(','));
+  }
+  
+  // Note: assignedToUserId and createdByUserId filters will be handled later
   
   // Build the projects query for fetching data
   // Note: Only selecting columns that exist in the schema
@@ -1408,13 +1446,48 @@ export const getProjectsForConnection = cache(async (
     .eq('connection_id', connectionId)
     .is('deleted_at', null);
   
+  // Apply search filter if searchQuery is provided
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const trimmedQuery = searchQuery.trim();
+    const escaped = escapeForILike(trimmedQuery);
+    const matchedStatus = normalizeProjectStatusQuery(trimmedQuery);
+    
+    // Build OR list for search
+    const orParts: string[] = [];
+    orParts.push(`name.ilike.%${escaped}%`);
+    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
+    projectsQuery = projectsQuery.or(orParts.join(','));
+  }
+  
   // Note: assignedToUserId and createdByUserId filters will be added later
+  
+  // Apply sorting based on sort parameter
+  let orderedQuery = projectsQuery;
+  switch (sort) {
+    case 'newest_first':
+      orderedQuery = projectsQuery.order('created_at', { ascending: false });
+      break;
+    case 'project_asc':
+      orderedQuery = projectsQuery.order('name', { ascending: true });
+      break;
+    case 'project_desc':
+      orderedQuery = projectsQuery.order('name', { ascending: false });
+      break;
+    case 'end_date_asc':
+      // Order by end_date ascending (soonest first)
+      // Projects without end dates (nulls) will sort last, and be sorted by created_at (newest first) as secondary sort
+      orderedQuery = projectsQuery
+        .order('end_date', { ascending: true })
+        .order('created_at', { ascending: false });
+      break;
+    default:
+      // Default to newest first
+      orderedQuery = projectsQuery.order('created_at', { ascending: false });
+  }
   
   const [countResult, projectsResult, clientOrgResult, agencyOrgResult] = await Promise.all([
     baseQuery,
-    projectsQuery
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1),
+    orderedQuery.range(offset, offset + limit - 1),
     clientOrgPromise,
     agencyOrgPromise
   ]);

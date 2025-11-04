@@ -50,17 +50,24 @@ interface ProjectsTableProps {
     logoUrl?: string
   }
   onProjectDeleted?: (projectId: string) => void
+  initialSortValue?: string
+  onSortChange?: (sortValue: string) => void
 }
 
-export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onProjectDeleted }: ProjectsTableProps) {
+export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
   
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   const [searchQuery, setSearchQuery] = useState('')
-  const [sortValue, setSortValue] = useState('newest_first')
+  const [sortValue, setSortValue] = useState(initialSortValue)
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
+  
+  // Update sortValue when initialSortValue prop changes
+  useEffect(() => {
+    setSortValue(initialSortValue)
+  }, [initialSortValue])
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{projectId: string; projectName: string} | null>(null)
@@ -120,8 +127,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     { value: 'newest_first', label: 'Newest first', buttonLabel: 'Newest first' },
     { value: 'project_asc', label: 'Project (A-Z)', buttonLabel: 'Project (A-Z)' },
     { value: 'project_desc', label: 'Project (Z-A)', buttonLabel: 'Project (Z-A)' },
-    { value: 'end_date_asc', label: 'End date (soonest first)', buttonLabel: 'End date' },
-    { value: 'value_desc', label: 'Value (highest first)', buttonLabel: 'Value' }
+    { value: 'end_date_asc', label: 'End date (soonest first)', buttonLabel: 'End date' }
   ], [])
 
   // Current sort label (memoized based on sortValue)
@@ -133,7 +139,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   const handleSortChange = (newSortValue: string) => {
     setSortValue(newSortValue)
     setIsSortDropdownOpen(false)
-    // Sort will be applied when we implement actual data
+    // Call parent callback to trigger data refetch with new sort
+    onSortChange?.(newSortValue)
   }
 
   // Assignee handlers with loading guard
