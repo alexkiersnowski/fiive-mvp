@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { getTasksForConnection, getConnectionMembers, getProjectsForConnection } from '../server';
+import { getTasksForConnection, getConnectionMembers, getProjectsForConnection, getCommentsForTasks } from '../server';
 import TasksPageClient from './TasksPageClient';
 import { PAGE_SIZE } from '../constants';
 
@@ -15,6 +15,22 @@ export async function TasksPage({ connectionId }: TasksPageProps) {
     getConnectionMembers(connectionId),
     getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
   ]);
+
+  const taskIds = tasksData.tasks.map(task => task.id);
+  const commentsRecord = taskIds.length > 0 ? await getCommentsForTasks(taskIds) : {};
+  const serializedComments = Object.fromEntries(
+    Object.entries(commentsRecord).map(([taskId, commentList]) => [
+      taskId,
+      commentList.map(comment => ({
+        id: comment.id,
+        userId: comment.userId,
+        userName: comment.userName,
+        userAvatar: comment.userAvatar,
+        createdAt: comment.createdAt.toISOString(),
+        text: comment.text,
+      })),
+    ])
+  );
 
   const assignableMembers = [...memberData.agencyMembers];
   for (const member of memberData.clientMembers) {
@@ -35,6 +51,7 @@ export async function TasksPage({ connectionId }: TasksPageProps) {
           initialTotalCount={tasksData.totalCount}
           agencyMembers={assignableMembers}
           projects={projects}
+          initialCommentsByTask={serializedComments}
         />
       </ErrorBoundary>
     </Card>

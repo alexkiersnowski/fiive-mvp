@@ -25,6 +25,7 @@ export interface ListRowProps {
   text?: string
   textColor?: string // Custom color for text (default: primary)
   secondaryText?: boolean | string
+  secondaryTextWidth?: string
   
   // Combobox (for empty state selection)
   comboboxOptions?: (ComboboxOption & { avatar?: string; orgName?: string; orgType?: 'agency' | 'client'; email?: string })[]
@@ -37,6 +38,7 @@ export interface ListRowProps {
   
   // Actions
   iconButtonEnd?: boolean | React.ReactNode
+  iconEnd?: React.ReactNode
   visibility?: boolean
   actions?: boolean
   dropdownItems?: Array<{
@@ -48,6 +50,7 @@ export interface ListRowProps {
   
   // Layout
   variant?: "stacked" | "inline"
+  layout?: 'stacked' | 'inline'
   
   // Interactivity
   nonInteractive?: boolean // Disables hover states and click handlers
@@ -71,6 +74,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     text = "Text",
     textColor = 'var(--color-base-text-primary)',
     secondaryText = false,
+    secondaryTextWidth,
     comboboxOptions,
     comboboxSelectedValue = null,
     onComboboxSelect,
@@ -79,10 +83,12 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     clearable = false,
     onClear,
     iconButtonEnd = false,
+    iconEnd,
     visibility = false,
     actions = true,
     dropdownItems,
     variant = "stacked",
+    layout = 'stacked',
     nonInteractive = false,
     borderRadius = 'calc(var(--radius) - 2px)',
     className,
@@ -112,6 +118,70 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     
     // Only show combobox if it's explicitly triggered (not on regular click)
     const shouldShowCombobox = comboboxOptions && (isComboboxOpen || !iconButtonEnd);
+
+    const effectiveVariant = layout !== 'stacked' ? layout : variant;
+
+    const renderContent = () => {
+      if (effectiveVariant === 'inline') {
+        return (
+          <>
+            <span className="text-sm-regular truncate" style={{ color: textColor }}>
+              {text}
+            </span>
+            {secondaryText && (
+              <span
+                className="text-xs-regular truncate"
+                style={{
+                  color: 'var(--color-base-text-tertiary)',
+                  minWidth: secondaryTextWidth,
+                }}
+              >
+                {typeof secondaryText === 'string' ? secondaryText : 'Metadata'}
+              </span>
+            )}
+          </>
+        );
+      }
+
+      return (
+        <>
+          <span className="text-sm-regular truncate" style={{ color: textColor }}>
+            {text}
+          </span>
+          {secondaryText && (
+            <span className="text-xs-regular truncate" style={{ color: 'var(--color-base-text-tertiary)' }}>
+              {typeof secondaryText === 'string' ? secondaryText : 'Metadata'}
+            </span>
+          )}
+        </>
+      );
+    };
+
+    const contentInnerClass = cn(
+      'flex-1 min-w-0',
+      effectiveVariant === 'inline'
+        ? 'flex items-center justify-between gap-3'
+        : 'flex flex-col'
+    );
+
+    const contentWithEnd = (
+      <div
+        className={cn(
+          'flex-1 min-w-0 flex items-center gap-3',
+          effectiveVariant === 'inline' ? 'justify-between' : ''
+        )}
+      >
+        <div className={contentInnerClass}>
+          {renderContent()}
+        </div>
+        {iconEnd && (
+          <div className={cn('flex-shrink-0', effectiveVariant === 'inline' ? 'flex items-center' : 'flex items-start')}>
+            {iconEnd}
+          </div>
+        )}
+      </div>
+    );
+
     // Default icon components
     const getDefaultIcon = () => {
       if (avatar) {
@@ -227,19 +297,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
               )}
 
               {/* Content */}
-              <div className={cn(
-                "flex-1 min-w-0",
-                variant === "inline" ? "flex items-center justify-between" : "flex flex-col"
-              )}>
-                <span className="text-sm-regular truncate" style={{ color: textColor }}>
-                  {text}
-                </span>
-                {secondaryText && (
-                  <span className="text-xs-regular truncate" style={{ color: 'var(--color-base-text-tertiary)' }}>
-                    {typeof secondaryText === 'string' ? secondaryText : 'Metadata'}
-                  </span>
-                )}
-              </div>
+              {contentWithEnd}
 
               {/* Clear button */}
               {clearable && text && text !== 'Assign member' && isComboboxOpen && (
@@ -340,38 +398,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
         )}
 
         {/* Content */}
-        <div className={cn(
-          "flex-1 min-w-0",
-          variant === "inline" ? "flex items-center justify-between" : "flex flex-col"
-        )}>
-          {variant === "stacked" ? (
-            <>
-              {/* Primary Text */}
-              <span className="text-sm-regular truncate" style={{ color: textColor }}>
-                {text}
-              </span>
-              {/* Secondary Text */}
-              {secondaryText && (
-                <span className="text-xs-regular truncate" style={{ color: 'var(--color-base-text-tertiary)' }}>
-                  {typeof secondaryText === 'string' ? secondaryText : 'Metadata'}
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              {/* Primary Text */}
-              <span className="text-sm-regular truncate" style={{ color: textColor }}>
-                {text}
-              </span>
-              {/* Secondary Text */}
-              {secondaryText && (
-                <span className="text-xs-regular truncate" style={{ color: 'var(--color-base-text-tertiary)' }}>
-                  {typeof secondaryText === 'string' ? secondaryText : 'Metadata'}
-                </span>
-              )}
-            </>
-          )}
-        </div>
+        {contentWithEnd}
 
         {/* End Icon/Actions */}
         {iconButtonEnd && (

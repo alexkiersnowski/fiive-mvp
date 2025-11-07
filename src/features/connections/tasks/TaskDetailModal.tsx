@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { TaskDetailContent } from './TaskDetailContent'
@@ -125,6 +125,39 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
       toast.error('Failed to delete task')
     })
   }
+
+  const handleCopyLink = useCallback(() => {
+    if (!taskData?.taskId) return
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const currentPath = window.location.pathname
+    const routeSegment = currentPath.startsWith('/agencies/')
+      ? 'agencies'
+      : currentPath.startsWith('/clients/')
+        ? 'clients'
+        : variant === 'agency'
+          ? 'agencies'
+          : 'clients'
+
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      toast.error('Clipboard unavailable')
+      return
+    }
+
+    const fullUrl = `${window.location.origin}/${routeSegment}/${connectionId}/tasks/${taskData.taskId}`
+
+    clipboard.writeText(fullUrl)
+      .then(() => {
+        toast.success('Link copied to clipboard')
+      })
+      .catch((error) => {
+        console.error('Failed to copy task link:', error)
+        toast.error('Failed to copy link')
+      })
+  }, [taskData, connectionId, variant])
   
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -162,7 +195,10 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
                     Convert to request
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                <DropdownMenuItem onClick={() => {
+                  handleCopyLink()
+                  setIsActionsDropdownOpen(false)
+                }}>
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>

@@ -10,7 +10,7 @@ export default function ResourcesCard({ snapshot, context }: { snapshot: Connect
   const isAgency = context.variant === 'agency';
   const title = 'Resources';
   const description = isAgency 
-    ? 'No resources added. Add links to documents, dashboards, or folders relevant to this client.'
+    ? 'Add links to documents, dashboards, or folders relevant to this client.'
     : 'Your agency will share links to documents, dashboards, or folders here.';
   const buttonText = 'Add link';
 

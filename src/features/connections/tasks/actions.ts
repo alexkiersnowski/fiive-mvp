@@ -362,12 +362,25 @@ export async function fetchProjectsForConnection(connectionId: string) {
  */
 export async function createComment(
   taskId: string,
-  text: string
+  text: string,
+  createdByUserId?: string
 ) {
   const context = await getActiveContext();
   
   if (!context?.user?.id || !context?.organization?.id) {
     throw new Error('User not authenticated');
+  }
+
+  const effectiveUserId = createdByUserId ?? context.user.id;
+
+  if (createdByUserId && createdByUserId !== context.user.id) {
+    if (isDev()) {
+      console.error('createComment user mismatch', {
+        providedUserId: createdByUserId,
+        contextUserId: context.user.id,
+      });
+    }
+    throw new Error('User mismatch while creating comment');
   }
 
   const supabase = await createClient();
@@ -378,7 +391,7 @@ export async function createComment(
     .insert({
       task_id: taskId,
       body: text,
-      created_by_user_id: context.user.id,
+      created_by_user_id: effectiveUserId,
       created_at: now,
       updated_at: now
     })
@@ -415,7 +428,8 @@ export async function deleteComment(commentId: string) {
       deleted_at: now,
       updated_at: now
     })
-    .eq('id', commentId);
+    .eq('id', commentId)
+    .eq('created_by_user_id', context.user.id);
 
   if (error) {
     if (isDev()) {

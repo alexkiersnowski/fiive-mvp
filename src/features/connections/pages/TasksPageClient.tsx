@@ -13,6 +13,15 @@ import { sortTasksWithPinnedFirst, type TaskSortMode } from '../tasks/taskSort';
 import { sortMembersWithActiveFirst, type MemberSummary } from '../utils/memberSorting';
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
 
+type PrefetchedComment = {
+  id: string
+  userId: string
+  userName: string
+  userAvatar?: string
+  createdAt: string
+  text: string
+}
+
 interface TasksPageClientProps {
   connectionId: string
   initialTasks: Task[]
@@ -22,10 +31,11 @@ interface TasksPageClientProps {
     id: string
     name: string
   }>
+  initialCommentsByTask?: Record<string, PrefetchedComment[]>
 }
 
 // Client component wrapper that handles all client-side interactivity
-export default function TasksPageClient({ connectionId, initialTasks, initialTotalCount, agencyMembers, projects }: TasksPageClientProps) {
+export default function TasksPageClient({ connectionId, initialTasks, initialTotalCount, agencyMembers, projects, initialCommentsByTask }: TasksPageClientProps) {
   const { snapshot, context, setIsEmpty } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
@@ -121,7 +131,17 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // no optimistic reconcile attempts (disabled)
   
   // Comments map keyed by taskId for instant lookup
-  const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>({})
+  const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>(() => {
+    if (!initialCommentsByTask) return {}
+    const map: Record<string, Comment[]> = {}
+    for (const [taskId, comments] of Object.entries(initialCommentsByTask)) {
+      map[taskId] = comments.map(comment => ({
+        ...comment,
+        createdAt: new Date(comment.createdAt),
+      }))
+    }
+    return map
+  })
 
   const sortedMembers = useMemo(() => (
     sortMembersWithActiveFirst(agencyMembers, context.user?.id)
@@ -236,23 +256,58 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     }
   }, [])
 
-  // Fetch comments for initial tasks on mount
+  useEffect(() => {
+    if (!initialCommentsByTask || Object.keys(initialCommentsByTask).length === 0) return
+    setCommentsByTask(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const [taskId, comments] of Object.entries(initialCommentsByTask)) {
+        const normalized = comments.map(comment => ({
+          ...comment,
+          createdAt: new Date(comment.createdAt),
+        }))
+        const existing = next[taskId]
+        const isSameLength = existing?.length === normalized.length
+        const isSame = isSameLength
+          ? existing?.every((comment, index) => comment.id === normalized[index].id)
+          : false
+        if (!isSame) {
+          next[taskId] = normalized
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [initialCommentsByTask])
+
+  // Fetch comments for initial tasks if any are missing
   useEffect(() => {
     const initialIds = initialTasks.map(r => r.id)
-    if (initialIds.length > 0) {
-      fetchCommentsForTasks(initialIds)
-        .then(map => {
-          if (isMountedRef.current) {
-            setCommentsByTask(map)
-          }
-        })
-        .catch(error => {
-          if (isDev()) {
-            console.error('Error fetching initial comments:', error)
-          }
-        })
-    }
-  }, [])
+    if (initialIds.length === 0) return
+
+    const missingIds = initialIds.filter(id => !commentsByTask[id])
+    if (missingIds.length === 0) return
+
+    fetchCommentsForTasks(initialIds)
+      .then(map => {
+        if (isMountedRef.current) {
+          setCommentsByTask(prev => {
+            const next = { ...prev }
+            let changed = false
+            for (const [taskId, comments] of Object.entries(map)) {
+              next[taskId] = comments
+              changed = true
+            }
+            return changed ? next : prev
+          })
+        }
+      })
+      .catch(error => {
+        if (isDev()) {
+          console.error('Error fetching initial comments:', error)
+        }
+      })
+  }, [commentsByTask, initialTasks])
 
   // Helper to merge arrays by id while preserving order and uniqueness
   function mergeUniqueTasks(base: Task[], incoming: Task[]): Task[] {

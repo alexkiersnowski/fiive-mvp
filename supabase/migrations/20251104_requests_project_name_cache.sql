@@ -84,3 +84,4 @@ COMMENT ON COLUMN public.requests.project_name_cached IS
 'Denormalized project name for fast search. Automatically synced via triggers.';
 
 
+

@@ -381,7 +381,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             <h2 className="display-8-medium">Your best work starts here</h2>
             <span className="text-sm-regular text-neutral-11">
               {isAgency 
-                ? 'Clients can submit requests from their portal, or you can add one on their behalf.'
+                ? 'Clients can submit requests from their portal, or you can add one for them.'
                 : 'Ask questions, share updates, or request new work directly from your agency.'
               }
             </span>

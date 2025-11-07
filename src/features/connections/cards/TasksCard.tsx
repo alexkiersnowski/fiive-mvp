@@ -1,85 +1,163 @@
-import { Card, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Button } from '@/components/ui/button';
-import { Plus, ArrowRight, LockSimple, ClipboardText } from '@phosphor-icons/react/dist/ssr';
-import type { ConnectionSnapshot } from '../types';
-import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
+import {
+  getTasksForConnection,
+  getCommentsForTasks,
+  getProjectsForConnection,
+  getConnectionMembers,
+  type Task,
+  type Comment as TaskComment,
+} from '../server';
+import type { MemberSummary } from '../utils/memberSorting';
+import TasksCardClient from './TasksCardClient';
 
-export default function TasksCard({ snapshot, context }: { snapshot: ConnectionSnapshot; context: EnhancedModeContext }) {
-  const isAgency = context.variant === 'agency';
-  const title = isAgency ? 'Tasks' : 'Tasks';
-  
-  // Check if there are any tasks (this would be from actual data when implemented)
-  const hasTasks = false; // TODO: Replace with actual task count from snapshot
-  
-  const description = isAgency 
-    ? 'No tasks yet. Add client tasks and manage their visibility.'
-    : 'Your agency manages all tasks. Submit a request to get started.';
-  const buttonText = isAgency ? 'Add task' : 'View all tasks';
-
-  return (
-    <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-          {title}
-        </CardTitle>
-        <Tooltip delayDuration={250}>
-          <TooltipTrigger asChild>
-            <Badge 
-              variant="outline" 
-              className="text-xs border-0"
-              style={{
-                borderRadius: 'var(--radius-1-max, 3px)',
-                backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                border: 'none',
-                cursor: 'default'
-              }}
-            >
-              {isAgency ? (
-                <LockSimple size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-              ) : (
-                <ClipboardText size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-              )}
-              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
-                Agency managed
-              </span>
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={8}>
-            {isAgency 
-              ? 'Only your agency can edit this' 
-              : 'Comment on all tasks and update ones assigned to you'}
-          </TooltipContent>
-        </Tooltip>
-      </div>
-      {description && (
-        <p className="text-xs-regular text-tertiary">
-          {description}
-        </p>
-      )}
-      <div className="mt-auto flex justify-end">
-        {isAgency ? (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-          >
-            <Plus size={16} weight="regular" />
-            {buttonText}
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-bold cursor-pointer back-button hover:bg-interactive-surface-hover transition-all duration-75 mt-1 ml-auto"
-          >
-            <span className="mr-1">{buttonText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        )}
-      </div>
-    </Card>
-  );
+interface TasksCardProps {
+  connectionId: string;
+  fetchTasks?: (connectionId: string) => Promise<Task[]>;
 }
 
+async function defaultFetchTasks(connectionId: string) {
+  const { tasks } = await getTasksForConnection(connectionId, { limit: 4, offset: 0 });
+  return tasks;
+}
+
+type PrefetchedComment = {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  createdAt: string;
+  text: string;
+};
+
+type PrefetchedTask = {
+  id: string;
+  title: string;
+  createdAt: string | null;
+  dueDate?: string | null;
+  detail: {
+    taskId: string;
+    title: string;
+    description: string;
+    client?: {
+      id: string;
+      name: string;
+      logoUrl?: string;
+    };
+    agency?: {
+      id: string;
+      name: string;
+      logoUrl?: string;
+    };
+    submittedBy?: {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl?: string;
+    };
+    assignee?: {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl?: string;
+    } | null;
+    project?: {
+      id: string;
+      name: string;
+    } | null;
+    status?: 'to_do' | 'in_progress' | 'on_hold' | 'done';
+    createdAt?: string;
+    createdByOrgId?: string;
+    createdByOrgType?: 'agency' | 'client';
+    dueDate?: string | null;
+    dueDateRaw?: string | null;
+    clientVisible?: boolean;
+    clientVisibilityLocked?: boolean;
+  };
+  comments: PrefetchedComment[];
+};
+
+type ProjectOption = {
+  id: string;
+  name: string;
+};
+
+export default async function TasksCard({
+  connectionId,
+  fetchTasks = defaultFetchTasks,
+}: TasksCardProps) {
+  const tasks = await fetchTasks(connectionId);
+  const taskIds = tasks.map((task) => task.id);
+
+  const commentsPromise: Promise<Record<string, TaskComment[]>> = taskIds.length > 0
+    ? getCommentsForTasks(taskIds)
+    : Promise.resolve({});
+
+  const [commentsRecord, projectsResult, memberData] = await Promise.all([
+    commentsPromise,
+    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 }),
+    getConnectionMembers(connectionId),
+  ]);
+
+  const prefetchedTasks: PrefetchedTask[] = tasks.map((task) => {
+    const rawComments = commentsRecord[task.id] ?? [];
+    const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+      id: comment.id,
+      userId: comment.userId,
+      userName: comment.userName,
+      userAvatar: comment.userAvatar,
+      createdAt: comment.createdAt instanceof Date
+        ? comment.createdAt.toISOString()
+        : new Date(comment.createdAt).toISOString(),
+      text: comment.text,
+    }));
+
+    return {
+      id: task.id,
+      title: task.title,
+      createdAt: task.createdAt,
+      dueDate: task.dueDate ?? null,
+      detail: {
+        taskId: task.id,
+        title: task.title,
+        description: task.description,
+        client: task.client,
+        agency: task.agency,
+        submittedBy: task.submittedBy,
+        assignee: task.assignee,
+        project: task.project,
+        status: task.status,
+        createdAt: task.createdAt,
+        createdByOrgId: task.createdByOrgId,
+        createdByOrgType: task.createdByOrgType,
+        dueDate: task.dueDate ?? null,
+        dueDateRaw: task.dueDateRaw ?? null,
+        clientVisible: task.clientVisible,
+        clientVisibilityLocked: task.clientVisibilityLocked,
+      },
+      comments: serializedComments,
+    };
+  });
+
+  const projectOptions: ProjectOption[] = projectsResult.projects.map((project) => ({
+    id: project.id,
+    name: project.title || 'Untitled project',
+  }));
+
+  const assignableMembers: MemberSummary[] = (() => {
+    const combined: MemberSummary[] = [...memberData.agencyMembers];
+    for (const member of memberData.clientMembers) {
+      if (!combined.some((existing) => existing.id === member.id)) {
+        combined.push(member);
+      }
+    }
+    return combined;
+  })();
+
+  return (
+    <TasksCardClient
+      connectionId={connectionId}
+      tasks={prefetchedTasks}
+      projects={projectOptions}
+      members={assignableMembers}
+    />
+  );
+}

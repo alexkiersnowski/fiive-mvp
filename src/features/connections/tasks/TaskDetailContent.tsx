@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { parse, format } from 'date-fns'
 import { InlineEdit } from '@/components/ui/inline-edit'
@@ -178,7 +178,41 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
   const [dueDateValue, setDueDateValue] = useState(dueDate || '')
   const [dueDateRawValue, setDueDateRawValue] = useState<string | null>(dueDateRaw ?? null)
   
-  const [comments, setComments] = useState<Comment[]>(initialComments)
+  const normalizeComments = useCallback((items: Comment[]) => {
+    return items.map(comment => ({
+      ...comment,
+      createdAt: comment.createdAt instanceof Date ? comment.createdAt : new Date(comment.createdAt)
+    }))
+  }, [])
+
+  const [comments, setComments] = useState<Comment[]>(normalizeComments(initialComments))
+  const optimisticCommentMetadataRef = useRef<Record<string, { text: string; createdAt: number; userId: string }>>({})
+  const mergeComments = useCallback((current: Comment[], incoming: Comment[]) => {
+    if (current.length === 0) {
+      return incoming
+    }
+
+    const temporaryComments = current.filter(comment => comment.id.startsWith('temp-'))
+    const result: Comment[] = []
+    const seen = new Set<string>()
+
+    const pushIfNew = (comment: Comment) => {
+      if (seen.has(comment.id)) return
+      seen.add(comment.id)
+      result.push(comment)
+    }
+
+    temporaryComments.forEach(pushIfNew)
+    incoming.forEach(pushIfNew)
+    current.forEach(comment => {
+      if (!comment.id.startsWith('temp-')) {
+        pushIfNew(comment)
+      }
+    })
+
+    return result
+  }, [])
+
   const [clientVisibleValue, setClientVisibleValue] = useState(clientVisible)
   
   // Initialize projects list with current project if available (to prevent flicker)
@@ -219,6 +253,49 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     }
   }, [initialProjects])
   
+  const loadComments = useCallback(async (): Promise<Comment[] | null> => {
+    try {
+      const freshComments = await fetchCommentsForTask(taskId)
+      const normalized = normalizeComments(freshComments)
+
+      const matchedTempIds = new Set<string>()
+      for (const [tempId, meta] of Object.entries(optimisticCommentMetadataRef.current)) {
+        const hasMatch = normalized.some(comment => {
+          if (comment.userId !== meta.userId) return false
+          if (comment.text.trim() !== meta.text.trim()) return false
+          return Math.abs(comment.createdAt.getTime() - meta.createdAt) < 5000
+        })
+        if (hasMatch) {
+          matchedTempIds.add(tempId)
+          delete optimisticCommentMetadataRef.current[tempId]
+        }
+      }
+
+      setComments(prev => {
+        const filteredPrev = matchedTempIds.size
+          ? prev.filter(comment => !matchedTempIds.has(comment.id))
+          : prev
+        return mergeComments(filteredPrev, normalized)
+      })
+      onCommentsUpdate?.(normalized)
+      return normalized
+    } catch (error) {
+      console.error('Error fetching fresh task comments:', error)
+      return null
+    }
+  }, [fetchCommentsForTask, mergeComments, normalizeComments, onCommentsUpdate, taskId])
+
+  useEffect(() => {
+    optimisticCommentMetadataRef.current = {}
+    setComments(normalizeComments(initialComments))
+  }, [initialComments, mode, normalizeComments, taskId])
+
+  useEffect(() => {
+    if (initialComments.length === 0) {
+      void loadComments()
+    }
+  }, [initialComments.length, loadComments])
+
   // Fallback: Fetch projects on mount if connectionId is available and no initial projects provided
   // This handles edge cases where projects weren't prefetched (e.g., direct navigation to detail page)
   useEffect(() => {
@@ -260,28 +337,25 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     
     // Optimistically add to top of comments list
     setComments(prev => [optimisticComment, ...prev])
+    optimisticCommentMetadataRef.current[tempId] = {
+      text,
+      createdAt: optimisticComment.createdAt.getTime(),
+      userId: activeUser.id
+    }
     
     try {
-      // Write to database
-      await createComment(taskId, text)
-      
-      // Fetch fresh comments from DB to get properly formatted data (with profile joins)
-      // This ensures the comment cache is updated with real DB data and replaces optimistic update
-      try {
-        const freshComments = await fetchCommentsForTask(taskId)
-        setComments(freshComments)
-        // Update parent cache if callback provided (for modal mode)
-        onCommentsUpdate?.(freshComments)
-      } catch (error) {
-        // If fetch fails, replace temp comment with real one from createComment result
-        // This is a fallback - ideally we always fetch fresh to ensure consistency
-        console.error('Error fetching fresh comments:', error)
+      await createComment(taskId, text, activeUser.id)
+
+      const refreshed = await loadComments()
+      if (!refreshed) {
         // Remove temp comment and let it be refetched on next load
         setComments(prev => prev.filter(comment => comment.id !== tempId))
+        delete optimisticCommentMetadataRef.current[tempId]
       }
     } catch (error) {
       // Revert optimistic update on error
       setComments(prev => prev.filter(comment => comment.id !== tempId))
+      delete optimisticCommentMetadataRef.current[tempId]
       toast.error('Failed to post comment. Please try again.')
       console.error('Error creating comment:', error)
     }
@@ -292,6 +366,15 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     // Optimistically remove from list
     const commentToDelete = comments.find(c => c.id === commentId)
     setComments(prev => prev.filter(comment => comment.id !== commentId))
+    const optimisticMeta = optimisticCommentMetadataRef.current[commentId]
+
+    if (commentId.startsWith('temp-')) {
+      delete optimisticCommentMetadataRef.current[commentId]
+      toast.success('Comment deleted successfully')
+      return
+    }
+
+    delete optimisticCommentMetadataRef.current[commentId]
     
     try {
       // Soft delete from database (sets deleted_at and updated_at)
@@ -299,20 +382,14 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       // Show success message
       toast.success('Comment deleted successfully')
       
-      // Fetch fresh comments from DB to update the cache
-      try {
-        const freshComments = await fetchCommentsForTask(taskId)
-        setComments(freshComments)
-        // Update parent cache if callback provided (for modal mode)
-        onCommentsUpdate?.(freshComments)
-      } catch (error) {
-        // If fetch fails, at least we've removed it optimistically
-        console.error('Error fetching fresh comments after delete:', error)
-      }
+      await loadComments()
     } catch (error) {
       // Revert optimistic update on error
       if (commentToDelete) {
         setComments(prev => [commentToDelete, ...prev])
+        if (optimisticMeta) {
+          optimisticCommentMetadataRef.current[commentId] = optimisticMeta
+        }
       }
       toast.error('Failed to delete comment. Please try again.')
       console.error('Error deleting comment:', error)
@@ -329,11 +406,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     setDueDateValue(dueDate || '')
     setDueDateRawValue(dueDateRaw ?? null)
   }, [dueDate, dueDateRaw])
-
-  // Sync initialComments when they change (e.g., when navigating to different task in page mode or when prefetched)
-  useEffect(() => {
-    setComments(initialComments)
-  }, [initialComments, mode])
 
   useEffect(() => {
     setClientVisibleValue(clientVisible)
@@ -553,9 +625,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     if (selectedMember) {
       const isClientMember = selectedMember.orgType === 'client'
       const previousClientVisible = clientVisibleValue
-      if (isClientMember) {
-        setClientVisibleValue(true)
-      }
       const newAssignee = {
         id: memberId,
         name: `${selectedMember.firstName} ${selectedMember.lastName}`,
@@ -566,20 +635,25 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       // Optimistic update
       const previousAssignee = assigneeValue
       setAssigneeValue(newAssignee)
+      if (isClientMember) {
+        setClientVisibleValue(true)
+      }
       
       // Update parent (table) optimistically
       if (onTaskUpdate) {
         const updatePayload: {
           assignee: typeof newAssignee
           clientVisible?: boolean
-          clientVisibilityLocked: boolean
+          clientVisibilityLocked?: boolean
         } = {
           assignee: newAssignee,
-          clientVisibilityLocked: isClientMember ? true : false
         }
 
         if (isClientMember) {
           updatePayload.clientVisible = true
+          updatePayload.clientVisibilityLocked = true
+        } else {
+          updatePayload.clientVisibilityLocked = false
         }
 
         onTaskUpdate(taskId, updatePayload)
@@ -596,7 +670,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         setAssigneeValue(previousAssignee)
         setClientVisibleValue(previousClientVisible)
         if (onTaskUpdate) {
-          onTaskUpdate(taskId, { assignee: previousAssignee, clientVisible: previousClientVisible })
+          onTaskUpdate(taskId, { assignee: previousAssignee })
         }
       }
     }
@@ -606,13 +680,11 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     if (isClientVariant) return
     // Optimistic update
     const previousAssignee = assigneeValue
-    const previousClientVisible = clientVisibleValue
     setAssigneeValue(null)
-    setClientVisibleValue(false)
     
     // Update parent (table) optimistically
     if (onTaskUpdate) {
-        onTaskUpdate(taskId, { assignee: null, clientVisibilityLocked: false, clientVisible: false })
+        onTaskUpdate(taskId, { assignee: null, clientVisibilityLocked: false })
     }
     
     try {
@@ -624,9 +696,8 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       toast.error('Failed to clear assignee')
       // Revert optimistic update on error
       setAssigneeValue(previousAssignee)
-      setClientVisibleValue(previousClientVisible)
       if (onTaskUpdate) {
-        onTaskUpdate(taskId, { assignee: previousAssignee, clientVisible: previousClientVisible })
+        onTaskUpdate(taskId, { assignee: previousAssignee })
       }
     }
   }

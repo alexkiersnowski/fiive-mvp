@@ -390,6 +390,18 @@ export interface Request {
   createdByOrgType?: 'agency' | 'client'
 }
 
+export interface RecentRequestSummary {
+  id: string
+  title: string
+  createdAt: string
+}
+
+type RecentRequestRow = {
+  id: string
+  title: string | null
+  created_at: string | null
+}
+
 export type TaskStatus = 'to_do' | 'in_progress' | 'on_hold' | 'done'
 
 export interface Task {
@@ -791,6 +803,48 @@ export const getRequestsForConnection = cache(async (
   }
   
   return { requests: formattedRequests, totalCount };
+});
+
+export const getRecentRequestsForConnection = cache(async (
+  connectionId: string,
+  options?: { limit?: number }
+): Promise<RecentRequestSummary[]> => {
+  const supabase = await createClient();
+  const safeLimit = Math.max(0, options?.limit ?? 2);
+
+  if (safeLimit === 0) {
+    return [];
+  }
+
+  const { connection, error: connectionError } = await getConnectionInfo(connectionId);
+
+  if (connectionError || !connection) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching connection for recent requests:', connectionError);
+    }
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('requests')
+    .select('id, title, created_at')
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(safeLimit);
+
+  if (error || !data) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching recent requests:', error);
+    }
+    return [];
+  }
+
+  return (data as RecentRequestRow[]).map((request) => ({
+    id: request.id,
+    title: (request.title || '').trim() || 'Untitled request',
+    createdAt: request.created_at || ''
+  }));
 });
 
 // ============================================================================

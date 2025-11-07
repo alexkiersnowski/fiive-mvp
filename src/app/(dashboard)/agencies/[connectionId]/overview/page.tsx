@@ -1,6 +1,21 @@
 import { OverviewPage } from '@/features/connections/pages/OverviewPage';
+import RequestsCard from '@/features/connections/cards/RequestsCard';
+import TasksCard from '@/features/connections/cards/TasksCard';
+import ProjectsCard from '@/features/connections/cards/ProjectsCard';
 
-export default function AgencyOverviewPage() {
-  return <OverviewPage />;
+interface AgencyOverviewPageProps {
+  params: Promise<{ connectionId: string }>;
+}
+
+export default async function AgencyOverviewPage({ params }: AgencyOverviewPageProps) {
+  const { connectionId } = await params;
+
+  return (
+    <OverviewPage
+      requestsCard={<RequestsCard connectionId={connectionId} />}
+      tasksCard={<TasksCard connectionId={connectionId} />}
+      projectsCard={<ProjectsCard connectionId={connectionId} />}
+    />
+  );
 }
 
