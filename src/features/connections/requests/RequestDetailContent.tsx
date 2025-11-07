@@ -913,6 +913,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                   avatarUrl={assigneeValue?.avatarUrl || null}
                   text={assigneeValue ? assigneeValue.name : 'Unassigned'}
                   textColor={assigneeValue ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
+                  comboboxSelectedValue={assigneeValue?.id ?? null}
                   comboboxOptions={variant === 'agency' ? agencyMembers.map(member => ({
                     value: member.id,
                     label: `${member.firstName} ${member.lastName}`,

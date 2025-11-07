@@ -160,6 +160,8 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
+                {variant === 'agency' && (
+                  <>
                 <div className="border-t border-[var(--color-neutral-6)] my-1" />
                 <DropdownMenuItem 
                   onClick={() => {
@@ -171,6 +173,8 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
                   <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
                   Delete project
                 </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button 

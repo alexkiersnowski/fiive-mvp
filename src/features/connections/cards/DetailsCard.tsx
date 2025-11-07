@@ -64,7 +64,9 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
             </Badge>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
-            Only your team can see this
+            {isAgency 
+              ? 'Only your agency can see this' 
+              : 'Only your team can see this'}
           </TooltipContent>
         </Tooltip>
       </div>

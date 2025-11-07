@@ -73,7 +73,8 @@ export function buildSubmittedBy(
  */
 export function buildAssignee(
   userId: string | null,
-  profile: Profile | null
+  profile: Profile | null,
+  organizationId?: string | null
 ) {
   if (!userId || !profile) return null;
   
@@ -81,7 +82,8 @@ export function buildAssignee(
     id: userId,
     name: formatUserName(profile),
     email: profile.email,
-    avatarUrl: profile.avatar_url || undefined
+    avatarUrl: profile.avatar_url || undefined,
+    organizationId: organizationId || undefined
   };
 }
 

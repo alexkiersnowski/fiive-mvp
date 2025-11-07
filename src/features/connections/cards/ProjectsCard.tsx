@@ -11,44 +11,39 @@ export default function ProjectsCard({ snapshot, context }: { snapshot: Connecti
   const title = isAgency ? 'Projects' : 'Projects';
   const description = isAgency 
     ? 'No projects yet. Projects give you and your client a shared view of work. Link tasks and requests to projects and mark progress.'
-    : '';
+    : 'Projects are created by your agency and give you a shared view of work and progress.';
   const buttonText = isAgency ? 'Add project' : 'View all projects';
 
   return (
     <Card className="w-full h-full min-h-[306px] pt-5 pb-6 px-5 flex flex-col gap-3"> {/* Temporary min-height until we get actual data to place into card */}
       <div className="flex items-center justify-between">
-        <div>
-          <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-            {title}
-          </CardTitle>
-          {!isAgency && (
-            <p className="text-sm-regular text-tertiary mt-1">
-              Created by your agency and shared with your team
-            </p>
-          )}
-        </div>
-        {isAgency && (
-          <Tooltip delayDuration={250}>
-            <TooltipTrigger asChild>
-              <Badge 
-                variant="outline" 
-                className="text-xs border-0"
-                style={{
-                  borderRadius: 'var(--radius-1-max, 3px)',
-                  backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                  border: 'none',
-                  cursor: 'default'
-                }}
-              >
-                <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-                <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client visible</span>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={8}>
-              Your client can see this. Only your agency can edit.
-            </TooltipContent>
-          </Tooltip>
-        )}
+        <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
+          {title}
+        </CardTitle>
+        <Tooltip delayDuration={250}>
+          <TooltipTrigger asChild>
+            <Badge 
+              variant="outline" 
+              className="text-xs border-0"
+              style={{
+                borderRadius: 'var(--radius-1-max, 3px)',
+                backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                border: 'none',
+                cursor: 'default'
+              }}
+            >
+              <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                {isAgency ? 'Client visible' : 'View only'}
+              </span>
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={8}>
+            {isAgency 
+              ? 'Your client can see this. Only your agency can edit.' 
+              : 'Only your agency can edit this'}
+          </TooltipContent>
+        </Tooltip>
       </div>
       {description && (
         <p className="text-xs-regular text-tertiary">

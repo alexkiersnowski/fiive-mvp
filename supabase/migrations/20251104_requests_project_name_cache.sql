@@ -82,3 +82,5 @@ WHERE deleted_at IS NULL;
 -- Step 9: Add comment for documentation
 COMMENT ON COLUMN public.requests.project_name_cached IS 
 'Denormalized project name for fast search. Automatically synced via triggers.';
+
+

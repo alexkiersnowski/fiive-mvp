@@ -17,7 +17,7 @@ import Link from 'next/link'
 import { updateProjectTitle, updateProjectDescription, updateProjectStatus, updateProjectAssignee, deleteProject, updateProjectStartDate, updateProjectEndDate } from './actions'
 import type { Project } from '../server'
 import { toast } from 'sonner'
-import { parse } from 'date-fns'
+import { parse, format } from 'date-fns'
 
 interface Comment {
   id: string
@@ -425,17 +425,13 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       // value is in format "d MMM yyyy" (e.g., "23 Oct 2025") from InlineEdit
       const dateStr = value ? (() => {
         try {
-          // Parse the formatted date string using date-fns
           const parsed = parse(value, 'd MMM yyyy', new Date())
-          // Check if parsing was successful
           if (isNaN(parsed.getTime())) return null
-          // Convert to date-only string (YYYY-MM-DD) for database
-          return parsed.toISOString().split('T')[0]
+          return format(parsed, 'yyyy-MM-dd')
         } catch {
-          // Fallback: try Date constructor
           try {
             const parsed = new Date(value)
-            return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0]
+            return isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd')
           } catch {
             return null
           }
@@ -469,17 +465,13 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       // value is in format "d MMM yyyy" (e.g., "23 Oct 2025") from InlineEdit
       const dateStr = value ? (() => {
         try {
-          // Parse the formatted date string using date-fns
           const parsed = parse(value, 'd MMM yyyy', new Date())
-          // Check if parsing was successful
           if (isNaN(parsed.getTime())) return null
-          // Convert to date-only string (YYYY-MM-DD) for database
-          return parsed.toISOString().split('T')[0]
+          return format(parsed, 'yyyy-MM-dd')
         } catch {
-          // Fallback: try Date constructor
           try {
             const parsed = new Date(value)
-            return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0]
+            return isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd')
           } catch {
             return null
           }
@@ -562,6 +554,8 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Copy link
               </DropdownMenuItem>
+              {variant === 'agency' && (
+                <>
               <div className="border-t border-[var(--color-neutral-6)] my-1" />
               <DropdownMenuItem 
                 onClick={() => {
@@ -573,6 +567,8 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
                 Delete project
               </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           </div>
@@ -597,6 +593,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 maxLength={255}
                 preventNewLines={true}
                 className="px-0"
+                nonInteractive={variant === 'client'}
               />
             </div>
             {variant === 'agency' ? (
@@ -656,12 +653,17 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
             type="text"
             value={descriptionValue}
             onSave={handleDescriptionSave}
-            placeholder="Add a short summary…"
+            placeholder={
+              variant === 'client' && !descriptionValue.trim()
+                ? 'No description'
+                : 'Add a short summary…'
+            }
             textClass="text-md-regular"
             multiline={true}
             linkifyUrls={true}
             className="px-0"
             style={{ fontSize: '15px', lineHeight: '22px' }}
+            nonInteractive={variant === 'client'}
           />
         </div>
           </div>
@@ -702,6 +704,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">Start date</p>
             </div>
             <div className="w-3/5 min-w-0">
+              {variant === 'agency' ? (
               <InlineEdit
                 type="date"
                 value={startDateValue}
@@ -710,6 +713,11 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 onSave={handleStartDateSave}
                 className="h-[28px] cursor-pointer truncate"
               />
+              ) : (
+                <span className="text-sm-regular text-primary ml-1">
+                  {startDateValue || "No date"}
+                </span>
+              )}
             </div>
           </div>
 
@@ -719,6 +727,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">End date</p>
             </div>
             <div className="w-3/5 min-w-0">
+              {variant === 'agency' ? (
               <InlineEdit
                 type="date"
                 value={endDateValue}
@@ -727,6 +736,11 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 onSave={handleEndDateSave}
                 className="h-[28px] cursor-pointer truncate"
               />
+              ) : (
+                <span className="text-sm-regular text-primary ml-1">
+                  {endDateValue || "No date"}
+                </span>
+              )}
             </div>
           </div>
 

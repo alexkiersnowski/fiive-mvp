@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ListRow } from '@/components/ui/list-row';
 import { ProfileCard } from '@/components/ui/profile-card';
-import { Eye, ArrowsClockwise, UserMinus, User } from '@phosphor-icons/react/dist/ssr';
+import { Eye, ArrowsClockwise, UserMinus, User, Users } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 import { handleContactSelect, handleUnassignContact, handleAgencyContactSelect, handleUnassignAgencyContact } from '../client-actions';
 import type { ConnectionSnapshot } from '../types';
@@ -190,40 +190,39 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
   return (
     <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <div>
-          <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-            {title}
-          </CardTitle>
-          {!isAgency && (
-            <p className="text-sm-regular text-tertiary mt-1">
-              Key contacts shared by you and your agency
-            </p>
-          )}
-        </div>
-        {isAgency && (
-          <Tooltip delayDuration={250}>
-            <TooltipTrigger asChild>
-              <Badge 
-                variant="outline" 
-                className="text-xs border-0"
-                style={{
-                  borderRadius: 'var(--radius-1-max, 3px)',
-                  backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                  border: 'none',
-                  cursor: 'default'
-                }}
-              >
+        <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
+          {title}
+        </CardTitle>
+        <Tooltip delayDuration={250}>
+          <TooltipTrigger asChild>
+            <Badge 
+              variant="outline" 
+              className="text-xs border-0"
+              style={{
+                borderRadius: 'var(--radius-1-max, 3px)',
+                backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                border: 'none',
+                cursor: 'default'
+              }}
+            >
+              {isAgency ? (
                 <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-                <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client visible</span>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={8}>
-              Both you and your client can see this
-            </TooltipContent>
-          </Tooltip>
-        )}
+              ) : (
+                <Users size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+              )}
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                {isAgency ? 'Client visible' : 'Collaborate'}
+              </span>
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={8}>
+            {isAgency 
+              ? 'Both you and your client can see this' 
+              : 'Both you and your agency can manage this'}
+          </TooltipContent>
+        </Tooltip>
       </div>
-      <div className={`flex flex-col gap-5 ${isAgency ? 'mt-1' : 'mt-2'}`}>
+      <div className="flex flex-col gap-5 mt-1">
         {/* Agency view: Primary Contact first, Account Manager second */}
         {/* Client view: Account Manager first, Primary Contact second */}
         {isAgency ? (
@@ -261,6 +260,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                       { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignContact }
                     ]}
                     comboboxOptions={comboboxOptions}
+                    comboboxSelectedValue={currentPrimaryContact ? currentPrimaryContact.id : null}
                     onComboboxSelect={onContactSelect}
                     comboboxPlaceholder="Search contacts..."
                     className="min-h-[44px]"
@@ -314,6 +314,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                       { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignAgencyContact }
                     ]}
                     comboboxOptions={agencyComboboxOptions}
+                    comboboxSelectedValue={currentAgencyContact ? currentAgencyContact.id : null}
                     onComboboxSelect={onAgencyContactSelect}
                     comboboxPlaceholder="Search contacts..."
                     className="min-h-[44px]"
@@ -414,6 +415,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                       { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignContact }
                     ]}
                     comboboxOptions={comboboxOptions}
+                    comboboxSelectedValue={currentPrimaryContact ? currentPrimaryContact.id : null}
                     onComboboxSelect={onContactSelect}
                     comboboxPlaceholder="Search contacts..."
                     className="min-h-[44px]"

@@ -1,26 +1,42 @@
-'use client'
+import { Card } from '@/components/ui/card';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { getTasksForConnection, getConnectionMembers, getProjectsForConnection } from '../server';
+import TasksPageClient from './TasksPageClient';
+import { PAGE_SIZE } from '../constants';
 
-import { useConnection } from '../ConnectionContext';
-import { Card, CardTitle } from '@/components/ui/card';
+interface TasksPageProps {
+  connectionId: string
+}
 
-export function TasksPage() {
-  const { snapshot, context } = useConnection();
-  const isAgency = context.variant === 'agency';
-  const title = isAgency ? 'Tasks' : 'Tasks';
+// Server component that fetches data from Supabase
+export async function TasksPage({ connectionId }: TasksPageProps) {
+  const [tasksData, memberData, projectsData] = await Promise.all([
+    getTasksForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
+    getConnectionMembers(connectionId),
+    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
+  ]);
+
+  const assignableMembers = [...memberData.agencyMembers];
+  for (const member of memberData.clientMembers) {
+    if (!assignableMembers.some(existing => existing.id === member.id)) {
+      assignableMembers.push(member);
+    }
+  }
+
+  // Transform projects to the format expected by TaskDetailContent
+  const projects = projectsData.projects.map(p => ({ id: p.id, name: p.title }));
 
   return (
-    <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-            {title}
-          </CardTitle>
-        </div>
-      </div>
-      <div className="flex-1">
-        {/* Content area for tasks table, forms, etc. */}
-      </div>
+    <Card className="w-full gap-0 h-full">
+      <ErrorBoundary>
+        <TasksPageClient 
+          connectionId={connectionId} 
+          initialTasks={tasksData.tasks} 
+          initialTotalCount={tasksData.totalCount}
+          agencyMembers={assignableMembers}
+          projects={projects}
+        />
+      </ErrorBoundary>
     </Card>
   );
 }
-

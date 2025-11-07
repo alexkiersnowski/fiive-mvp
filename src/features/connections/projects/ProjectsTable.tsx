@@ -409,10 +409,12 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
           <div className="flex flex-col items-start gap-2">
             <h2 className="display-8-medium">Your best work starts here</h2>
             <span className="text-sm-regular text-neutral-11">
-              Projects give your team and client a shared view of work and progress
+              {isAgency 
+                ? 'Projects give your team and client a shared view of work and progress'
+                : 'Projects are created by your agency and give you a shared view of work and progress'}
             </span>
           </div>
-          {onNewProject && (
+          {onNewProject && isAgency && (
             <Button 
               variant="outline" 
               size="sm" 
@@ -420,7 +422,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
               onClick={onNewProject}
             >
               <Plus size={16} weight="regular" />
-              {isAgency ? 'New project' : 'Create project'}
+              New project
             </Button>
           )}
         </div>
@@ -444,28 +446,30 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
               count={projectCount}
               countLabel={(projectCount as number) === 1 ? 'project' : 'projects'}
             />
-            {isAgency && (
-              <Tooltip delayDuration={250}>
-                <TooltipTrigger asChild>
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs border-0"
-                    style={{
-                      borderRadius: 'var(--radius-1-max, 3px)',
-                      backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                      border: 'none',
-                      cursor: 'default'
-                    }}
-                  >
-                    <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-                    <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client visible</span>
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={8}>
-                  Your client can see this. Only your agency can edit.
-                </TooltipContent>
-              </Tooltip>
-            )}
+            <Tooltip delayDuration={250}>
+              <TooltipTrigger asChild>
+                <Badge 
+                  variant="outline" 
+                  className="text-xs border-0"
+                  style={{
+                    borderRadius: 'var(--radius-1-max, 3px)',
+                    backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                    border: 'none',
+                    cursor: 'default'
+                  }}
+                >
+                  <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+                  <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                    {isAgency ? 'Client visible' : 'View only'}
+                  </span>
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8}>
+                {isAgency 
+                  ? 'Your client can see this. Only your agency can edit.' 
+                  : 'Only your agency can edit this'}
+              </TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-3">
             <DropdownMenu modal={false} open={isSortDropdownOpen} onOpenChange={setIsSortDropdownOpen}>
@@ -506,6 +510,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            {isAgency && (
             <Button
               variant="default"
               size="lg"
@@ -516,8 +521,9 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
               }}
             >
               <Plus size={16} className="mr-1" />
-              {isAgency ? 'New project' : 'Create project'}
+                New project
             </Button>
+            )}
           </div>
         </div>
       </div>
@@ -531,36 +537,20 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
               <TableHead className="w-[25%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Project
               </TableHead>
-              {isAgency ? (
-                <>
+              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                Status
+              </TableHead>
                   <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                     Start date
                   </TableHead>
                   <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                     End date
                   </TableHead>
-                </>
-              ) : (
-                <>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Owner
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    End date
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Start date
-                  </TableHead>
-                </>
-              )}
               <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Requests
               </TableHead>
               <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Tasks
-              </TableHead>
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Status
               </TableHead>
               <TableHead className="w-[44px] p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
                 <span className="sr-only">Actions</span>
@@ -593,85 +583,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                 </TableCell>
 
                 {isAgency ? (
-                  <>
-                    <TableCell className="w-[15%] py-0 truncate">
-                      <span 
-                        className="text-sm-regular" 
-                        style={project.startDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
-                      >
-                        {project.startDate || "No start date"}
-                      </span>
-                    </TableCell>
-
-                    <TableCell className="w-[15%] py-0 truncate">
-                      <span 
-                        className="text-sm-regular" 
-                        style={project.endDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
-                      >
-                        {project.endDate || "No end date"}
-                      </span>
-                    </TableCell>
-                  </>
-                ) : (
-                  <>
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ListRow
-                        avatar
-                        avatarUrl={project.submittedBy.avatarUrl}
-                        text={project.submittedBy.name}
-                        variant="stacked"
-                        className="min-w-0"
-                        onClick={() => {
-                          const nameParts = project.submittedBy.name.split(' ')
-                          handleContactClick({
-                            id: project.submittedBy.id,
-                            first_name: nameParts[0] || '',
-                            last_name: nameParts.slice(1).join(' ') || '',
-                            email: project.submittedBy.email,
-                            avatar_url: project.submittedBy.avatarUrl || '',
-                            job_title: project.submittedBy.jobTitle || '',
-                            organization: {
-                              id: project.submittedBy.orgId,
-                              name: project.submittedBy.orgName,
-                              logo_url: project.submittedBy.orgLogo || ''
-                            }
-                          })
-                        }}
-                      />
-                    </TableCell>
-
-                    <TableCell className="w-[15%] py-0 truncate">
-                      <span 
-                        className="text-sm-regular" 
-                        style={project.endDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
-                      >
-                        {project.endDate || "No end date"}
-                      </span>
-                    </TableCell>
-
-                    <TableCell className="w-[15%] py-0 truncate">
-                      <span 
-                        className="text-sm-regular" 
-                        style={project.startDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
-                      >
-                        {project.startDate || "No start date"}
-                      </span>
-                    </TableCell>
-                  </>
-                )}
-
-                <TableCell className="w-[15%] py-0 truncate">
-                  {project.requestsCount}
-                </TableCell>
-
-                <TableCell className="w-[15%] py-0 truncate">
-                  {project.tasksCount}
-                </TableCell>
-
-                {isAgency ? (
                   <TableCell 
                     className="w-[15%] py-0" 
                     onClick={(e) => e.stopPropagation()}
@@ -693,9 +604,35 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                   </TableCell>
                 ) : (
                   <TableCell className="w-[15%] py-0">
-                    <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} />
+                    <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
                   </TableCell>
                 )}
+
+                    <TableCell className="w-[15%] py-0 truncate">
+                      <span 
+                        className="text-sm-regular" 
+                        style={project.startDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
+                      >
+                        {project.startDate || "No start date"}
+                      </span>
+                    </TableCell>
+
+                    <TableCell className="w-[15%] py-0 truncate">
+                      <span 
+                        className="text-sm-regular" 
+                        style={project.endDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
+                      >
+                        {project.endDate || "No end date"}
+                      </span>
+                    </TableCell>
+
+                <TableCell className="w-[15%] py-0 truncate">
+                  {project.requestsCount}
+                </TableCell>
+
+                <TableCell className="w-[15%] py-0 truncate">
+                  {project.tasksCount}
+                </TableCell>
 
                 <TableCell 
                   className="w-[44px] p-0"
@@ -730,6 +667,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                           <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           Copy link
                         </DropdownMenuItem>
+                        {isAgency && (
+                          <>
                         <div className="border-t border-[var(--color-neutral-6)] my-1" />
                         <DropdownMenuItem 
                           onClick={() => {
@@ -741,6 +680,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                           <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
                           Delete project
                         </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

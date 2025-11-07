@@ -8,7 +8,7 @@ import { ListRow } from '@/components/ui/list-row'
 import { X } from '@phosphor-icons/react'
 import { createProject } from './actions'
 import { toast } from 'sonner'
-import { parse } from 'date-fns'
+import { parse, format } from 'date-fns'
 
 interface NewProjectModalProps {
   client: {
@@ -97,21 +97,29 @@ export function NewProjectModal({ client, agencyMembers = [], isOpen, onClose, o
       // Parse dates from UI format ("d MMM yyyy") to ISO date strings for database
       const parseDate = (dateStr: string | null | undefined): string | null => {
         if (!dateStr || !dateStr.trim()) return null
-        try {
-          // Try parsing the formatted date string using date-fns
-          const parsed = parse(dateStr, 'd MMM yyyy', new Date())
-          if (isNaN(parsed.getTime())) return null
-          // Convert to date-only string (YYYY-MM-DD) for database
-          return parsed.toISOString().split('T')[0]
-        } catch {
-          // Fallback: try Date constructor
+        const trimmed = dateStr.trim()
+
+        const tryPattern = (pattern: string) => {
           try {
-            const parsed = new Date(dateStr)
-            return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0]
+            const parsed = parse(trimmed, pattern, new Date())
+            if (isNaN(parsed.getTime())) return null
+            return format(parsed, 'yyyy-MM-dd')
           } catch {
             return null
           }
         }
+
+        return (
+          tryPattern('d MMM yyyy') ??
+          (() => {
+            try {
+              const parsed = new Date(trimmed)
+              return isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd')
+            } catch {
+              return null
+            }
+          })()
+        )
       }
 
       const parsedStartDate = parseDate(startDate)

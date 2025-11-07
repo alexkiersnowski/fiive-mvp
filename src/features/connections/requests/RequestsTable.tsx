@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { RequestBadge } from '@/components/ui/request-badge'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye } from '@phosphor-icons/react'
+import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest } from './actions'
 import type { Request } from '../server'
@@ -418,7 +418,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               count={requestCount}
               countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
             />
-            {isAgency && (
               <Tooltip delayDuration={250}>
                 <TooltipTrigger asChild>
                   <Badge 
@@ -431,15 +430,22 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                       cursor: 'default'
                     }}
                   >
+                  {isAgency ? (
                     <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-                    <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client visible</span>
+                  ) : (
+                    <Users size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+                  )}
+                  <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                    {isAgency ? 'Client visible' : 'Collaborate'}
+                  </span>
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={8}>
-                  Both you and your client can see this
+                {isAgency 
+                  ? 'Both you and your client can see this' 
+                  : 'Both you and your agency can manage this'}
                 </TooltipContent>
               </Tooltip>
-            )}
           </div>
           <div className="flex items-center gap-3">
             <Tooltip delayDuration={0}>
@@ -497,6 +503,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               <TableHead className="w-[25%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Title
               </TableHead>
+              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                Status
+              </TableHead>
               {isAgency ? (
                 <>
                   <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
@@ -522,9 +531,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   </TableHead>
                 </>
               )}
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Status
-              </TableHead>
               <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                 Created
               </TableHead>
@@ -557,6 +563,37 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 <TableCell className="w-[25%] py-0 truncate">
                   {request.title}
                 </TableCell>
+
+                {isAgency ? (
+                  <TableCell 
+                    className="w-[15%] py-0" 
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <InlineEdit
+                      type="badge"
+                      value={request.status}
+                      options={[
+                        { value: 'new', label: 'New' },
+                        { value: 'in_review', label: 'In review' },
+                        { value: 'accepted', label: 'Accepted' },
+                        { value: 'canceled', label: 'Canceled' },
+                      ]}
+                      onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
+                      badgeComponent="request"
+                      className="truncate h-6 rounded-[8px]"
+                    />
+                  </TableCell>
+                ) : (
+                  <TableCell className="w-[15%] py-0">
+                    <RequestBadge 
+                      variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
+                      size="sm" 
+                      showText={true}
+                      customLabel={request.status === 'new' ? 'Submitted' : undefined}
+                      className="inline-flex"
+                    />
+                  </TableCell>
+                )}
 
                 {isAgency ? (
                   <>
@@ -614,6 +651,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
                         variant="stacked"
                         className="min-w-0 min-h-[32px]"
+                      comboboxSelectedValue={request.assignee?.id ?? null}
                         onClick={() => {
                           // Assignee click handled by combobox
                         }}
@@ -640,6 +678,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
                         variant="stacked"
                         className="min-w-0"
+                      comboboxSelectedValue={request.assignee?.id ?? null}
                         nonInteractive={!request.assignee}
                         onClick={request.assignee ? () => {
                           const nameParts = request.assignee!.name.split(' ')
@@ -702,37 +741,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                       />
                     </TableCell>
                   </>
-                )}
-
-                {isAgency ? (
-                  <TableCell 
-                    className="w-[15%] py-0" 
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <InlineEdit
-                      type="badge"
-                      value={request.status}
-                      options={[
-                        { value: 'new', label: 'New' },
-                        { value: 'in_review', label: 'In review' },
-                        { value: 'accepted', label: 'Accepted' },
-                        { value: 'canceled', label: 'Canceled' },
-                      ]}
-                      onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
-                      badgeComponent="request"
-                      className="truncate h-6 rounded-[8px]"
-                    />
-                  </TableCell>
-                ) : (
-                  <TableCell className="w-[15%] py-0">
-                    <RequestBadge 
-                      variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
-                      size="sm" 
-                      showText={true}
-                      customLabel={request.status === 'new' ? 'Submitted' : undefined}
-                      className="inline-flex"
-                    />
-                  </TableCell>
                 )}
 
                 <TableCell className="w-[15%] py-0 truncate">

@@ -22,6 +22,9 @@ function ConnectionLayoutContent({ snapshot, context, baseRoute, children }: Omi
   // Check if we're on a request detail page (pattern: /agencies/[connectionId]/requests/[requestId] or /clients/[connectionId]/requests/[requestId])
   const isRequestDetailPage = /\/requests\/[^/]+$/.test(pathname);
   
+  // Check if we're on a task detail page (pattern: /agencies/[connectionId]/tasks/[taskId] or /clients/[connectionId]/tasks/[taskId])
+  const isTaskDetailPage = /\/tasks\/[^/]+$/.test(pathname);
+  
   // Detect if we're on the requests tab (but not a detail page)
   const isOnRequestsTab = !isRequestDetailPage && /\/requests$/.test(pathname);
   
@@ -58,12 +61,15 @@ export function ConnectionLayout({ snapshot, context, baseRoute, children }: Con
   // Check if we're on a request detail page (pattern: /agencies/[connectionId]/requests/[requestId] or /clients/[connectionId]/requests/[requestId])
   const isRequestDetailPage = /\/requests\/[^/]+$/.test(pathname);
   
+  // Check if we're on a task detail page (pattern: /agencies/[connectionId]/tasks/[taskId] or /clients/[connectionId]/tasks/[taskId])
+  const isTaskDetailPage = /\/tasks\/[^/]+$/.test(pathname);
+  
   // Check if we're on a project detail page (pattern: /agencies/[connectionId]/projects/[projectId] or /clients/[connectionId]/projects/[projectId])
   const isProjectDetailPage = /\/projects\/[^/]+$/.test(pathname);
   
-  // For request or project detail pages, render children directly without ConnectionProvider
-  // RequestDetailContent and ProjectDetailContent don't use ConnectionProvider and DashboardLayout handles styling
-  if (isRequestDetailPage || isProjectDetailPage) {
+  // For request, task, or project detail pages, render children directly without ConnectionProvider
+  // RequestDetailContent, TaskDetailContent, and ProjectDetailContent don't use ConnectionProvider and DashboardLayout handles styling
+  if (isRequestDetailPage || isTaskDetailPage || isProjectDetailPage) {
     return <>{children}</>;
   }
   

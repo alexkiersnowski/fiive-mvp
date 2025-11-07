@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { CheckCircle, SquaresFour, DotsThree, User, XCircle } from "@phosphor-icons/react"
+import { CheckCircle, SquaresFour, DotsThree, User, XCircle, Check } from "@phosphor-icons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { Button } from "./button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./dropdown-menu"
@@ -27,7 +27,8 @@ export interface ListRowProps {
   secondaryText?: boolean | string
   
   // Combobox (for empty state selection)
-  comboboxOptions?: (ComboboxOption & { avatar?: string })[]
+  comboboxOptions?: (ComboboxOption & { avatar?: string; orgName?: string; orgType?: 'agency' | 'client'; email?: string })[]
+  comboboxSelectedValue?: string | null
   onComboboxSelect?: (value: string) => void
   comboboxPlaceholder?: string
   comboboxWidth?: string
@@ -71,6 +72,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     textColor = 'var(--color-base-text-primary)',
     secondaryText = false,
     comboboxOptions,
+    comboboxSelectedValue = null,
     onComboboxSelect,
     comboboxPlaceholder = "Select...",
     comboboxWidth,
@@ -104,6 +106,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     // Handle clear functionality
     const handleClear = (e: React.MouseEvent) => {
       e.stopPropagation();
+      setIsComboboxOpen(false);
       onClear?.();
     };
     
@@ -276,15 +279,32 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
                       }}
                       className="cursor-pointer flex items-center gap-3"
                     >
-                      <Avatar className="h-5 w-5">
-                        {option.avatar && (
-                          <AvatarImage src={option.avatar} alt={option.label} />
-                        )}
-                        <AvatarFallback className="text-xs text-white" style={{ background: 'var(--color-neutral-9, #8B8D98)' }}>
-                          {option.label.split(' ').map(n => n[0]).join('').toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span>{option.label}</span>
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Avatar className="h-5 w-5">
+                          {option.avatar && (
+                            <AvatarImage src={option.avatar} alt={option.label} />
+                          )}
+                          <AvatarFallback className="text-xs text-white" style={{ background: 'var(--color-neutral-9, #8B8D98)' }}>
+                            {option.label.split(' ').map(n => n[0]).join('').toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm-regular truncate">{option.label}</span>
+                            {option.orgName && (
+                              <span
+                                className="text-xs-regular truncate"
+                                style={{ color: 'var(--color-base-text-tertiary)' }}
+                              >
+                                {option.orgName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {comboboxSelectedValue === option.value && (
+                        <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
+                      )}
                     </CommandItem>
                   ))}
                 </CommandGroup>

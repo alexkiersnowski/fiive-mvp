@@ -2,7 +2,7 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
-import { Plus, ArrowRight, LockSimple } from '@phosphor-icons/react/dist/ssr';
+import { Plus, ArrowRight, LockSimple, ClipboardText } from '@phosphor-icons/react/dist/ssr';
 import type { ConnectionSnapshot } from '../types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
@@ -15,44 +15,43 @@ export default function TasksCard({ snapshot, context }: { snapshot: ConnectionS
   
   const description = isAgency 
     ? 'No tasks yet. Add client tasks and manage their visibility.'
-    : '';
+    : 'Your agency manages all tasks. Submit a request to get started.';
   const buttonText = isAgency ? 'Add task' : 'View all tasks';
 
   return (
     <Card className="w-full h-full pt-5 pb-6 px-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <div>
-          <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-            {title}
-          </CardTitle>
-          {!isAgency && (
-            <p className="text-sm-regular text-tertiary mt-1">
-              Managed by your agency, some may be assigned to you
-            </p>
-          )}
-        </div>
-        {isAgency && (
-          <Tooltip delayDuration={250}>
-            <TooltipTrigger asChild>
-              <Badge 
-                variant="outline" 
-                className="text-xs border-0"
-                style={{
-                  borderRadius: 'var(--radius-1-max, 3px)',
-                  backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                  border: 'none',
-                  cursor: 'default'
-                }}
-              >
+        <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
+          {title}
+        </CardTitle>
+        <Tooltip delayDuration={250}>
+          <TooltipTrigger asChild>
+            <Badge 
+              variant="outline" 
+              className="text-xs border-0"
+              style={{
+                borderRadius: 'var(--radius-1-max, 3px)',
+                backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                border: 'none',
+                cursor: 'default'
+              }}
+            >
+              {isAgency ? (
                 <LockSimple size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-                <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Agency managed</span>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={8}>
-              Only your agency can edit this
-            </TooltipContent>
-          </Tooltip>
-        )}
+              ) : (
+                <ClipboardText size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+              )}
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                Agency managed
+              </span>
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={8}>
+            {isAgency 
+              ? 'Only your agency can edit this' 
+              : 'Comment on all tasks and update ones assigned to you'}
+          </TooltipContent>
+        </Tooltip>
       </div>
       {description && (
         <p className="text-xs-regular text-tertiary">

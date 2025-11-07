@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { LockSimple } from '@phosphor-icons/react';
+import { LockSimple, Eye } from '@phosphor-icons/react';
 import { useConnection } from '../ConnectionContext';
 
 export default function AboutCard() {
@@ -37,7 +37,6 @@ export default function AboutCard() {
         <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
           About
         </CardTitle>
-        {snapshot.currentUserType === 'agency' && (
           <Tooltip delayDuration={250}>
             <TooltipTrigger asChild>
               <Badge 
@@ -50,15 +49,22 @@ export default function AboutCard() {
                   cursor: 'default'
                 }}
               >
+              {snapshot.currentUserType === 'agency' ? (
                 <LockSimple size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-                <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Client managed</span>
+              ) : (
+                <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+              )}
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                {snapshot.currentUserType === 'agency' ? 'Client managed' : 'View only'}
+              </span>
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
-              Only your client can edit this
+            {snapshot.currentUserType === 'agency' 
+              ? 'Only your client can edit this' 
+              : 'Only your agency can edit this'}
             </TooltipContent>
           </Tooltip>
-        )}
       </div>
 
       {description ? (

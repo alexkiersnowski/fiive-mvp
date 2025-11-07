@@ -13,6 +13,7 @@ import { StatusBadge, StatusVariant } from './connection-badge'
 import { EngagementBadge, EngagementVariant } from './engagement-badge'
 import { HealthBadge, HealthVariant } from './health-badge'
 import { RequestBadge, RequestVariant } from './request-badge'
+import { TaskBadge, TaskVariant } from './task-badge'
 import { ProjectBadge, ProjectVariant } from './project-badge'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from './command'
@@ -48,13 +49,15 @@ type InlineEditProps =
       searchable?: boolean
       searchPlaceholder?: string
       clearable?: boolean
-      badgeComponent?: 'connection' | 'engagement' | 'health' | 'request' | 'project'
+      badgeComponent?: 'connection' | 'engagement' | 'health' | 'request' | 'task' | 'project'
       placeholder?: string
       dividerIndex?: number // Index where to insert a divider (after this index)
       popoverWidth?: string // Custom width for the popover dropdown (e.g., '400px')
       badgeBorderRadius?: string // Custom border radius for badge (e.g., '8px')
       maxHeight?: string // Custom max height for the command list dropdown (e.g., '200px')
       nonInteractive?: boolean // If true, makes the field non-editable (display only)
+      disablePopoverAnimation?: boolean
+      disableHoverTransition?: boolean
     }
   | {
       type: 'date'
@@ -67,12 +70,14 @@ type InlineEditProps =
 
 export interface InlineEditRef {
   startEditing: () => void
+  closePopover: () => void
 }
 
 export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((props, ref) => {
   const [isEditing, setIsEditing] = React.useState(false)
   const [tempValue, setTempValue] = React.useState(props.value)
   const [isPopoverOpen, setIsPopoverOpen] = React.useState(false)
+  const [isHovered, setIsHovered] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   
@@ -81,6 +86,11 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     startEditing: () => {
       setIsEditing(true)
       // Focus will happen in useEffect when isEditing becomes true
+    },
+    closePopover: () => {
+      setIsPopoverOpen(false)
+      setIsEditing(false)
+      setIsHovered(false)
     }
   }))
   
@@ -500,6 +510,10 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
         return <RequestBadge variant={tempValue as RequestVariant} size="sm" showText={true} customLabel={displayLabel} />
       }
       
+      if (props.badgeComponent === 'task') {
+        return <TaskBadge variant={tempValue as TaskVariant} size="sm" showText={true} customLabel={displayLabel} />
+      }
+      
       if (props.badgeComponent === 'project') {
         return <ProjectBadge variant={tempValue as ProjectVariant} size="sm" showText={true} customLabel={displayLabel} />
       }
@@ -517,14 +531,20 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
         <PopoverTrigger asChild>
           <div
             className={cn(
-              "py-1 px-1 rounded transition-colors duration-75 flex items-center justify-between gap-2",
-              !props.nonInteractive && "hover:bg-[var(--color-interactive-surface-hover)]",
-              isPopoverOpen && "bg-[var(--color-interactive-surface-hover)]",
+              "py-1 px-1 rounded flex items-center justify-between gap-2",
+              !props.disableHoverTransition && "transition-colors duration-75",
+              !props.nonInteractive && (isHovered || isPopoverOpen) && "bg-[var(--color-interactive-surface-hover)]",
               props.className
             )}
             style={{ 
               cursor: props.nonInteractive ? 'default' : 'pointer',
               ...(props.badgeBorderRadius ? { borderRadius: props.badgeBorderRadius } : {})
+            }}
+            onMouseEnter={() => {
+              if (!props.nonInteractive) setIsHovered(true)
+            }}
+            onMouseLeave={() => {
+              if (!props.nonInteractive) setIsHovered(false)
             }}
           >
             {renderBadge()}
@@ -548,6 +568,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
           </div>
         </PopoverTrigger>
         <PopoverContent 
+          disableAnimation={props.disablePopoverAnimation}
           className="p-0" 
           align="start"
           style={{ width: props.type === 'badge' && props.popoverWidth ? props.popoverWidth : 'var(--radix-popover-trigger-width)' }}
@@ -596,6 +617,10 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
                         
                         if (props.badgeComponent === 'request') {
                           return <RequestBadge variant={option.value as RequestVariant} size="sm" showText={true} customLabel={option.label} />
+                        }
+                        
+                        if (props.badgeComponent === 'task') {
+                          return <TaskBadge variant={option.value as TaskVariant} size="sm" showText={true} customLabel={option.label} />
                         }
                         
                         if (props.badgeComponent === 'project') {

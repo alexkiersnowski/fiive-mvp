@@ -3,6 +3,36 @@
 import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { isDev } from '../constants'
+import { parse, format } from 'date-fns'
+
+const normalizeDateInput = (value?: string | null): string | null => {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const tryPattern = (pattern: string) => {
+    try {
+      const parsed = parse(trimmed, pattern, new Date())
+      if (isNaN(parsed.getTime())) return null
+      return format(parsed, 'yyyy-MM-dd')
+    } catch {
+      return null
+    }
+  }
+
+  return (
+    tryPattern('yyyy-MM-dd') ??
+    tryPattern('d MMM yyyy') ??
+    (() => {
+      try {
+        const parsed = new Date(trimmed)
+        return isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd')
+      } catch {
+        return null
+      }
+    })()
+  )
+}
 
 /**
  * Create a new project
@@ -37,9 +67,8 @@ export async function createProject(
     });
   }
   
-  // Convert date strings to date format if provided
-  const start_date = startDate ? new Date(startDate).toISOString().split('T')[0] : null;
-  const end_date = endDate ? new Date(endDate).toISOString().split('T')[0] : null;
+  const start_date = normalizeDateInput(startDate);
+  const end_date = normalizeDateInput(endDate);
   
   // Build insert object with required fields
   // created_at and updated_at are handled by DB defaults (now())
@@ -210,7 +239,7 @@ export async function updateProjectStartDate(projectId: string, startDate: strin
   }
   
   // Convert date string to date format if provided, otherwise set to null
-  const start_date = startDate ? new Date(startDate).toISOString().split('T')[0] : null;
+  const start_date = normalizeDateInput(startDate);
   
   const { data, error } = await supabase
     .from('projects')
@@ -246,7 +275,7 @@ export async function updateProjectEndDate(projectId: string, endDate: string | 
   }
   
   // Convert date string to date format if provided, otherwise set to null
-  const end_date = endDate ? new Date(endDate).toISOString().split('T')[0] : null;
+  const end_date = normalizeDateInput(endDate);
   
   const { data, error } = await supabase
     .from('projects')

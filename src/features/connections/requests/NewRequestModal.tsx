@@ -249,6 +249,7 @@ export function NewRequestModal({ client, agencyMembers = [], isOpen, onClose, o
                   avatarUrl={selectedAssignee?.avatarUrl}
                   text={selectedAssignee ? `${selectedAssignee.firstName} ${selectedAssignee.lastName}` : 'Assignee'}
                   textColor={!selectedAssignee ? 'var(--color-base-text-tertiary)' : undefined}
+                  comboboxSelectedValue={assigneeUserId}
                   comboboxOptions={agencyMembers.map(member => ({
                     value: member.id,
                     label: `${member.firstName} ${member.lastName}`,
