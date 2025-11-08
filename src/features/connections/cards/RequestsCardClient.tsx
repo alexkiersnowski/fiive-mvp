@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 import { useConnection } from '../ConnectionContext';
 import { RequestDetailModal } from '../requests/RequestDetailModal';
 import { NewRequestModal } from '../requests/NewRequestModal';
+import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal';
+import { convertRequestToTask } from '../tasks/actions';
 import { fetchRequestById } from '../requests/actions';
 import type { Request } from '../server';
 
@@ -93,6 +95,9 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
   const [selectedComments, setSelectedComments] = useState<CommentItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [convertRequest, setConvertRequest] = useState<RequestDetailPayload | null>(null);
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
 
   useEffect(() => {
     setPrefetchedRequests(requests);
@@ -217,6 +222,51 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       setSelectedComments([]);
     }, 300);
   }, []);
+
+  const handleConvertModalClose = useCallback(() => {
+    setIsConvertModalOpen(false);
+    setTimeout(() => {
+      setConvertRequest(null);
+    }, 300);
+  }, []);
+
+  const handleRequestConvertToTask = useCallback((request: RequestDetailPayload) => {
+    setConvertRequest({
+      ...request,
+      description: request.description ?? '',
+    });
+    setIsConvertModalOpen(true);
+  }, []);
+
+  const handleConvertSubmit = useCallback(async (values: ConvertToTaskModalValues) => {
+    const { requestId, title, description, status, project, assignee, dueDateRaw, clientVisible } = values;
+    if (!requestId) {
+      toast.error('Request unavailable for conversion');
+      return;
+    }
+    try {
+      await convertRequestToTask(requestId, {
+        connectionId,
+        title,
+        description,
+        status,
+        projectId: project?.id ?? null,
+        assigneeUserId: assignee?.id ?? null,
+        dueDateRaw,
+        clientVisible,
+      });
+
+      toast.success('Task created from request');
+      handleConvertModalClose();
+      handleRequestUpdate(requestId, { status: 'accepted' });
+      router.refresh();
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to convert request to task:', error);
+      }
+      toast.error('Failed to convert request');
+    }
+  }, [convertRequest, connectionId, handleConvertModalClose, handleRequestUpdate, router]);
 
   const handleModalExpand = useCallback(() => {
     if (!selectedRequestId) {
@@ -463,6 +513,25 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
         onClose={handleModalClose}
         onExpand={handleModalExpand}
         onRequestUpdate={handleRequestUpdate}
+        onConvertToTask={(request) => {
+          if (!request) {
+            return;
+          }
+          handleRequestConvertToTask({
+            requestId: request.requestId,
+            title: request.title,
+            description: request.description || '',
+            client: request.client,
+            agency: request.agency,
+            submittedBy: request.submittedBy,
+            assignee: request.assignee ?? null,
+            project: request.project ?? null,
+            status: request.status,
+            createdAt: request.createdAt,
+            createdByOrgId: request.createdByOrgId,
+            createdByOrgType: request.createdByOrgType,
+          });
+        }}
         onRequestDeleted={handleRequestDeleted}
         connectionId={connectionId}
         currentOrgId={context.organization.id}
@@ -475,6 +544,17 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
         }}
         initialComments={selectedComments}
         onCommentsUpdate={handleCommentsUpdate}
+      />
+
+      <ConvertToTaskModal
+        isOpen={isConvertModalOpen}
+        onClose={handleConvertModalClose}
+        onSubmit={handleConvertSubmit}
+        connectionId={connectionId}
+        request={convertRequest}
+        agencyMembers={snapshot.agencyMembers ?? []}
+        projects={projects}
+        variant={context.variant}
       />
 
       <NewRequestModal

@@ -58,6 +58,14 @@ type TaskDetailPayload = {
   dueDateRaw?: string | null;
   clientVisible?: boolean;
   clientVisibilityLocked?: boolean;
+  sourceRequestId?: string | null;
+  linkedRequest?: {
+    id: string;
+    title: string;
+    createdAt: string;
+    createdByUserId?: string;
+    createdByName?: string;
+  } | null;
 };
 
 type PrefetchedTask = {
@@ -161,6 +169,8 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
         dueDateRaw: task.dueDateRaw ?? null,
         clientVisible: task.clientVisible,
         clientVisibilityLocked: task.clientVisibilityLocked,
+        sourceRequestId: task.sourceRequestId ?? null,
+        linkedRequest: task.linkedRequest ?? null,
       },
       comments: [],
     }),
@@ -441,6 +451,9 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
         <div className="flex flex-col gap-3 mt-1">
           {prefetchedTasks.map((task) => {
             const visibilityIcon = (() => {
+              if (!isAgency) {
+                return null;
+              }
               if (task.detail.clientVisible) {
                 return (
                   <Eye
@@ -469,7 +482,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
                     style={{ color: "var(--color-interactive-neutral-default)" }}
                   />
                 }
-              iconEnd={visibilityIcon}
+                iconEnd={visibilityIcon ?? undefined}
                 text={task.title}
                 secondaryText={getTaskMetadata(task)}
                 layout="inline"

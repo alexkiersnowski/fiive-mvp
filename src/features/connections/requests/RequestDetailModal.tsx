@@ -88,9 +88,26 @@ interface RequestDetailModalProps {
     createdAt: Date
     text: string
   }>) => void
+  onConvertToTask?: (request: RequestDetailModalProps['requestData']) => void
 }
 
-export function RequestDetailModal({ requestData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onRequestUpdate, onRequestDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailModalProps) {
+export function RequestDetailModal({
+  requestData,
+  agencyMembers = [],
+  projects = [],
+  isOpen,
+  onClose,
+  onExpand,
+  onRequestUpdate,
+  onRequestDeleted,
+  connectionId,
+  currentOrgId,
+  variant = 'agency',
+  activeUser,
+  initialComments = [],
+  onCommentsUpdate,
+  onConvertToTask,
+}: RequestDetailModalProps) {
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // Determine if the request is locked for editing based on view context and organization type
@@ -188,7 +205,17 @@ export function RequestDetailModal({ requestData, agencyMembers = [], projects =
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
                 {variant === 'agency' && (
-                  <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setIsActionsDropdownOpen(false)
+                      if (requestData) {
+                        onClose()
+                        setTimeout(() => {
+                          onConvertToTask?.(requestData)
+                        }, 175)
+                      }
+                    }}
+                  >
                     <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                     Convert to task
                   </DropdownMenuItem>

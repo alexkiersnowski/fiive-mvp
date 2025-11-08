@@ -10,7 +10,7 @@ import { ListRow } from '@/components/ui/list-row'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
-import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, Eye, EyeSlash } from '@phosphor-icons/react'
+import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, Eye, EyeSlash, ChatCentered } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
@@ -81,6 +81,14 @@ interface TaskDetailContentProps {
   createdAt?: string
   clientVisible?: boolean
   clientVisibilityLocked?: boolean
+  sourceRequestId?: string | null
+  linkedRequest?: {
+    id: string
+    title: string
+    createdAt: string
+    createdByUserId?: string
+    createdByName?: string
+  } | null
   mode?: 'modal' | 'page'
   onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
   createdByOrgId?: string
@@ -113,7 +121,7 @@ interface TaskDetailContentProps {
   }) => void
 }
 
-export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick }: TaskDetailContentProps) {
+export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick }: TaskDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -214,6 +222,24 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
   }, [])
 
   const [clientVisibleValue, setClientVisibleValue] = useState(clientVisible)
+
+  const linkedRequestMeta = useMemo(() => {
+    if (!linkedRequest) return ''
+    const parts: string[] = []
+    if (linkedRequest.createdByName) {
+      parts.push(`Submitted by ${linkedRequest.createdByName}`)
+    }
+    if (linkedRequest.createdAt) {
+      parts.push(linkedRequest.createdAt)
+    }
+    return parts.join(' • ')
+  }, [linkedRequest])
+
+  const linkedRequestHref = useMemo(() => {
+    if (!linkedRequest?.id || !connectionId) return null
+    const base = variant === 'agency' ? 'clients' : 'agencies'
+    return `/${base}/${connectionId}/requests/${linkedRequest.id}`
+  }, [linkedRequest?.id, connectionId, variant])
   
   // Initialize projects list with current project if available (to prevent flicker)
   // and merge with initial projects from props
@@ -947,11 +973,11 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
           <div className="flex flex-col gap-5">
             <div data-inline-edit="description">
-          {isClientVariant ? (
-            <div className="text-md-regular px-0" style={{ fontSize: '15px', lineHeight: '22px' }}>
-              {descriptionValue || <span className="text-sm-regular text-secondary">No description</span>}
-            </div>
-          ) : (
+            {isClientVariant ? (
+              <div className="text-md-regular px-0 whitespace-pre-wrap" style={{ fontSize: '15px', lineHeight: '22px' }}>
+                {descriptionValue || <span className="text-sm-regular text-secondary">No description</span>}
+              </div>
+            ) : (
             <InlineEdit
               type="text"
               value={descriptionValue}
@@ -965,6 +991,46 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
             />
           )}
         </div>
+
+        {linkedRequest && (
+          <div className="mt-4 flex flex-col gap-3">
+            <h4 className="text-sm-medium text-primary">Related request</h4>
+              {linkedRequestHref ? (
+              <a
+                href={linkedRequestHref}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ListRow
+                  iconStart={
+                    <ChatCentered
+                      size={16}
+                      weight="regular"
+                      style={{ color: 'var(--color-interactive-neutral-default)' }}
+                    />
+                  }
+                  text={linkedRequest.title}
+                  secondaryText={linkedRequestMeta}
+                  className="px-3 py-2 border border-[var(--color-neutral-4)] rounded-md hover:bg-[var(--color-interactive-surface-hover)] transition-colors"
+                />
+              </a>
+            ) : (
+              <ListRow
+                iconStart={
+                  <ChatCentered
+                    size={16}
+                    weight="regular"
+                    style={{ color: 'var(--color-interactive-neutral-default)' }}
+                  />
+                }
+                text={linkedRequest.title}
+                secondaryText={linkedRequestMeta}
+                nonInteractive
+                className="px-3 py-2 border border-[var(--color-neutral-4)] rounded-md"
+              />
+            )}
+          </div>
+        )}
 
         {/* Divider */}
         <div className="w-full h-px bg-neutral-alpha-4 mt-5"></div>

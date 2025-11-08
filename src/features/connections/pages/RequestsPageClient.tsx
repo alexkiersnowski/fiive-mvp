@@ -3,12 +3,15 @@
 import { useState, useEffect, useRef, useCallback, useTransition } from 'react'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext';
 import RequestsTable from '../requests/RequestsTable';
 import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
 import type { Request, Comment } from '../server';
 import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequest, fetchCommentsForRequests } from '../requests/actions';
+import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
+import { convertRequestToTask } from '../tasks/actions'
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
 
 interface RequestsPageClientProps {
@@ -27,6 +30,42 @@ interface RequestsPageClientProps {
     id: string
     name: string
   }>
+}
+
+type ModalRequest = {
+  requestId: string
+  title: string
+  description: string
+  client?: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
+  agency?: {
+    id: string
+    name: string
+    logoUrl?: string
+  }
+  submittedBy?: {
+    id: string
+    name: string
+    email: string
+    avatarUrl?: string
+  }
+  assignee?: {
+    id: string
+    name: string
+    email: string
+    avatarUrl?: string
+  } | null
+  project?: {
+    id: string
+    name: string
+  } | null
+  status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+  createdAt?: string
+  createdByOrgId?: string
+  createdByOrgType?: 'agency' | 'client'
 }
 
 // Client component wrapper that handles all client-side interactivity
@@ -703,41 +742,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   }, [searchParams, pathname, router])
 
   // Local state for modal (like ProfileCard pattern)
-  const [selectedRequest, setSelectedRequest] = useState<{
-    requestId: string
-    title: string
-    description: string
-    client?: {
-      id: string
-      name: string
-      logoUrl?: string
-    }
-    agency?: {
-      id: string
-      name: string
-      logoUrl?: string
-    }
-    submittedBy?: {
-      id: string
-      name: string
-      email: string
-      avatarUrl?: string
-    }
-    assignee?: {
-      id: string
-      name: string
-      email: string
-      avatarUrl?: string
-    } | null
-    project?: {
-      id: string
-      name: string
-    } | null
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled'
-    createdAt?: string
-    createdByOrgId?: string
-    createdByOrgType?: 'agency' | 'client'
-  } | null>(null)
+  const [selectedRequest, setSelectedRequest] = useState<ModalRequest | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isNewModalOpen, setIsNewModalOpen] = useState(false)
   const [selectedRequestComments, setSelectedRequestComments] = useState<Array<{
@@ -748,6 +753,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     createdAt: Date
     text: string
   }>>([])
+  const [convertRequest, setConvertRequest] = useState<ModalRequest | null>(null)
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
+  const [isConverting, setIsConverting] = useState(false)
 
   function getRequestById(requestId: string) {
     return requests.find(r => r.id === requestId)
@@ -858,6 +866,52 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       setSelectedRequest(null)
       setSelectedRequestComments([])
     }, 300)
+  }
+
+  function handleConvertModalClose() {
+    setIsConvertModalOpen(false)
+    setTimeout(() => {
+      setConvertRequest(null)
+    }, 300)
+  }
+
+  async function handleConvertSubmit(values: ConvertToTaskModalValues) {
+    const { requestId, title, description, status, project, assignee, dueDateRaw, clientVisible } = values
+    if (!requestId) {
+      toast.error('Request unavailable for conversion')
+      return
+    }
+    try {
+      await convertRequestToTask(requestId, {
+        connectionId,
+        title,
+        description,
+        status,
+        projectId: project?.id ?? null,
+        assigneeUserId: assignee?.id ?? null,
+        dueDateRaw,
+        clientVisible,
+      })
+
+      toast.success('Task created from request')
+      handleConvertModalClose()
+      handleRequestUpdate(requestId, { status: 'accepted' })
+      router.refresh()
+    } catch (error) {
+      if (isDev()) {
+        console.error('Failed to convert request to task:', error)
+      }
+      toast.error('Failed to convert request')
+    } finally {
+    }
+  }
+
+  function handleRequestConvertToTask(request: ModalRequest) {
+    setConvertRequest({
+      ...request,
+      description: request.description ?? '',
+    })
+    setIsConvertModalOpen(true)
   }
 
   function handleNewRequest() {
@@ -1017,6 +1071,23 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             setSelectedRequestComments(comments)
           }
         }}
+        onConvertToTask={(request) => {
+          if (!request) return
+          handleRequestConvertToTask({
+            requestId: request.requestId,
+            title: request.title,
+            description: request.description || '',
+            client: request.client,
+            agency: request.agency,
+            submittedBy: request.submittedBy,
+            assignee: request.assignee ?? null,
+            project: request.project ?? null,
+            status: request.status,
+            createdAt: request.createdAt,
+            createdByOrgId: request.createdByOrgId,
+            createdByOrgType: request.createdByOrgType,
+          })
+        }}
         onRequestDeleted={(requestId) => {
           // Get the deleted request to check if it was 'new' status
           const deletedRequest = requests.find(r => r.id === requestId)
@@ -1061,6 +1132,17 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           avatarUrl: context.user.avatarUrl
         } : undefined}
         initialComments={selectedRequestComments}
+      />
+      
+      <ConvertToTaskModal
+        isOpen={isConvertModalOpen}
+        onClose={handleConvertModalClose}
+        onSubmit={handleConvertSubmit}
+        connectionId={connectionId}
+        request={convertRequest}
+        agencyMembers={agencyMembers}
+        projects={projects}
+        variant={context.variant}
       />
       
       {/* New Request Modal - For creating new requests */}

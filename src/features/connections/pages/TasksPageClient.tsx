@@ -886,6 +886,14 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     createdByOrgType?: 'agency' | 'client'
     clientVisible?: boolean
     clientVisibilityLocked?: boolean
+  sourceRequestId?: string | null
+  linkedRequest?: {
+    id: string
+    title: string
+    createdAt: string
+    createdByUserId?: string
+    createdByName?: string
+  } | null
   } | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isNewModalOpen, setIsNewModalOpen] = useState(false)
@@ -985,7 +993,9 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         createdByOrgId: task.createdByOrgId,
         clientVisible: task.clientVisible,
         clientVisibilityLocked: task.clientVisibilityLocked,
-        createdByOrgType: task.createdByOrgType
+      createdByOrgType: task.createdByOrgType,
+      sourceRequestId: task.sourceRequestId ?? null,
+      linkedRequest: task.linkedRequest ?? null,
       })
       setSelectedTaskComments(comments)
       setIsModalOpen(true)

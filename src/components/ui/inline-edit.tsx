@@ -126,23 +126,25 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     }
   }, [props.value, props.type])
 
+  const isTextType = props.type === 'text'
+  const isMultiline = isTextType ? props.multiline ?? false : false
+
   // Focus input/textarea when editing starts
   React.useEffect(() => {
-    if (isEditing && props.type === 'text') {
-      const multiline = 'multiline' in props ? props.multiline : false
-      if (multiline && textareaRef.current) {
-        textareaRef.current.focus()
-        // Set cursor to end of text
-        const length = textareaRef.current.value.length
-        textareaRef.current.setSelectionRange(length, length)
-      } else if (!multiline && inputRef.current) {
-        inputRef.current.focus()
-        // Set cursor to end of text instead of selecting all
-        const length = inputRef.current.value.length
-        inputRef.current.setSelectionRange(length, length)
-      }
+    if (!isEditing || !isTextType) return
+
+    if (isMultiline && textareaRef.current) {
+      textareaRef.current.focus()
+      // Set cursor to end of text
+      const length = textareaRef.current.value.length
+      textareaRef.current.setSelectionRange(length, length)
+    } else if (!isMultiline && inputRef.current) {
+      inputRef.current.focus()
+      // Set cursor to end of text instead of selecting all
+      const length = inputRef.current.value.length
+      inputRef.current.setSelectionRange(length, length)
     }
-  }, [isEditing, props])
+  }, [isEditing, isTextType, isMultiline])
 
   const handleSave = () => {
     let valueToSave = tempValue

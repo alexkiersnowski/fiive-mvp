@@ -452,6 +452,14 @@ export interface Task {
   clientVisible: boolean
   clientVisibilityLocked: boolean
   isPinned?: boolean
+  sourceRequestId?: string | null
+  linkedRequest?: {
+    id: string
+    title: string
+    createdAt: string
+    createdByUserId?: string
+    createdByName?: string
+  } | null
 }
 
 // Cache connection info separately to avoid duplicate fetches
@@ -939,10 +947,12 @@ async function hydrateTaskRows(
 
   const projectIds = Array.from(new Set(rows.map(row => row.project_id).filter(Boolean))) as string[]
   const userIds = new Set<string>()
+  const requestIds = new Set<string>()
 
   rows.forEach(row => {
     if (row.created_by_user_id) userIds.add(row.created_by_user_id)
     if (row.assignee_user_id) userIds.add(row.assignee_user_id)
+    if (row.source_request_id) requestIds.add(row.source_request_id)
   })
 
   let projectMap: Record<string, { id: string; name?: string | null }> = {}
@@ -960,6 +970,26 @@ async function hydrateTaskRows(
       }, {} as Record<string, { id: string; name?: string | null }>)
     } else if (projectsError && process.env.NODE_ENV !== 'production') {
       console.error('Error fetching projects while hydrating tasks:', projectsError)
+    }
+  }
+
+  let requestMap: Record<string, { id: string; title: string | null; created_by_user_id: string | null; created_at: string | null }> = {}
+  if (requestIds.size > 0) {
+    const { data: requestRows, error: requestError } = await supabase
+      .from('requests')
+      .select('id, title, created_by_user_id, created_at')
+      .in('id', Array.from(requestIds))
+      .is('deleted_at', null)
+
+    if (!requestError && requestRows) {
+      requestRows.forEach(request => {
+        requestMap[request.id] = request
+        if (request.created_by_user_id) {
+          userIds.add(request.created_by_user_id)
+        }
+      })
+    } else if (requestError && process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching linked requests while hydrating tasks:', requestError)
     }
   }
 
@@ -1048,6 +1078,15 @@ async function hydrateTaskRows(
         ? 'agency'
         : undefined
 
+    const requestData = row.source_request_id ? requestMap[row.source_request_id] : undefined
+    const linkedRequestProfile = requestData?.created_by_user_id ? profilesMap[requestData.created_by_user_id] : undefined
+    const linkedCreatorNameRaw = linkedRequestProfile
+      ? `${linkedRequestProfile.first_name || ''} ${linkedRequestProfile.last_name || ''}`.trim()
+      : undefined
+    const linkedCreatorName = linkedCreatorNameRaw && linkedCreatorNameRaw.length > 0
+      ? linkedCreatorNameRaw
+      : linkedRequestProfile?.email
+
     return {
       id: row.id,
       connectionId: row.connection_id,
@@ -1088,7 +1127,17 @@ async function hydrateTaskRows(
       createdByOrgId: createdOrg?.orgId,
       createdByOrgType,
       clientVisible: Boolean(row.client_visible),
-      clientVisibilityLocked: Boolean(row.assignee_user_id && assigneeOrgIds?.has(connection.client_id))
+      clientVisibilityLocked: Boolean(row.assignee_user_id && assigneeOrgIds?.has(connection.client_id)),
+      sourceRequestId: row.source_request_id ?? null,
+      linkedRequest: requestData
+        ? {
+            id: requestData.id,
+            title: (requestData.title || '').trim() || 'Untitled request',
+            createdAt: requestData.created_at ? formatters.formatRequestDate(requestData.created_at) : '',
+            createdByUserId: requestData.created_by_user_id ?? undefined,
+            createdByName: linkedCreatorName,
+          }
+        : null,
     } satisfies Task
   })
 }

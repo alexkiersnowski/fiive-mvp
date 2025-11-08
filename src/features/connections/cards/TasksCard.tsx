@@ -132,6 +132,8 @@ export default async function TasksCard({
         dueDateRaw: task.dueDateRaw ?? null,
         clientVisible: task.clientVisible,
         clientVisibilityLocked: task.clientVisibilityLocked,
+      sourceRequestId: task.sourceRequestId ?? null,
+      linkedRequest: task.linkedRequest ?? null,
       },
       comments: serializedComments,
     };

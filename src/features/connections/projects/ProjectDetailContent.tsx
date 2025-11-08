@@ -649,23 +649,31 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
         <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
           <div className="flex flex-col gap-5">
             <div data-inline-edit="description">
-          <InlineEdit
-            type="text"
-            value={descriptionValue}
-            onSave={handleDescriptionSave}
-            placeholder={
-              variant === 'client' && !descriptionValue.trim()
-                ? 'No description'
-                : 'Add a short summary…'
-            }
-            textClass="text-md-regular"
-            multiline={true}
-            linkifyUrls={true}
-            className="px-0"
-            style={{ fontSize: '15px', lineHeight: '22px' }}
-            nonInteractive={variant === 'client'}
-          />
-        </div>
+              {variant === 'client' ? (
+                <div
+                  className="text-md-regular px-0 whitespace-pre-wrap"
+                  style={{ fontSize: '15px', lineHeight: '22px' }}
+                >
+                  {descriptionValue.trim().length > 0 ? (
+                    descriptionValue
+                  ) : (
+                    <span className="text-sm-regular text-secondary">No description</span>
+                  )}
+                </div>
+              ) : (
+                <InlineEdit
+                  type="text"
+                  value={descriptionValue}
+                  onSave={handleDescriptionSave}
+                  placeholder="Add a short summary…"
+                  textClass="text-md-regular"
+                  multiline={true}
+                  linkifyUrls={true}
+                  className="px-0"
+                  style={{ fontSize: '15px', lineHeight: '22px' }}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -63,6 +63,8 @@ export default async function ClientTaskDetailPage({
       createdByOrgType={task.createdByOrgType}
       clientVisible={task.clientVisible}
       clientVisibilityLocked={task.clientVisibilityLocked}
+      sourceRequestId={task.sourceRequestId ?? null}
+      linkedRequest={task.linkedRequest ?? null}
       currentOrgId={context.organization.id}
       connectionId={connectionId}
       partnerName={partnerName || undefined}

@@ -48,6 +48,14 @@ interface TaskDetailModalProps {
     createdByOrgType?: 'agency' | 'client'
     clientVisible?: boolean
     clientVisibilityLocked?: boolean
+    sourceRequestId?: string | null
+    linkedRequest?: {
+      id: string
+      title: string
+      createdAt: string
+      createdByUserId?: string
+      createdByName?: string
+    } | null
   } | null
   agencyMembers?: Array<{
     id: string
@@ -261,6 +269,8 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
               createdByOrgType={taskData.createdByOrgType}
               clientVisible={taskData.clientVisible}
               clientVisibilityLocked={taskData.clientVisibilityLocked ?? false}
+              sourceRequestId={taskData.sourceRequestId}
+              linkedRequest={taskData.linkedRequest}
               currentOrgId={currentOrgId}
               connectionId={connectionId}
               variant={variant}

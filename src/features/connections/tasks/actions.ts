@@ -6,6 +6,8 @@ import type { TaskSortMode } from './taskSort'
 
 const isDev = () => process.env.NODE_ENV !== 'production';
 
+type TaskStatus = 'to_do' | 'in_progress' | 'on_hold' | 'done'
+
 /**
  * Create a new task
  * MOCK DATA: Returns mock task data until tasks table is created in Supabase
@@ -51,6 +53,63 @@ export async function createTask(
   }
 
   return data;
+}
+
+interface ConvertRequestToTaskPayload {
+  connectionId: string
+  title: string
+  description: string
+  status: TaskStatus
+  projectId: string | null
+  assigneeUserId: string | null
+  dueDateRaw: string | null
+  clientVisible: boolean
+}
+
+export async function convertRequestToTask(
+  requestId: string,
+  payload: ConvertRequestToTaskPayload
+) {
+  const context = await getActiveContext()
+
+  if (!context?.user?.id || !context?.organization?.id) {
+    throw new Error('User not authenticated')
+  }
+
+  const supabase = await createClient()
+  const now = new Date().toISOString()
+
+  const insertPayload = {
+    connection_id: payload.connectionId,
+    title: payload.title,
+    description: payload.description ?? '',
+    status: payload.status,
+    project_id: payload.projectId,
+    assignee_user_id: payload.assigneeUserId,
+    due_date: payload.dueDateRaw,
+    client_visible: payload.clientVisible,
+    created_by_user_id: context.user.id,
+    created_at: now,
+    updated_at: now,
+    source_request_id: requestId,
+  }
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert(insertPayload)
+    .select('id')
+    .single()
+
+  if (error) {
+    if (isDev()) {
+      console.error('Failed to convert request to task:', error)
+    }
+    throw new Error('Failed to convert request to task')
+  }
+
+  return {
+    taskId: data.id,
+  }
 }
 
 /**
@@ -354,6 +413,11 @@ export async function fetchProjectsForConnection(connectionId: string) {
   const result = await getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
   // Return just the projects array with id and title
   return result.projects.map(p => ({ id: p.id, name: p.title }))
+}
+
+export async function fetchMembersForConnection(connectionId: string) {
+  const { getConnectionMembers } = await import('../server')
+  return await getConnectionMembers(connectionId)
 }
 
 /**
