@@ -80,10 +80,12 @@ export const getClientsSnapshot = cache(async (
   const supabase = await createClient();
   
   // Get connections for this agency with related organization and contact data
+  // RLS policy allows reading organizations through connections if user's org owns the connection
   const { data: connections, error } = await supabase
     .from('connections')
     .select(`
       id,
+      created_at,
       connection_status,
       engagement_status,
       health_status,
@@ -93,7 +95,8 @@ export const getClientsSnapshot = cache(async (
       organizations!connections_client_id_fkey (
         id,
         name,
-        logo_url
+        logo_url,
+        is_draft
       )
     `)
     .eq('agency_id', context.orgId)
@@ -189,6 +192,7 @@ export const getClientsSnapshot = cache(async (
     
     return {
       id: conn.id,
+      createdAt: conn.created_at || undefined,
       name: org?.name || 'Unknown Client',
       logo: org?.logo_url,
       status: (conn.connection_status as "draft" | "onboarding" | "active" | "offboarded") || 'draft', // Used for connection badge color

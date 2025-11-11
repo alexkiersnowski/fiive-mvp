@@ -32,10 +32,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
-  // MVP: read assigned filter synchronously from URL before first fetch
-  const initiallyAssigned = (() => {
-    try { return searchParams.get('assigned') === 'me' } catch { return false }
-  })()
   
   // MVP: read sort filter synchronously from URL before first fetch
   const initialSort = (() => {
@@ -43,7 +39,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       const sortParam = searchParams.get('sort')
       // Validate sort value against allowed values
       const validSorts = ['newest_first', 'project_asc', 'project_desc', 'end_date_asc']
-      return validSorts.includes(sortParam || '') ? sortParam : 'newest_first'
+      return sortParam && validSorts.includes(sortParam) ? sortParam : 'newest_first'
     } catch { return 'newest_first' }
   })()
   
@@ -53,11 +49,11 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   const currentOrgId = context.organization.id;
 
   // Local state for projects (for optimistic updates)
-  const [projects, setProjects] = useState<Project[]>(initiallyAssigned ? [] : initialProjects)
+  const [projects, setProjects] = useState<Project[]>(initialProjects)
   // Optimistic new projects disabled (relying on real-time updates)
   
   // Total count state (filtered)
-  const [totalCount, setTotalCount] = useState<number>(initiallyAssigned ? 0 : initialTotalCount)
+  const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
   
   // Unfiltered total count state (total projects for connection regardless of filters)
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState<number>(initialTotalCount)
@@ -65,17 +61,15 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
-  const [assignedToMe, setAssignedToMe] = useState<boolean>(initiallyAssigned)
-  
   // Sort state
   const [sort, setSort] = useState<string>(initialSort)
   
   // Pagination state
-  const [hasMore, setHasMore] = useState(initiallyAssigned ? true : initialProjects.length === PAGE_SIZE)
+  const [hasMore, setHasMore] = useState(initialProjects.length === PAGE_SIZE)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const parentRef = useRef<HTMLDivElement>(null)
-  // Buffer initial empty render with skeleton when assigned=me
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
+  // Buffer initial empty render
+  const isBootstrapping = false
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -102,28 +96,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   // Comments map keyed by projectId for instant lookup
   const [commentsByProject, setCommentsByProject] = useState<Record<string, Comment[]>>({})
   
-  // Fetch unfiltered total count on mount
-  useEffect(() => {
-    const fetchUnfilteredCount = async () => {
-      try {
-        const result = await fetchProjectsForConnection(connectionId, {
-          limit: 1, // We only need the count, not the data
-          offset: 0,
-          sort: sort
-          // No filters - this gives us the total count for the connection
-        })
-        if (!isMountedRef.current) return
-        setUnfilteredTotalCount(result.totalCount)
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch unfiltered count:', error)
-        }
-      }
-    }
-    fetchUnfilteredCount()
-  }, [connectionId, sort])
-
   // Update isEmpty in context when unfilteredTotalCount changes
+  // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
   useEffect(() => {
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
   }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
@@ -135,8 +109,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         limit: PAGE_SIZE,
         offset: 0,
         searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
         sort: sort
       })
       if (!isMountedRef.current) return
@@ -152,7 +124,18 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     } catch (_) {
       // ignore
     }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, sort, startTransition])
+  }, [connectionId, debouncedSearchQuery, sort, startTransition])
+
+  // Helper to check if a project matches current search criteria
+  const matchesSearchCriteria = useCallback((project: Project): boolean => {
+    if (!debouncedSearchQuery) return true
+    
+    const query = debouncedSearchQuery.toLowerCase().trim()
+    const matchesTitle = project.title.toLowerCase().includes(query)
+    const matchesDescription = project.description?.toLowerCase().includes(query) || false
+    
+    return matchesTitle || matchesDescription
+  }, [debouncedSearchQuery])
 
   // DRY: prepend unique project by id
   const prependUnique = useCallback((project: Project) => {
@@ -230,32 +213,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   // Track if this is the initial mount
   const isInitialMount = useRef(true)
 
-  // One-time: fetch filtered results immediately on mount if assigned=me
-  useEffect(() => {
-    if (initiallyAssigned) {
-      (async () => {
-        try {
-          const result = await fetchProjectsForConnection(connectionId, {
-            limit: PAGE_SIZE,
-            offset: 0,
-            searchQuery: debouncedSearchQuery || undefined,
-            assignedToUserId: context.variant === 'agency' ? context.user?.id : undefined,
-            createdByUserId: context.variant === 'client' ? context.user?.id : undefined,
-            sort: sort
-          })
-          if (!isMountedRef.current) return
-          setProjects(result.projects)
-          setTotalCount(result.totalCount)
-          setHasMore(result.projects.length === PAGE_SIZE)
-          setCurrentOffset(PAGE_SIZE)
-        } finally {
-          setIsBootstrapping(false)
-        }
-      })()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // Reset pagination and fetch new results when debounced search query changes
   useEffect(() => {
     // Skip on initial mount if there's no search query (we already have initialProjects)
@@ -279,8 +236,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           limit: PAGE_SIZE,
           offset: 0,
           searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
           sort: sort
         })
 
@@ -307,7 +262,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     }
 
     fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, sort, startTransition])
+  }, [debouncedSearchQuery, connectionId, sort, startTransition])
   
   // Prefetch next batch of projects with timeout protection
   const prefetchNext = useCallback(async (offset: number) => {
@@ -364,8 +319,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         limit: PAGE_SIZE, 
         offset,
         searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
         sort: sort
       })
       
@@ -411,7 +364,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       }
       inFlightProjects.current.delete(offset)
     }
-  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id, sort])
+  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, sort])
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {
@@ -422,17 +375,19 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'projects', filter: `connection_id=eq.${connectionId}` },
         async (payload: any) => {
-          // If a search is active, simplest is to refetch first page for correctness
-          if (debouncedSearchQuery) {
-            await refreshFirstPage()
-            return
-          }
-          // Otherwise, fetch just the inserted row and prepend if unique
           const newId = payload?.new?.id
           if (!newId) return
           try {
             const proj = await fetchProjectById(connectionId, newId)
             if (!proj) return
+            
+            // If search is active, only add if it matches search criteria
+            if (debouncedSearchQuery && !matchesSearchCriteria(proj)) {
+              // Still update unfiltered count but don't add to visible list
+              setUnfilteredTotalCount(c => c + 1)
+              return
+            }
+            
             prependUnique(proj)
             setTotalCount(c => c + 1)
             setUnfilteredTotalCount(c => c + 1)
@@ -446,13 +401,9 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'projects', filter: `connection_id=eq.${connectionId}` },
         async (payload: any) => {
-          // If a search is active, refetch first page for correctness
-          if (debouncedSearchQuery) {
-            await refreshFirstPage()
-            return
-          }
           const updated = payload?.new
           if (!updated) return
+          
           // Handle soft delete locally
           if (updated.deleted_at) {
             const wasRemoved = removeById(updated.id)
@@ -462,11 +413,36 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
             }
             return
           }
-          // For non-delete updates, we can refresh or fetch single row; keep it simple: fetch single row and merge
+          
+          // For non-delete updates, fetch single row and merge
           try {
             const proj = await fetchProjectById(connectionId, updated.id)
             if (!proj) return
-            setProjects(prev => prev.map(p => (p.id === proj.id ? proj : p)))
+            
+            // If search is active, check if project matches search criteria
+            if (debouncedSearchQuery) {
+              const matches = matchesSearchCriteria(proj)
+              const isCurrentlyVisible = projects.some(p => p.id === proj.id)
+              
+              if (matches && !isCurrentlyVisible) {
+                // Matches search but not currently visible - add it
+                prependUnique(proj)
+                setTotalCount(c => c + 1)
+              } else if (!matches && isCurrentlyVisible) {
+                // No longer matches search - remove it
+                const wasRemoved = removeById(proj.id)
+                if (wasRemoved) {
+                  setTotalCount(c => Math.max(0, c - 1))
+                }
+              } else if (matches && isCurrentlyVisible) {
+                // Matches and is visible - update it
+                setProjects(prev => prev.map(p => (p.id === proj.id ? proj : p)))
+              }
+              // If doesn't match and not visible, do nothing
+            } else {
+              // No search active - update normally
+              setProjects(prev => prev.map(p => (p.id === proj.id ? proj : p)))
+            }
           } catch (_) {
             await refreshFirstPage()
           }
@@ -477,7 +453,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById])
+  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById, matchesSearchCriteria, projects])
 
   // Load more projects function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
@@ -576,8 +552,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         limit: PAGE_SIZE, 
         offset: currentOffset,
         searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+        sort
       })
       
       // Only update state if component is still mounted
@@ -631,56 +606,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       isLoadingMore.current = false
       inFlightProjects.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedProjects, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, sort])
-
-  // Toggle handler and URL sync for Assigned to me
-  const handleToggleAssignedToMe = useCallback(() => {
-    const next = !assignedToMe
-    setAssignedToMe(next)
-    // Update URL
-    const newSearchParams = new URLSearchParams(searchParams.toString())
-    if (next) newSearchParams.set('assigned', 'me')
-    else newSearchParams.delete('assigned')
-    const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
-    router.replace(newUrl, { scroll: false })
-    
-    // Cancel all in-flight projects
-    inFlightProjects.current.clear()
-    isLoadingMore.current = false
-    // Clear all prefetch timeouts
-    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-    prefetchTimeouts.current.clear()
-    
-    // Fetch new results (keep previous results visible during fetch, like search)
-    const fetchFilteredResults = async () => {
-      try {
-        const result = await fetchProjectsForConnection(connectionId, {
-          limit: PAGE_SIZE,
-          offset: 0,
-          searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: next && context.variant === 'agency' ? context.user?.id : undefined,
-          createdByUserId: next && context.variant === 'client' ? context.user?.id : undefined,
-          sort: sort
-        })
-        if (!isMountedRef.current) return
-        setProjects(result.projects)
-        setTotalCount(result.totalCount)
-        setHasMore(result.projects.length === PAGE_SIZE)
-        setCurrentOffset(PAGE_SIZE)
-        setPrefetchedProjects([])
-        setPrefetchedOffset(null)
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch filtered results:', error)
-        }
-        if (isMountedRef.current) {
-          setHasMore(false)
-        }
-      }
-    }
-    
-    fetchFilteredResults()
-  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id, context.variant, sort])
+  }, [connectionId, hasMore, currentOffset, prefetchedProjects, prefetchedOffset, prefetchNext, debouncedSearchQuery, sort])
 
   // Sort change handler and URL sync
   const handleSortChange = useCallback((newSort: string) => {
@@ -709,8 +635,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           limit: PAGE_SIZE,
           offset: 0,
           searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
           sort: newSort
         })
         if (!isMountedRef.current) return
@@ -731,7 +655,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     }
     
     fetchSortedResults()
-  }, [searchParams, pathname, router, connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant])
+  }, [searchParams, pathname, router, connectionId, debouncedSearchQuery, context.variant])
 
   // Prefetch next batch when initial projects load or after consuming prefetched data
   useEffect(() => {
@@ -1033,13 +957,11 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         agencyMembers={agencyMembers}
         onProjectUpdate={handleProjectUpdate}
         currentOrgId={currentOrgId}
-          onLoadMore={handleLoadMore}
+        onLoadMore={handleLoadMore}
         onSearchChange={setSearchQuery}
         totalCount={totalCount}
         unfilteredTotalCount={unfilteredTotalCount}
-          parentRef={parentRef}
-        assignedToMe={assignedToMe}
-        onToggleAssignedToMe={handleToggleAssignedToMe}
+        parentRef={parentRef}
         isBootstrapping={isBootstrapping}
         isAgency={context.variant === 'agency'}
         agencyOrganization={context.variant === 'client' ? {

@@ -457,7 +457,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
               if (task.detail.clientVisible) {
                 return (
                   <Eye
-                    size={16}
+                    size={14}
                     weight="fill"
                     style={{ color: "var(--color-neutral-11)" }}
                   />
@@ -465,9 +465,9 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
               }
               return (
                 <EyeSlash
-                  size={16}
+                  size={14}
                   weight="fill"
-                  style={{ color: "var(--color-neutral-11)" }}
+                  style={{ color: "var(--color-neutral-11)", opacity: 0.5 }}
                 />
               );
             })();

@@ -271,7 +271,7 @@ export async function fetchCommentsForRequests(requestIds: string[]) {
  */
 export async function fetchProjectsForConnection(connectionId: string) {
   const { getProjectsForConnection } = await import('../server')
-  const result = await getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
+  const result = await getProjectsForConnection(connectionId, { limit: 2000, offset: 0 })
   // Return just the projects array with id and title
   return result.projects.map(p => ({ id: p.id, name: p.title }))
 }

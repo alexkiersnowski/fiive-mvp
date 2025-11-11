@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { RequestBadge } from '@/components/ui/request-badge'
@@ -17,6 +17,8 @@ import { CommentInput } from '@/components/ui/comment-input'
 import { CommentItem } from '@/components/ui/comment-item'
 import Link from 'next/link'
 import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee, updateRequestProject, deleteRequest, createComment, deleteComment, fetchCommentsForRequest, fetchProjectsForConnection } from './actions'
+import { ConvertToTaskModal, type ConvertToTaskModalProps, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
+import { convertRequestToTask } from '../tasks/actions'
 import { toast } from 'sonner'
 
 interface Comment {
@@ -89,9 +91,46 @@ interface RequestDetailContentProps {
   }
   initialComments?: Comment[]
   onCommentsUpdate?: (comments: Comment[]) => void
+  onConvertToTask?: (request: {
+    requestId: string
+    title: string
+    description: string
+    client?: {
+      id: string
+      name: string
+      logoUrl?: string
+    }
+    agency?: {
+      id: string
+      name: string
+      logoUrl?: string
+    }
+    submittedBy?: {
+      id: string
+      name: string
+      email: string
+      avatarUrl?: string
+    }
+    assignee?: {
+      id: string
+      name: string
+      email: string
+      avatarUrl?: string
+    } | null
+    project?: {
+      id: string
+      name: string
+    } | null
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+    createdAt?: string
+    createdByOrgId?: string
+    createdByOrgType?: 'agency' | 'client'
+  }) => void
 }
 
-export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: RequestDetailContentProps) {
+type ConvertRequest = NonNullable<ConvertToTaskModalProps['request']>
+
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -181,7 +220,136 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>(initialProjects)
   
   const [comments, setComments] = useState<Comment[]>(initialComments)
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
+  const [convertRequest, setConvertRequest] = useState<ConvertRequest | null>(null)
   
+  const openInternalConvertModal = useCallback(() => {
+    if (!connectionId) {
+      toast.error('Unable to convert request: missing connection context')
+      return
+    }
+
+    const payload: ConvertRequest = {
+      requestId,
+      title: titleValue,
+      description: descriptionValue,
+      client,
+      agency,
+      submittedBy: submittedBy
+        ? {
+            id: submittedBy.id,
+            name: submittedBy.name,
+            email: submittedBy.email,
+            avatarUrl: submittedBy.avatarUrl,
+          }
+        : undefined,
+      assignee: assigneeValue
+        ? {
+            id: assigneeValue.id,
+            name: assigneeValue.name,
+            email: assigneeValue.email,
+            avatarUrl: assigneeValue.avatarUrl,
+          }
+        : null,
+      project: requestProject ? { id: requestProject.id, name: requestProject.name } : null,
+      createdAt,
+      createdByOrgId,
+      createdByOrgType,
+    }
+
+    setConvertRequest(payload)
+    setIsConvertModalOpen(true)
+  }, [
+    agency,
+    assigneeValue,
+    client,
+    createdAt,
+    createdByOrgId,
+    createdByOrgType,
+    descriptionValue,
+    requestId,
+    requestProject,
+    submittedBy,
+    titleValue,
+    connectionId,
+  ])
+
+  const closeInternalConvertModal = useCallback(() => {
+    setIsConvertModalOpen(false)
+    setTimeout(() => setConvertRequest(null), 250)
+  }, [])
+
+  const handleInternalConvertSubmit = useCallback(async (values: ConvertToTaskModalValues) => {
+    if (!connectionId) {
+      toast.error('Unable to convert request: missing connection context')
+      return
+    }
+
+    try {
+      await convertRequestToTask(values.requestId, {
+        connectionId,
+        title: values.title,
+        description: values.description,
+        status: values.status,
+        projectId: values.project?.id ?? null,
+        assigneeUserId: values.assignee?.id ?? null,
+        dueDateRaw: values.dueDateRaw,
+        clientVisible: values.clientVisible,
+      })
+
+      toast.success('Task created from request')
+      setStatusValue('accepted')
+      onRequestUpdate?.(requestId, { status: 'accepted' })
+      closeInternalConvertModal()
+      // Real-time subscription will handle UI updates
+    } catch (error) {
+      console.error('Failed to convert request to task:', error)
+      toast.error('Failed to convert request')
+    }
+  }, [closeInternalConvertModal, connectionId, onRequestUpdate, requestId, router])
+
+  const handleConvertClick = useCallback(() => {
+    setIsActionsDropdownOpen(false)
+    if (variant !== 'agency') return
+
+    const payload = {
+      requestId,
+      title: titleValue,
+      description: descriptionValue,
+      client,
+      agency,
+      submittedBy,
+      assignee: assigneeValue,
+      project: requestProject,
+      status: statusValue,
+      createdAt,
+      createdByOrgId,
+      createdByOrgType,
+    }
+
+    if (onConvertToTask) {
+      onConvertToTask(payload)
+    } else {
+      openInternalConvertModal()
+    }
+  }, [
+    agency,
+    assigneeValue,
+    client,
+    createdAt,
+    createdByOrgId,
+    createdByOrgType,
+    descriptionValue,
+    onConvertToTask,
+    openInternalConvertModal,
+    requestId,
+    requestProject,
+    statusValue,
+    submittedBy,
+    titleValue,
+    variant,
+  ])
+
   // Initialize projects list with current project if available (to prevent flicker)
   // and merge with initial projects from props
   useEffect(() => {
@@ -416,7 +584,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     
     try {
       await updateRequestTitle(requestId, trimmedValue)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update title:', error)
       // Revert optimistic update on error
@@ -442,7 +610,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     
     try {
       await updateRequestDescription(requestId, value)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update description:', error)
       // Revert optimistic update on error
@@ -468,7 +636,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     
     try {
       await updateRequestProject(requestId, projectId === 'general' ? null : projectId)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update request project:', error)
       toast.error('Failed to update request project')
@@ -504,7 +672,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
         canceled: 'Canceled'
       }
       toast.success(`Status updated to ${statusLabels[validStatus]}`)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update status:', error)
       toast.error('Failed to update status')
@@ -538,7 +706,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       try {
         await updateRequestAssignee(requestId, memberId)
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
-        router.refresh() // Refresh to get updated data from server
+        // Real-time subscription will handle UI updates
       } catch (error) {
         console.error('Failed to update assignee:', error)
         toast.error('Failed to update assignee')
@@ -564,7 +732,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     try {
       await updateRequestAssignee(requestId, null)
       toast.success('Assignee removed')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to clear assignee:', error)
       toast.error('Failed to clear assignee')
@@ -584,7 +752,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   ]
 
   return (
-    <div className="flex flex-col gap-4 flex-1 min-h-0">
+    <>
+      <div className="flex flex-col gap-4 flex-1 min-h-0">
       {/* Breadcrumbs and Actions - only shown in page mode */}
       {mode === 'page' && (
         <>
@@ -663,7 +832,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[200px]">
               {variant === 'agency' && (
-                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                <DropdownMenuItem onClick={handleConvertClick}>
                   <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Convert to task
                 </DropdownMenuItem>
@@ -941,6 +1110,19 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       </div>
       </div>
     </div>
+      {!onConvertToTask && connectionId && (
+        <ConvertToTaskModal
+          isOpen={isConvertModalOpen}
+          onClose={closeInternalConvertModal}
+          onSubmit={handleInternalConvertSubmit}
+          connectionId={connectionId}
+          variant={variant}
+          request={convertRequest}
+          agencyMembers={agencyMembers}
+          projects={projects}
+        />
+      )}
+    </>
   )
 }
 

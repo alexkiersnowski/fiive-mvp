@@ -11,9 +11,10 @@ interface OverviewPageProps {
   requestsCard: ReactNode;
   tasksCard: ReactNode;
   projectsCard: ReactNode;
+  resourcesCard: ReactNode;
 }
 
-export function OverviewPage({ requestsCard, tasksCard, projectsCard }: OverviewPageProps) {
+export function OverviewPage({ requestsCard, tasksCard, projectsCard, resourcesCard }: OverviewPageProps) {
   const { snapshot, context } = useConnection();
 
   return (
@@ -42,7 +43,7 @@ export function OverviewPage({ requestsCard, tasksCard, projectsCard }: Overview
           {projectsCard}
         </div>
         <div className="col-span-1">
-          <ResourcesCard snapshot={snapshot} context={context} />
+          {resourcesCard}
         </div>
       </div>
     </div>

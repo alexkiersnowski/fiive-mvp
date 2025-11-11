@@ -271,7 +271,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     
     try {
       await updateProjectTitle(projectId, trimmedValue)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update title:', error)
       // Revert optimistic update on error
@@ -297,7 +297,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     
     try {
       await updateProjectDescription(projectId, value)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update description:', error)
       // Revert optimistic update on error
@@ -338,7 +338,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
         canceled: 'Canceled'
       }
       toast.success(`Status updated to ${statusLabels[validStatus]}`)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update status:', error)
       toast.error('Failed to update status')
@@ -372,7 +372,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       try {
         await updateProjectAssignee(projectId, memberId)
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
-        router.refresh() // Refresh to get updated data from server
+        // Real-time subscription will handle UI updates
       } catch (error) {
         console.error('Failed to update assignee:', error)
         toast.error('Failed to update assignee')
@@ -398,7 +398,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     try {
       await updateProjectAssignee(projectId, null)
       toast.success('Assignee removed')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to clear assignee:', error)
       toast.error('Failed to clear assignee')
@@ -439,7 +439,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       })() : null
       
       await updateProjectStartDate(projectId, dateStr)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update start date:', error)
       // Revert optimistic update on error
@@ -479,7 +479,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       })() : null
       
       await updateProjectEndDate(projectId, dateStr)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update end date:', error)
       // Revert optimistic update on error

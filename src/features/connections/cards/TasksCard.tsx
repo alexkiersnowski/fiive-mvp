@@ -9,9 +9,15 @@ import {
 import type { MemberSummary } from '../utils/memberSorting';
 import TasksCardClient from './TasksCardClient';
 
+type ProjectOption = {
+  id: string;
+  name: string;
+};
+
 interface TasksCardProps {
   connectionId: string;
   fetchTasks?: (connectionId: string) => Promise<Task[]>;
+  projects?: ProjectOption[]; // Optional: if provided, skip fetching projects
 }
 
 async function defaultFetchTasks(connectionId: string) {
@@ -75,14 +81,10 @@ type PrefetchedTask = {
   comments: PrefetchedComment[];
 };
 
-type ProjectOption = {
-  id: string;
-  name: string;
-};
-
 export default async function TasksCard({
   connectionId,
   fetchTasks = defaultFetchTasks,
+  projects: providedProjects,
 }: TasksCardProps) {
   const tasks = await fetchTasks(connectionId);
   const taskIds = tasks.map((task) => task.id);
@@ -91,9 +93,14 @@ export default async function TasksCard({
     ? getCommentsForTasks(taskIds)
     : Promise.resolve({});
 
+  // Fetch projects only if not provided (optimization: share projects across cards)
+  const projectsPromise = providedProjects 
+    ? Promise.resolve({ projects: providedProjects.map(p => ({ id: p.id, title: p.name, requestsCount: 0, tasksCount: 0 } as any)), totalCount: providedProjects.length })
+    : getProjectsForConnection(connectionId, { limit: 1000, offset: 0 });
+
   const [commentsRecord, projectsResult, memberData] = await Promise.all([
     commentsPromise,
-    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 }),
+    projectsPromise,
     getConnectionMembers(connectionId),
   ]);
 

@@ -26,6 +26,7 @@ export interface EnhancedModeContext extends ModeContext {
     currencyCode?: string;
     connectionCode?: string;
     ownerId: string;
+    is_draft?: boolean; // Included for validation - should always be false for active contexts
   };
   currentUserRole: 'owner' | 'member';
 }
@@ -60,6 +61,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       
       // Query 2: Membership WITH joined organization data AND member count in a single query
       // This uses Supabase's aggregate functions to get the count without a separate query
+      // CRITICAL: Filter out draft organizations - they cannot be active contexts
       supabase
         .from('memberships')
         .select(`
@@ -69,10 +71,11 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
           organizations!memberships_org_id_fkey (
             id, name, type, industry, logo_url, 
             website, description, currency_code, 
-            connection_code, owner_id
+            connection_code, owner_id, is_draft
           )
         `)
         .eq('user_id', user.id)
+        .is('organizations.is_draft', false)
         .single()
     ]);
     
@@ -119,11 +122,13 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       }
     } else {
       // Fallback: try as owner (for cases where membership might not exist)
+      // CRITICAL: Filter out draft organizations - they cannot be active contexts
       const fallbackStartTime = performance.now();
       const { data: ownerOrg, error: ownerError } = await supabase
         .from('organizations')
-        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id')
+        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id, is_draft')
         .eq('owner_id', user.id)
+        .is('is_draft', false)
         .single();
       
       console.log(`[Performance] Owner fallback query: ${(performance.now() - fallbackStartTime).toFixed(2)}ms`);
@@ -145,6 +150,35 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
 
     if (!profile || !organization || !membership) {
       console.error('Missing required data:', { profile: !!profile, organization: !!organization, membership: !!membership });
+      return null;
+    }
+
+    // CRITICAL: Runtime guard - reject draft organizations as active contexts
+    // Draft orgs are only visible through connection views, never as logged-in contexts
+    if (organization.is_draft === true) {
+      const errorMessage = `SECURITY VIOLATION: Attempted to use draft organization as active context. Org ID: ${organization.id}, User ID: ${user.id}, Org Name: ${organization.name}`;
+      console.error(errorMessage);
+      
+      // Log to Sentry if available (works in both server and client contexts)
+      try {
+        // Try dynamic import for Sentry (works in server-side Next.js)
+        const Sentry = await import('@sentry/nextjs').catch(() => null);
+        if (Sentry) {
+          Sentry.captureException(new Error(errorMessage), {
+            tags: { type: 'draft_org_context_violation' },
+            extra: { 
+              orgId: organization.id, 
+              userId: user.id, 
+              orgName: organization.name,
+              orgType: organization.type
+            }
+          });
+        }
+      } catch (sentryError) {
+        // Sentry not available or failed to import - continue with console logging
+        console.error('Failed to log to Sentry:', sentryError);
+      }
+      
       return null;
     }
 
@@ -185,7 +219,8 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         description: organization.description || undefined,
         currencyCode: organization.currency_code || undefined,
         connectionCode: organization.connection_code || undefined,
-        ownerId: organization.owner_id
+        ownerId: organization.owner_id,
+        is_draft: organization.is_draft || false // Should always be false for active contexts
       },
       currentUserRole: (isOwner ? 'owner' : 'member') as 'owner' | 'member'
     };

@@ -10,14 +10,16 @@ interface TasksPageProps {
 
 // Server component that fetches data from Supabase
 export async function TasksPage({ connectionId }: TasksPageProps) {
-  const [tasksData, memberData, projectsData] = await Promise.all([
-    getTasksForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
-    getConnectionMembers(connectionId),
-    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
-  ]);
-
+  // Fetch tasks first to get taskIds for comments
+  const tasksData = await getTasksForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 });
   const taskIds = tasksData.tasks.map(task => task.id);
-  const commentsRecord = taskIds.length > 0 ? await getCommentsForTasks(taskIds) : {};
+  
+  // Fetch members, projects, and comments in parallel
+  const [memberData, projectsData, commentsRecord] = await Promise.all([
+    getConnectionMembers(connectionId),
+    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 }),
+    taskIds.length > 0 ? getCommentsForTasks(taskIds) : Promise.resolve({})
+  ]);
   const serializedComments = Object.fromEntries(
     Object.entries(commentsRecord).map(([taskId, commentList]) => [
       taskId,

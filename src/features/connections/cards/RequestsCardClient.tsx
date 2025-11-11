@@ -259,7 +259,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       toast.success('Task created from request');
       handleConvertModalClose();
       handleRequestUpdate(requestId, { status: 'accepted' });
-      router.refresh();
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to convert request to task:', error);

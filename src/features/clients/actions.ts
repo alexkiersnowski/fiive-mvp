@@ -8,55 +8,71 @@ import type { ConnectionResult, NewClientResult, ClientsSnapshot } from './types
 import { getClientsSnapshot } from './server';
 
 /**
- * Creates a new client organization and establishes connection
- * Used when an agency adds a client who is NOT on Fiive yet
- * 
- * Database implementation will:
- * 1. Create new organization record for the client (type: 'client')
- * 2. Generate a unique connection_code for the new client
- * 3. Create connection record linking agency org to client org
- * 4. Set up default workspace/permissions
- * 
- * TODO: Implement when "Add new client" flow is ready
+ * Creates a draft client organization and linked connection for an agency member.
+ * Delegates the transactional work to the `create_draft_client_connection` RPC.
  */
 export async function createNewClient(
   clientName: string,
   context: EnhancedModeContext
 ): Promise<NewClientResult> {
   try {
-    // TODO: Implement when database is ready
-    console.log('Creating new client:', { clientName, context });
-    
-    // Mock success response for now
-    await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-    
+    const trimmedName = clientName.trim();
+
+    if (!trimmedName) {
+      return {
+        success: false,
+        error: 'Client name is required',
+      };
+    }
+
+    if (trimmedName.length > 255) {
+      return {
+        success: false,
+        error: 'Client name must be 255 characters or fewer',
+      };
+    }
+
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .rpc('create_draft_client_connection', {
+        p_agency_id: context.orgId,
+        // Always assign the draft client to the agency owner so ownership stays with the org
+        p_owner_id: context.organization.ownerId ?? context.userId,
+        p_client_name: trimmedName,
+      })
+      .single();
+
+    if (error || !data) {
+      console.error('Error creating draft client connection:', {
+        error,
+        data,
+        input: { agencyId: context.orgId, ownerId: context.userId, clientName: trimmedName },
+      });
+
+      const message =
+        (error && ('message' in error ? error.message : undefined)) ||
+        (error && ('details' in error ? (error as { details?: string }).details : undefined)) ||
+        (error && ('hint' in error ? (error as { hint?: string }).hint : undefined)) ||
+        'Failed to create client. Please try again.';
+
+      return {
+        success: false,
+        error: message,
+      };
+    }
+
+    revalidatePath('/clients');
+
     return {
       success: true,
-      clientId: `client-${Date.now()}`,
-      clientName: clientName
+      data,
     };
-    
-    // Real implementation will look like:
-    // const newOrg = await db.organizations.create({
-    //   name: clientName,
-    //   type: 'client',
-    //   createdBy: context.userId
-    // });
-    //
-    // const connection = await db.connections.create({
-    //   agencyOrgId: context.organizationId,
-    //   clientOrgId: newOrg.id,
-    //   status: 'active',
-    //   createdBy: context.userId
-    // });
-    //
-    // revalidatePath('/clients');
-    // return { success: true, clientId: newOrg.id, clientName: newOrg.name };
   } catch (error) {
     console.error('Error creating client:', error);
     return {
       success: false,
-      error: 'Failed to create client. Please try again.'
+      error: error instanceof Error ? error.message : 'Failed to create client. Please try again.'
     };
   }
 }

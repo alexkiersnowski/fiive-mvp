@@ -1,4 +1,5 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
+import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
 import { getClientsSnapshot } from '@/features/clients/server';
 import { ClientsContent } from './ClientsContent';
@@ -15,7 +16,14 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
   
   const context = await getActiveContext();
   
-  if (!context || !context.capabilities.canSeeClients) {
+  // CRITICAL: Validate context and ensure user is an agency (only agencies can see clients)
+  if (!context || !validateOrgContext(context) || !context.capabilities.canSeeClients) {
+    notFound();
+  }
+  
+  // Additional safety check: agencies should not access this if variant is wrong
+  if (context.variant !== 'agency') {
+    console.error(`SECURITY VIOLATION: Non-agency user attempted to access /clients route. Variant: ${context.variant}, User ID: ${context.userId}`);
     notFound();
   }
 

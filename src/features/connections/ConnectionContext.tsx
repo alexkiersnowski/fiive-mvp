@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, Dispatch, SetStateAction } from 'react';
+import { createContext, useContext, useState, useEffect, Dispatch, SetStateAction } from 'react';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 
@@ -22,6 +22,14 @@ export function ConnectionProvider({
 }: { snapshot: ConnectionSnapshot; context: EnhancedModeContext; children: React.ReactNode }) {
   const [isEmpty, setIsEmpty] = useState(false);
   const [newRequestsCount, setNewRequestsCount] = useState(snapshot.newRequestsCount);
+  
+  // Sync newRequestsCount with snapshot when it changes (e.g., on navigation)
+  // Always sync from snapshot on mount and when snapshot changes
+  useEffect(() => {
+    if (snapshot.newRequestsCount !== undefined) {
+      setNewRequestsCount(snapshot.newRequestsCount);
+    }
+  }, [snapshot.newRequestsCount]);
   
   return (
     <ConnectionContext.Provider value={{ snapshot, context, isEmpty, setIsEmpty, newRequestsCount, setNewRequestsCount }}>

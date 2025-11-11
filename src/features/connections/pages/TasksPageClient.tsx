@@ -165,28 +165,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     setTasks(prev => sortTasksWithMode(prev))
   }, [sortTasksWithMode])
   
-  // Fetch unfiltered total count on mount
-  useEffect(() => {
-    const fetchUnfilteredCount = async () => {
-      try {
-        const result = await fetchTasksForConnection(connectionId, {
-          limit: 1, // We only need the count, not the data
-          offset: 0,
-          sortMode
-          // No filters - this gives us the total count for the connection
-        })
-        if (!isMountedRef.current) return
-        setUnfilteredTotalCount(result.totalCount)
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch unfiltered count:', error)
-        }
-      }
-    }
-    fetchUnfilteredCount()
-  }, [connectionId])
-
   // Update isEmpty in context when unfilteredTotalCount changes
+  // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
   useEffect(() => {
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
   }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
@@ -216,6 +196,24 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       // ignore
     }
   }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, startTransition, sortTasksWithMode, clientTeamMemberIds])
+
+  // Helper to check if a task matches current search criteria
+  const matchesSearchCriteria = useCallback((task: Task): boolean => {
+    if (!debouncedSearchQuery) return true
+    
+    const query = debouncedSearchQuery.toLowerCase().trim()
+    const matchesTitle = task.title.toLowerCase().includes(query)
+    const matchesDescription = task.description?.toLowerCase().includes(query) || false
+    const matchesProject = task.project?.name.toLowerCase().includes(query) || false
+    const matchesStatus = task.status.toLowerCase().includes(query) || 
+                         (query === 'to do' && task.status === 'to_do') ||
+                         (query === 'todo' && task.status === 'to_do') ||
+                         (query.includes('progress') && task.status === 'in_progress') ||
+                         (query === 'on hold' && task.status === 'on_hold') ||
+                         (query === 'done' && task.status === 'done')
+    
+    return matchesTitle || matchesDescription || matchesProject || matchesStatus
+  }, [debouncedSearchQuery])
 
   // DRY: prepend unique task by id
   const prependUnique = useCallback((task: Task) => {
@@ -531,17 +529,19 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'tasks', filter: `connection_id=eq.${connectionId}` },
         async (payload: any) => {
-          // If a search is active, simplest is to refetch first page for correctness
-          if (debouncedSearchQuery) {
-            await refreshFirstPage()
-            return
-          }
-          // Otherwise, fetch just the inserted row and prepend if unique
           const newId = payload?.new?.id
           if (!newId) return
           try {
             const task = await fetchTaskById(connectionId, newId)
             if (!task) return
+            
+            // If search is active, only add if it matches search criteria
+            if (debouncedSearchQuery && !matchesSearchCriteria(task)) {
+              // Still update unfiltered count but don't add to visible list
+              setUnfilteredTotalCount(c => c + 1)
+              return
+            }
+            
             prependUnique(task)
             setTotalCount(c => c + 1)
             setUnfilteredTotalCount(c => c + 1)
@@ -555,13 +555,9 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tasks', filter: `connection_id=eq.${connectionId}` },
         async (payload: any) => {
-          // If a search is active, refetch first page for correctness
-          if (debouncedSearchQuery) {
-            await refreshFirstPage()
-            return
-          }
           const updated = payload?.new
           if (!updated) return
+          
           // Handle soft delete locally
           if (updated.deleted_at) {
             const wasRemoved = removeById(updated.id)
@@ -571,11 +567,13 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             }
             return
           }
-          // For non-delete updates, we can refresh or fetch single row; keep it simple: fetch single row and merge
+          
+          // For non-delete updates, fetch single row and merge
           try {
             const task = await fetchTaskById(connectionId, updated.id)
             if (!task) return
-            setTasks(prev => sortTasksWithMode(prev.map(r => (r.id === task.id ? task : r))))
+            
+            // Update selected task if it's the one being updated
             setSelectedTask(prev => {
               if (prev && prev.taskId === task.id) {
                 return {
@@ -596,6 +594,31 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
               }
               return prev
             })
+            
+            // If search is active, check if task matches search criteria
+            if (debouncedSearchQuery) {
+              const matches = matchesSearchCriteria(task)
+              const isCurrentlyVisible = tasks.some(t => t.id === task.id)
+              
+              if (matches && !isCurrentlyVisible) {
+                // Matches search but not currently visible - add it
+                prependUnique(task)
+                setTotalCount(c => c + 1)
+              } else if (!matches && isCurrentlyVisible) {
+                // No longer matches search - remove it
+                const wasRemoved = removeById(task.id)
+                if (wasRemoved) {
+                  setTotalCount(c => Math.max(0, c - 1))
+                }
+              } else if (matches && isCurrentlyVisible) {
+                // Matches and is visible - update it
+                setTasks(prev => sortTasksWithMode(prev.map(r => (r.id === task.id ? task : r))))
+              }
+              // If doesn't match and not visible, do nothing
+            } else {
+              // No search active - update normally
+              setTasks(prev => sortTasksWithMode(prev.map(r => (r.id === task.id ? task : r))))
+            }
           } catch (_) {
             await refreshFirstPage()
           }
@@ -606,7 +629,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById])
+  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById, matchesSearchCriteria, tasks, sortTasksWithMode])
 
   // Load more tasks function (uses prefetched data if available)
   const loadMore = useCallback(async () => {

@@ -8,6 +8,7 @@ import ProjectsCardClient from './ProjectsCardClient';
 interface ProjectsCardProps {
   connectionId: string;
   fetchProjects?: (connectionId: string) => Promise<Project[]>;
+  projects?: Project[]; // Optional: if provided, use these projects instead of fetching
 }
 
 async function defaultFetchProjects(connectionId: string) {
@@ -18,9 +19,15 @@ async function defaultFetchProjects(connectionId: string) {
 export default async function ProjectsCard({
   connectionId,
   fetchProjects = defaultFetchProjects,
+  projects: providedProjects,
 }: ProjectsCardProps) {
+  // Use provided projects if available, otherwise fetch (optimization: share projects across cards)
+  const projectsPromise = providedProjects 
+    ? Promise.resolve(providedProjects)
+    : fetchProjects(connectionId);
+
   const [projects, agencyMembers] = await Promise.all([
-    fetchProjects(connectionId),
+    projectsPromise,
     getAgencyMembersForConnection(connectionId),
   ]);
 

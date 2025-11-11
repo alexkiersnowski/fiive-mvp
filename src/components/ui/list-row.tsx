@@ -47,6 +47,7 @@ export interface ListRowProps {
     onClick?: () => void
     destructive?: boolean
   }>
+  iconButtonSize?: number
   
   // Layout
   variant?: "stacked" | "inline"
@@ -93,6 +94,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
     borderRadius = 'calc(var(--radius) - 2px)',
     className,
     onClick,
+    iconButtonSize = 32,
     ...props
   }, ref) => {
     const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
@@ -413,7 +415,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
                         ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]' 
                         : 'hover:bg-[var(--color-interactive-surface-hover)]'
                     }`}
-                    style={{ height: '32px', width: '32px' }}
+                    style={{ height: `${iconButtonSize}px`, width: `${iconButtonSize}px` }}
                   >
                     {getEndIcon()}
                   </Button>
@@ -435,7 +437,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
               <Button
                 variant="ghost"
                 className="p-0 cursor-pointer transition-colors duration-75 hover:bg-[var(--color-interactive-surface-hover)]"
-                style={{ height: '32px', width: '32px' }}
+                style={{ height: `${iconButtonSize}px`, width: `${iconButtonSize}px` }}
                 onClick={(e) => {
                   e.stopPropagation();
                   // Action button clicked

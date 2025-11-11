@@ -40,8 +40,6 @@ interface ProjectsTableProps {
   totalCount?: number
   unfilteredTotalCount?: number
   parentRef?: React.RefObject<HTMLDivElement | null>
-  assignedToMe?: boolean
-  onToggleAssignedToMe?: () => void
   isBootstrapping?: boolean
   isAgency?: boolean
   agencyOrganization?: {
@@ -54,7 +52,7 @@ interface ProjectsTableProps {
   onSortChange?: (sortValue: string) => void
 }
 
-export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
+export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
   
   const pathname = usePathname()
   const router = useRouter()
@@ -103,11 +101,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     };
   } | null>(null)
 
-  // Mock current user organization ID (in real app, this would come from context/auth)
-  const currentUserOrgId = 'client-org-1' // This should match the submitted by organization ID
-  const submittedByOrgId = 'client-org-1' // This should come from the actual request data
-  const canDeleteRequest = currentUserOrgId === submittedByOrgId
-  
   // Use total count from database, fallback to displayed projects count if not provided
   const projectCount = totalCount !== undefined ? totalCount : optimisticProjects.length
   
@@ -177,7 +170,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
       try {
         await updateProjectAssignee(projectId, memberId)
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
-        router.refresh() // Refresh to get updated data from server
+        // Real-time subscription will handle UI updates
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
           console.error('Failed to update assignee:', error)
@@ -223,7 +216,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     try {
       await updateProjectAssignee(projectId, null)
       toast.success('Assignee removed')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to clear assignee:', error)
@@ -286,7 +279,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
         canceled: 'Canceled'
       }
       toast.success(`Status updated to ${statusLabels[typedStatus]}`)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to update status:', error)
@@ -372,7 +365,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
         setOptimisticProjects(projects)
       })
       
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     }
   }
 

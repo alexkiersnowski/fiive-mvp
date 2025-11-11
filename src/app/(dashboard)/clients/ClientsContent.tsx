@@ -1,11 +1,9 @@
 'use client'
 
-import { useState, useTransition, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Plus, SortAscending, CaretDown, Check, Link } from '@phosphor-icons/react/ssr';
-import { SearchInput } from '@/components/ui/search-input';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Plus, Link } from '@phosphor-icons/react/ssr';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { RadioCards, RadioCard } from '@/components/ui/radio-cards';
 import { Form, FormControl, FormField, FormItem, FormMessage, FormLabel } from '@/components/ui/form';
@@ -13,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import { ClientsTable } from '@/features/clients/ClientsTable';
+import { ClientsHeader } from '@/features/clients/ClientsHeader';
 import { createNewClient, connectToExistingClient, refreshClientsData } from '@/features/clients/actions';
 import { 
   accountTypeSchema, 
@@ -42,6 +41,10 @@ export function ClientsContent({
   initialSortValue = 'newest-first' 
 }: ClientsContentProps) {
   const router = useRouter();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement | null>(null);
+  const headerWrapperRef = useRef<HTMLDivElement>(null);
+  const [headerOffset, setHeaderOffset] = useState(0);
   const [clients, setClients] = useState<Client[]>(snapshot.clients);
   const [totalCount, setTotalCount] = useState(snapshot.total);
   const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
@@ -49,8 +52,6 @@ export function ClientsContent({
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [sortValue, setSortValue] = useState(initialSortValue || 'newest-first');
   const [isLoading, setIsLoading] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
   const [isAddNewClientDialogOpen, setIsAddNewClientDialogOpen] = useState(false);
   const [isConnectToClientDialogOpen, setIsConnectToClientDialogOpen] = useState(false);
@@ -58,6 +59,7 @@ export function ClientsContent({
   const [connectedClientName, setConnectedClientName] = useState('');
   const [connectedClientLogo, setConnectedClientLogo] = useState<string | undefined>(undefined);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
 
   // Sync local state with server snapshot when props change
   useEffect(() => {
@@ -66,6 +68,28 @@ export function ClientsContent({
     setCursor(snapshot.cursor || null);
     setHasNextPage(snapshot.hasNextPage);
   }, [snapshot]);
+
+  // Locate the dashboard main scroll container
+  useEffect(() => {
+    if (!rootRef.current) return;
+    const scrollElement = rootRef.current.closest('main');
+    if (scrollElement instanceof HTMLElement) {
+      parentRef.current = scrollElement as HTMLDivElement;
+    }
+  }, []);
+
+  // Track header height for sticky table offset
+  useEffect(() => {
+    if (!headerWrapperRef.current) return;
+    const node = headerWrapperRef.current;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setHeaderOffset(entry.contentRect.height);
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const selectionForm = useForm<AccountTypeFormData>({
     resolver: zodResolver(accountTypeSchema),
@@ -104,25 +128,10 @@ export function ClientsContent({
     return sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Newest first';
   };
 
-  // Load more clients when scrolling near bottom
   const loadMore = useCallback(async () => {
     // TODO: Implement pagination with server actions
     console.log('Pagination not yet implemented for real data');
   }, []);
-
-  // Handle scroll to detect when to load more
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    // Store scroll values immediately to avoid null reference issues
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    
-    // Load more when user is 200px from bottom for smoother experience
-    const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100;
-    
-    if (isNearBottom && hasNextPage && !isLoading) {
-      loadMore();
-    }
-  }, [loadMore, hasNextPage, isLoading]);
-
 
   const handleSearchChange = (value: string) => {
     setSearchValue(value);
@@ -146,8 +155,19 @@ export function ClientsContent({
 
   const handleAddNewClientDialogClose = () => {
     setIsAddNewClientDialogOpen(false);
-    addNewClientForm.reset();
   };
+
+  useEffect(() => {
+    if (!isAddNewClientDialogOpen) {
+      const timeoutId = window.setTimeout(() => {
+        addNewClientForm.reset();
+      }, 250);
+
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+  }, [isAddNewClientDialogOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConnectToClientDialogClose = () => {
     setIsConnectToClientDialogOpen(false);
@@ -172,17 +192,67 @@ export function ClientsContent({
   };
 
   const handleAddNewClientSubmit = async (data: AddNewClientFormData) => {
-    const result = await createNewClient(data.clientName, context);
-    
-    if (result.success) {
-      handleAddNewClientDialogClose();
-      // Optionally: Show success toast or refresh the clients list
-      // TODO: Add toast notification when toast system is implemented
-    } else {
-      // Show error message in form
+    setIsCreatingClient(true);
+
+    try {
+      const result = await createNewClient(data.clientName, context);
+
+      if (result.success) {
+        const payload = result.data;
+
+        const unassignedAccountManager: Client['accountManager'] = {
+          id: '',
+          name: 'Unassigned',
+          firstName: '',
+          lastName: '',
+          email: '',
+          jobTitle: undefined,
+          avatar: undefined,
+          organization: {
+            id: context.organization.id,
+            name: context.organization.name,
+            logo_url: context.organization.logoUrl
+          }
+        };
+
+        const newClient: Client = {
+          id: payload.connection_id,
+          name: payload.client_name,
+          logo: payload.logo_url || undefined,
+          status: 'draft',
+          createdAt: payload.created_at,
+          accountManager: unassignedAccountManager,
+          contractEnd: undefined,
+          health: 'unassigned',
+          badge: payload.engagement_status ?? undefined
+        };
+
+        setClients(prev => [newClient, ...prev]);
+        setTotalCount(prev => prev + 1);
+
+        handleAddNewClientDialogClose();
+      } else {
+        addNewClientForm.setError('clientName', {
+          message: result.error || 'Failed to create client'
+        });
+      }
+    } catch (error) {
+      console.error('Failed to create client:', error);
       addNewClientForm.setError('clientName', {
-        message: result.error || 'Failed to create client'
+        message: 'Failed to create client. Please try again.'
       });
+
+      try {
+        const refreshedSnapshot = await refreshClientsData(context);
+        setClients(refreshedSnapshot.clients);
+        setTotalCount(refreshedSnapshot.total);
+        setCursor(refreshedSnapshot.cursor || null);
+        setHasNextPage(refreshedSnapshot.hasNextPage);
+      } catch (refreshError) {
+        console.error('Failed to refresh clients after error:', refreshError);
+      }
+    } finally {
+      setIsCreatingClient(false);
     }
   };
 
@@ -230,89 +300,38 @@ export function ClientsContent({
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ padding: '24px 16px 24px 32px' }}>
-      {/* Fixed Header Section */}
-      <div className="flex-shrink-0">
-      {/* Page Header */}
-      <div className="flex items-center justify-between w-full mb-5">
-        <div>
-            <h1 className="display-9-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
-            Clients
-          </h1>
-        </div>
-        <Button
-          variant="default"
-          size="lg"
-          className="cursor-pointer text-sm flex items-center gap-2"
-          onClick={handleAddClientClick}
-        >
-          <Plus size={16} />
-          Add client
-        </Button>
-      </div>
-      
-        <div className="flex items-center justify-between w-full mb-4">
-        <SearchInput 
-          placeholder="Search clients"
-            count={totalCount}
-            countLabel={totalCount === 1 ? "client" : "clients"}
-          value={searchValue}
-            onChange={handleSearchChange}
-        />
-        <DropdownMenu modal={false} open={isSortDropdownOpen} onOpenChange={setIsSortDropdownOpen}>
-          <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          className={`cursor-pointer text-sm-regular h-[32px] flex items-center gap-2 shadow-none transition-all duration-75 ${
-            isSortDropdownOpen 
-              ? 'bg-interactive-surface-hover hover:bg-interactive-surface-hover' 
-              : 'hover:bg-interactive-surface-hover'
-          }`}
-          disabled={isPending}
-        >
-          <SortAscending size={16} />
-              {getCurrentSortLabel()}
-          <CaretDown size={16} />
-        </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            {sortOptions.map((option) => (
-              <DropdownMenuItem
-                key={option.value}
-                onClick={(e) => {
-                  handleSortChange(option.value);
-                  setIsSortDropdownOpen(false);
-                  // Blur the button after selection to prevent focus
-                  const trigger = e.currentTarget.closest('[data-radix-dropdown-menu-trigger]') as HTMLElement;
-                  setTimeout(() => {
-                    trigger?.blur();
-                  }, 0);
-                }}
-                className="flex items-center justify-between"
-              >
-                <span>{option.label}</span>
-                {sortValue === option.value && (
-                  <Check size={16} className="text-inherit" />
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      </div>
-
-      {/* Table Component */}
-      <div className="flex-1 min-h-0">
-        <ClientsTable 
-          clients={clients}
+    <div ref={rootRef} className="flex flex-col" style={{ padding: '0 16px 24px 24px' }}>
+      <div
+        ref={headerWrapperRef}
+        className="sticky z-20"
+        style={{
+          top: 0,
+          backgroundColor: 'var(--color-neutral-2)',
+          backdropFilter: 'saturate(180%) blur(12px)',
+        }}
+      >
+        <ClientsHeader
+          totalCount={totalCount}
           searchValue={searchValue}
+          onSearchChange={handleSearchChange}
           sortValue={sortValue}
-          isLoading={isLoading}
-          hasNextPage={hasNextPage}
-          onScroll={handleScroll}
+          sortOptions={sortOptions}
+          onSortChange={handleSortChange}
           onAddClient={handleAddClientClick}
         />
       </div>
+
+      <ClientsTable
+        clients={clients}
+        searchValue={searchValue}
+        sortValue={sortValue}
+        isLoading={isLoading}
+        hasNextPage={hasNextPage}
+        onLoadMore={loadMore}
+        onAddClient={handleAddClientClick}
+        parentRef={parentRef}
+        headerOffset={headerOffset}
+      />
 
       {/* Add Client Dialog */}
       <Dialog open={isAddClientDialogOpen} onOpenChange={setIsAddClientDialogOpen}>
@@ -366,9 +385,15 @@ export function ClientsContent({
                 <Button 
                   type="submit"
                   style={{ height: '40px' }}
-                  className="cursor-pointer"
+                  className="cursor-pointer relative"
+                  disabled={isCreatingClient}
                 >
-                  Continue
+                  <span className={isCreatingClient ? 'invisible' : ''}>Continue</span>
+                  {isCreatingClient && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Spinner size={16} />
+                    </div>
+                  )}
                 </Button>
               </div>
             </form>
@@ -397,6 +422,7 @@ export function ClientsContent({
                           {...field}
                           placeholder="E.g. Fiive"
                           className="h-10 px-4 py-2 text-sm"
+                          disabled={isCreatingClient}
                         />
                       </FormControl>
                       <FormMessage />
@@ -417,9 +443,15 @@ export function ClientsContent({
                 <Button 
                   type="submit"
                   style={{ height: '40px' }}
-                  className="cursor-pointer"
+                  className="cursor-pointer relative"
+                  disabled={isCreatingClient}
                 >
-                  Continue
+                  <span className={isCreatingClient ? 'invisible' : ''}>Continue</span>
+                  {isCreatingClient && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Spinner size={16} />
+                    </div>
+                  )}
                 </Button>
               </div>
             </form>

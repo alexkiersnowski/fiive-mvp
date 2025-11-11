@@ -11,6 +11,7 @@ interface VirtualTableBodyProps<T> {
   emptyState?: React.ReactNode
   rowClassName?: string
   onRowClick?: (item: T) => void
+  colGroup?: React.ReactNode
 }
 
 /**
@@ -32,7 +33,8 @@ export function VirtualTableBody<T extends { id: string }>({
   renderRow,
   emptyState,
   rowClassName = '',
-  onRowClick
+  onRowClick,
+  colGroup
 }: VirtualTableBodyProps<T>) {
   // Empty state guard
   if (items.length === 0) {
@@ -74,6 +76,7 @@ export function VirtualTableBody<T extends { id: string }>({
 
   return (
     <Table noWrapper className="table-fixed w-full border-collapse">
+      {colGroup}
       <TableBody>
         {paddingTop > 0 && (
           <TableRow aria-hidden>

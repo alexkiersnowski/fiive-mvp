@@ -18,6 +18,7 @@ interface RequestsPageClientProps {
   connectionId: string
   initialRequests: Request[]
   initialTotalCount: number
+  initialNewCount: number
   agencyMembers: Array<{
     id: string
     firstName: string
@@ -69,7 +70,7 @@ type ModalRequest = {
 }
 
 // Client component wrapper that handles all client-side interactivity
-export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, agencyMembers, projects }: RequestsPageClientProps) {
+export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, initialNewCount, agencyMembers, projects }: RequestsPageClientProps) {
   const { snapshot, context, setIsEmpty, setNewRequestsCount } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
@@ -94,6 +95,11 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   
   // Unfiltered total count state (total requests for connection regardless of filters)
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState<number>(initialTotalCount)
+  useEffect(() => {
+    if (context.variant === 'agency') {
+      setNewRequestsCount(initialNewCount ?? 0)
+    }
+  }, [context.variant, initialNewCount, setNewRequestsCount])
   
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -132,31 +138,29 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   // Comments map keyed by requestId for instant lookup
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>({})
   
-  // Fetch unfiltered total count on mount
-  useEffect(() => {
-    const fetchUnfilteredCount = async () => {
-      try {
-        const result = await fetchRequestsForConnection(connectionId, {
-          limit: 1, // We only need the count, not the data
-          offset: 0
-          // No filters - this gives us the total count for the connection
-        })
-        if (!isMountedRef.current) return
-        setUnfilteredTotalCount(result.totalCount)
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch unfiltered count:', error)
-        }
-      }
-    }
-    fetchUnfilteredCount()
-  }, [connectionId])
-
   // Update isEmpty in context when unfilteredTotalCount changes
+  // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
   useEffect(() => {
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
   }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
   
+  // Helper to check if a request matches current search criteria
+  const matchesSearchCriteria = useCallback((request: Request): boolean => {
+    if (!debouncedSearchQuery) return true
+    
+    const query = debouncedSearchQuery.toLowerCase().trim()
+    const matchesTitle = request.title.toLowerCase().includes(query)
+    const matchesProject = request.project?.name.toLowerCase().includes(query) || false
+    const matchesStatus = request.status.toLowerCase().includes(query) || 
+                         (query === 'new' && request.status === 'new') ||
+                         (query === 'open' && request.status === 'new') ||
+                         (query.includes('review') && request.status === 'in_review') ||
+                         (query === 'accepted' && request.status === 'accepted') ||
+                         (query === 'canceled' && request.status === 'canceled')
+    
+    return matchesTitle || matchesProject || matchesStatus
+  }, [debouncedSearchQuery])
+
   // DRY: refresh first page (used by realtime fallback and deletes under search)
   const refreshFirstPage = useCallback(async () => {
     try {
@@ -177,10 +181,13 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         setPrefetchedRequests([])
         setPrefetchedOffset(null)
       })
+      if (context.variant === 'agency') {
+        setNewRequestsCount(result.newCount ?? 0)
+      }
     } catch (_) {
       // ignore
     }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, startTransition])
+  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, setNewRequestsCount, startTransition])
 
   // DRY: prepend unique request by id
   const prependUnique = useCallback((request: Request) => {
@@ -275,6 +282,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           setTotalCount(result.totalCount)
           setHasMore(result.requests.length === PAGE_SIZE)
           setCurrentOffset(PAGE_SIZE)
+          if (context.variant === 'agency') {
+            setNewRequestsCount(result.newCount ?? 0)
+          }
         } finally {
           setIsBootstrapping(false)
         }
@@ -321,6 +331,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             setPrefetchedRequests([])
             setPrefetchedOffset(null)
           })
+          if (context.variant === 'agency') {
+            setNewRequestsCount(result.newCount ?? 0)
+          }
         }
       } catch (error) {
         if (isDev()) {
@@ -415,6 +428,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           }
           // Update total count (it should be the same, but keep it in sync)
           setTotalCount(result.totalCount)
+          if (context.variant === 'agency') {
+            setNewRequestsCount(result.newCount ?? 0)
+          }
         }
       }
     } catch (error) {
@@ -447,17 +463,19 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'requests', filter: `connection_id=eq.${connectionId}` },
         async (payload: any) => {
-          // If a search is active, simplest is to refetch first page for correctness
-          if (debouncedSearchQuery) {
-            await refreshFirstPage()
-            return
-          }
-          // Otherwise, fetch just the inserted row and prepend if unique
           const newId = payload?.new?.id
           if (!newId) return
           try {
             const req = await fetchRequestById(connectionId, newId)
             if (!req) return
+            
+            // If search is active, only add if it matches search criteria
+            if (debouncedSearchQuery && !matchesSearchCriteria(req)) {
+              // Still update unfiltered count but don't add to visible list
+              setUnfilteredTotalCount(c => c + 1)
+              return
+            }
+            
             prependUnique(req)
             setTotalCount(c => c + 1)
             setUnfilteredTotalCount(c => c + 1)
@@ -471,13 +489,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'requests', filter: `connection_id=eq.${connectionId}` },
         async (payload: any) => {
-          // If a search is active, refetch first page for correctness
-          if (debouncedSearchQuery) {
-            await refreshFirstPage()
-            return
-          }
           const updated = payload?.new
           if (!updated) return
+          
           // Handle soft delete locally
           if (updated.deleted_at) {
             const wasRemoved = removeById(updated.id)
@@ -487,11 +501,36 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             }
             return
           }
-          // For non-delete updates, we can refresh or fetch single row; keep it simple: fetch single row and merge
+          
+          // For non-delete updates, fetch single row and merge
           try {
             const req = await fetchRequestById(connectionId, updated.id)
             if (!req) return
-            setRequests(prev => prev.map(r => (r.id === req.id ? req : r)))
+            
+            // If search is active, check if request matches search criteria
+            if (debouncedSearchQuery) {
+              const matches = matchesSearchCriteria(req)
+              const isCurrentlyVisible = requests.some(r => r.id === req.id)
+              
+              if (matches && !isCurrentlyVisible) {
+                // Matches search but not currently visible - add it
+                prependUnique(req)
+                setTotalCount(c => c + 1)
+              } else if (!matches && isCurrentlyVisible) {
+                // No longer matches search - remove it
+                const wasRemoved = removeById(req.id)
+                if (wasRemoved) {
+                  setTotalCount(c => Math.max(0, c - 1))
+                }
+              } else if (matches && isCurrentlyVisible) {
+                // Matches and is visible - update it
+                setRequests(prev => prev.map(r => (r.id === req.id ? req : r)))
+              }
+              // If doesn't match and not visible, do nothing
+            } else {
+              // No search active - update normally
+              setRequests(prev => prev.map(r => (r.id === req.id ? req : r)))
+            }
           } catch (_) {
             await refreshFirstPage()
           }
@@ -502,7 +541,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById])
+  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById, matchesSearchCriteria, requests])
 
   // Load more requests function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
@@ -643,6 +682,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             prefetchNext(nextOffset)
           }
         }
+      }
+      if (context.variant === 'agency' && isMountedRef.current) {
+        setNewRequestsCount(result.newCount ?? 0)
       }
     } catch (error) {
       if (isDev()) {
@@ -896,7 +938,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       toast.success('Task created from request')
       handleConvertModalClose()
       handleRequestUpdate(requestId, { status: 'accepted' })
-      router.refresh()
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (isDev()) {
         console.error('Failed to convert request to task:', error)
@@ -1048,6 +1090,36 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           logoUrl: snapshot.agency.logo || undefined
         } : undefined}
         onRequestDeleted={handleTableRequestDeleted}
+        onConvertToTask={(request) => {
+          handleRequestConvertToTask({
+            requestId: request.id,
+            title: request.title,
+            description: request.description ?? '',
+            client: request.client,
+            agency: request.agency,
+            submittedBy: request.submittedBy
+              ? {
+                  id: request.submittedBy.id,
+                  name: request.submittedBy.name,
+                  email: request.submittedBy.email,
+                  avatarUrl: request.submittedBy.avatarUrl,
+                }
+              : undefined,
+            assignee: request.assignee
+              ? {
+                  id: request.assignee.id,
+                  name: request.assignee.name,
+                  email: request.assignee.email,
+                  avatarUrl: request.assignee.avatarUrl,
+                }
+              : null,
+            project: request.project,
+            status: request.status,
+            createdAt: request.createdAt,
+            createdByOrgId: request.createdByOrgId,
+            createdByOrgType: request.createdByOrgType,
+          })
+        }}
       />
       </div>
 

@@ -287,6 +287,22 @@ export function RequestDetailModal({
               activeUser={activeUser}
               initialComments={initialComments}
               onCommentsUpdate={onCommentsUpdate}
+              onConvertToTask={(request) => {
+                onConvertToTask?.({
+                  requestId: request.requestId,
+                  title: request.title,
+                  description: request.description,
+                  client: request.client,
+                  agency: request.agency,
+                  submittedBy: request.submittedBy,
+                  assignee: request.assignee,
+                  project: request.project,
+                  status: request.status,
+                  createdAt: request.createdAt,
+                  createdByOrgId: request.createdByOrgId,
+                  createdByOrgType: request.createdByOrgType,
+                })
+              }}
             />
           </div>
         )}

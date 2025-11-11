@@ -14,16 +14,20 @@ interface ConnectionLayoutProps {
   children: React.ReactNode;
 }
 
-function ConnectionLayoutContent({ snapshot, context, baseRoute, children }: Omit<ConnectionLayoutProps, 'snapshot' | 'context'> & { snapshot: ConnectionSnapshot; context: EnhancedModeContext }) {
+function ConnectionLayoutContent({ 
+  snapshot, 
+  context, 
+  baseRoute, 
+  children,
+  isRequestDetailPage 
+}: Omit<ConnectionLayoutProps, 'snapshot' | 'context'> & { 
+  snapshot: ConnectionSnapshot; 
+  context: EnhancedModeContext;
+  isRequestDetailPage: boolean;
+}) {
   const pathname = usePathname();
-  const currentUserType = baseRoute === 'clients' ? 'agency' : 'client';
+  const currentUserType = context.variant;
   const { isEmpty, newRequestsCount } = useConnection();
-  
-  // Check if we're on a request detail page (pattern: /agencies/[connectionId]/requests/[requestId] or /clients/[connectionId]/requests/[requestId])
-  const isRequestDetailPage = /\/requests\/[^/]+$/.test(pathname);
-  
-  // Check if we're on a task detail page (pattern: /agencies/[connectionId]/tasks/[taskId] or /clients/[connectionId]/tasks/[taskId])
-  const isTaskDetailPage = /\/tasks\/[^/]+$/.test(pathname);
   
   // Detect if we're on the requests tab (but not a detail page)
   const isOnRequestsTab = !isRequestDetailPage && /\/requests$/.test(pathname);
@@ -58,13 +62,9 @@ function ConnectionLayoutContent({ snapshot, context, baseRoute, children }: Omi
 export function ConnectionLayout({ snapshot, context, baseRoute, children }: ConnectionLayoutProps) {
   const pathname = usePathname();
   
-  // Check if we're on a request detail page (pattern: /agencies/[connectionId]/requests/[requestId] or /clients/[connectionId]/requests/[requestId])
+  // Compute detail page checks once (used in multiple places)
   const isRequestDetailPage = /\/requests\/[^/]+$/.test(pathname);
-  
-  // Check if we're on a task detail page (pattern: /agencies/[connectionId]/tasks/[taskId] or /clients/[connectionId]/tasks/[taskId])
   const isTaskDetailPage = /\/tasks\/[^/]+$/.test(pathname);
-  
-  // Check if we're on a project detail page (pattern: /agencies/[connectionId]/projects/[projectId] or /clients/[connectionId]/projects/[projectId])
   const isProjectDetailPage = /\/projects\/[^/]+$/.test(pathname);
   
   // For request, task, or project detail pages, render children directly without ConnectionProvider
@@ -81,7 +81,12 @@ export function ConnectionLayout({ snapshot, context, baseRoute, children }: Con
   // For other pages, render normally with header and tabs
   return (
     <ConnectionProvider snapshot={snapshot} context={context}>
-      <ConnectionLayoutContent snapshot={snapshot} context={context} baseRoute={baseRoute}>
+      <ConnectionLayoutContent 
+        snapshot={snapshot} 
+        context={context} 
+        baseRoute={baseRoute}
+        isRequestDetailPage={isRequestDetailPage}
+      >
         {children}
       </ConnectionLayoutContent>
     </ConnectionProvider>

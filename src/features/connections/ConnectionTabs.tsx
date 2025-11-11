@@ -16,12 +16,17 @@ interface ConnectionTabsProps {
 export function ConnectionTabs({ connectionId, baseRoute, currentUserType, newRequestsCount }: ConnectionTabsProps) {
   const pathname = usePathname();
   const previousPathnameRef = useRef(pathname);
+  const scrollableElementRef = useRef<HTMLElement | null>(null);
 
   // Scroll to top when tab changes
   useEffect(() => {
     if (previousPathnameRef.current !== pathname) {
-      // Multiple attempts to find and scroll the main element
-      const scrollToTop = () => {
+      // Find scrollable element once and cache it
+      const findScrollableElement = (): HTMLElement | null => {
+        if (scrollableElementRef.current) {
+          return scrollableElementRef.current;
+        }
+        
         // Try multiple selectors to find the scrollable element
         const selectors = [
           'main[style*="overflow: auto"]',
@@ -30,28 +35,30 @@ export function ConnectionTabs({ connectionId, baseRoute, currentUserType, newRe
           '.overflow-auto'
         ];
         
-        let mainElement: HTMLElement | null = null;
         for (const selector of selectors) {
-          mainElement = document.querySelector(selector) as HTMLElement;
-          if (mainElement && mainElement.scrollHeight > mainElement.clientHeight) {
-            break;
+          const element = document.querySelector(selector) as HTMLElement;
+          if (element && element.scrollHeight > element.clientHeight) {
+            scrollableElementRef.current = element;
+            return element;
           }
         }
         
-        if (mainElement) {
-          // Force scroll to top immediately
-          mainElement.scrollTop = 0;
-          // Also try smooth scroll
-          mainElement.scrollTo({ top: 0, behavior: 'smooth' });
+        return null;
+      };
+      
+      const scrollToTop = () => {
+        const element = findScrollableElement();
+        if (element) {
+          element.scrollTo({ top: 0, behavior: 'smooth' });
         }
       };
       
-      // Try immediately
-      scrollToTop();
-      
-      // Try again after a short delay to ensure DOM is ready
-      setTimeout(scrollToTop, 50);
-      setTimeout(scrollToTop, 150);
+      // Use requestAnimationFrame for better timing, then single timeout as fallback
+      requestAnimationFrame(() => {
+        scrollToTop();
+        // Single timeout fallback if DOM isn't ready yet
+        setTimeout(scrollToTop, 100);
+      });
       
       previousPathnameRef.current = pathname;
     }
@@ -112,8 +119,8 @@ export function ConnectionTabs({ connectionId, baseRoute, currentUserType, newRe
                 >
                   <span className="inline-flex items-center gap-2">
                   {tab.name}
-                    {tab.name === 'Requests' && currentUserType === 'agency' && newRequestsCount !== undefined && newRequestsCount > 0 && (
-                      <Badge variant="neutral">
+                    {tab.name === 'Requests' && currentUserType === 'agency' && typeof newRequestsCount === 'number' && newRequestsCount > 0 && (
+                      <Badge variant="neutral" className="text-xs">
                         {newRequestsCount}
                       </Badge>
                     )}

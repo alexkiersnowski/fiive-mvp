@@ -16,7 +16,7 @@ import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye, EyeSlash, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateTaskAssignee, updateTaskStatus, deleteTask } from './actions'
+import { updateTaskAssignee, updateTaskStatus, deleteTask, fetchProjectsForConnection } from './actions'
 import { sortTasksWithPinnedFirst, type TaskSortMode } from './taskSort'
 import type { Task } from '../server'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
@@ -122,11 +122,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     };
   } | null>(null)
 
-  // Mock current user organization ID (in real app, this would come from context/auth)
-  const currentUserOrgId = 'client-org-1' // This should match the submitted by organization ID
-  const submittedByOrgId = 'client-org-1' // This should come from the actual task data
-  const canDeleteTask = currentUserOrgId === submittedByOrgId
-  
   // Use total count from database, fallback to displayed tasks count if not provided
   const taskCount = totalCount !== undefined ? totalCount : optimisticTasks.length
   
@@ -195,7 +190,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       try {
         await updateTaskAssignee(taskId, memberId)
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
-        router.refresh() // Refresh to get updated data from server
+        // Real-time subscription will handle UI updates
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
           console.error('Failed to update assignee:', error)
@@ -243,7 +238,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     try {
       await updateTaskAssignee(taskId, null)
       toast.success('Assignee removed')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to clear assignee:', error)
@@ -307,7 +302,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         done: 'Done'
       }
       toast.success(`Status updated to ${statusLabels[typedStatus]}`)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to update status:', error)
@@ -370,7 +365,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     try {
       await deleteTask(taskId)
       toast.success('Task deleted')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error deleting task:', error)
@@ -520,6 +515,28 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                 style={{ paddingLeft: '16px', paddingRight: '16px' }}
                 onClick={() => {
                   onNewTask?.();
+                }}
+                onMouseEnter={() => {
+                  // Prefetch projects on hover for instant modal opening
+                  if (onNewTask) {
+                    const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
+                    if (connectionId) {
+                      fetchProjectsForConnection(connectionId).catch(() => {
+                        // Silently fail - modal will fetch on open if prefetch fails
+                      });
+                    }
+                  }
+                }}
+                onFocus={() => {
+                  // Prefetch projects on focus for keyboard navigation
+                  if (onNewTask) {
+                    const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
+                    if (connectionId) {
+                      fetchProjectsForConnection(connectionId).catch(() => {
+                        // Silently fail - modal will fetch on open if prefetch fails
+                      });
+                    }
+                  }
                 }}
               >
                 <Plus size={16} className="mr-1" />
@@ -736,18 +753,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                     className="w-[44px] p-0"
                   >
                     <div className="flex items-center justify-center h-full">
-                      {task.clientVisibilityLocked ? (
-                        <Tooltip delayDuration={250}>
-                          <TooltipTrigger asChild>
-                            <div>
-                              <Eye size={16} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" sideOffset={4}>
-                            <p>Client visible</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : task.clientVisible ? (
+                      {task.clientVisible ? (
                         <Tooltip delayDuration={250}>
                           <TooltipTrigger asChild>
                             <div>
@@ -762,7 +768,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                         <Tooltip delayDuration={250}>
                           <TooltipTrigger asChild>
                             <div>
-                              <EyeSlash size={16} weight="fill" style={{ color: 'var(--color-neutral-11)' }} />
+                              <EyeSlash size={16} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} />
                             </div>
                           </TooltipTrigger>
                           <TooltipContent side="bottom" sideOffset={4}>

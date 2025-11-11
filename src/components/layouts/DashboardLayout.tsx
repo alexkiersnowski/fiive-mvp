@@ -24,6 +24,7 @@ export default function DashboardLayout({ data, context, children, initialIsColl
     pathname.startsWith('/home') ? 'home' :
     pathname.split('/')[1] || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
+  const mainRef = useRef<HTMLDivElement>(null)
   // Check if we're on a detail page (should use card variant, not full-width)
   // Matches detail pages: requests/projects/tasks under clients/agencies
   const isDetailPage = /^\/(clients|agencies)\/[^/]+\/(requests|projects|tasks)\/[^/]+$/.test(pathname)
@@ -56,6 +57,14 @@ export default function DashboardLayout({ data, context, children, initialIsColl
     }
     return 'Settings'
   }
+
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    } else {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    }
+  }, [pathname])
   
   // Determine sidebar width based on variant and collapse state
   const sidebarWidth = isSettingsPage ? '240px' : (effectiveIsCollapsed ? '60px' : '240px')
@@ -94,7 +103,9 @@ export default function DashboardLayout({ data, context, children, initialIsColl
         currentUserRole={data.currentUserRole}
         capabilities={context.capabilities}
       />
-      <main style={{ 
+      <main
+        ref={mainRef}
+        style={{ 
         overflow: 'auto',
         height: '100%',
         display: 'flex',

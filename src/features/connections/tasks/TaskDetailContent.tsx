@@ -538,7 +538,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     
     try {
       await updateTaskTitle(taskId, trimmedValue)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update title:', error)
       // Revert optimistic update on error
@@ -564,7 +564,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     
     try {
       await updateTaskDescription(taskId, value)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update description:', error)
       // Revert optimistic update on error
@@ -591,7 +591,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     
     try {
       await updateTaskProject(taskId, !projectId || projectId === '' ? null : projectId)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update task project:', error)
       toast.error('Failed to update task project')
@@ -633,7 +633,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         done: 'Done'
       } as const
       toast.success(`Status updated to ${statusLabels[typedStatus]}`)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update status:', error)
       toast.error('Failed to update status')
@@ -688,7 +688,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       try {
         await updateTaskAssignee(taskId, memberId)
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
-        router.refresh() // Refresh to get updated data from server
+        // Real-time subscription will handle UI updates
       } catch (error) {
         console.error('Failed to update assignee:', error)
         toast.error('Failed to update assignee')
@@ -716,7 +716,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     try {
       await updateTaskAssignee(taskId, null)
       toast.success('Assignee removed')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to clear assignee:', error)
       toast.error('Failed to clear assignee')
@@ -760,7 +760,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
 
     try {
       await updateTaskDueDate(taskId, dateStr)
-      router.refresh()
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update due date:', error)
       setDueDateValue(previousDueDate)
@@ -787,7 +787,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     try {
       await updateTaskClientVisible(taskId, checked)
       toast.success(checked ? 'Task visible to client' : 'Task not visible to client')
-      router.refresh()
+      // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update client visibility:', error)
       toast.error('Failed to update client visibility')
@@ -916,12 +916,10 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
             </div>
             <div className="flex items-center gap-4">
               {variant === 'agency' && (
-                clientVisibilityLocked ? (
-                  <Eye size={20} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} className="mt-1.5" />
-                ) : clientVisibleValue ? (
+                clientVisibleValue ? (
                   <Eye size={20} weight="fill" style={{ color: 'var(--color-neutral-11)' }} className="mt-1.5" />
                 ) : (
-                  <EyeSlash size={20} weight="fill" style={{ color: 'var(--color-neutral-11)' }} className="mt-1.5" />
+                  <EyeSlash size={20} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} className="mt-1.5" />
                 )
               )}
               {(variant === 'agency' || (isClientVariant && canClientEditStatusOrAssignee)) ? (

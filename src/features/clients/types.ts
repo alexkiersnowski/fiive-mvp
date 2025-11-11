@@ -6,6 +6,7 @@ export type Client = {
   name: string
   logo?: string
   status: "draft" | "onboarding" | "active" | "offboarded"
+  createdAt?: string
   accountManager: {
     id: string
     name: string
@@ -72,10 +73,18 @@ export type ConnectionResult = {
   error?: string;
 };
 
-export type NewClientResult = {
-  success: boolean;
-  clientId?: string;
-  clientName?: string;
-  error?: string;
-};
+export interface NewClientPayload {
+  connection_id: string;
+  connection_status: 'draft';
+  engagement_status: string | null;
+  client_id: string;
+  client_name: string;
+  logo_url?: string | null;
+  is_draft: boolean;
+  created_at: string;
+}
+
+export type NewClientResult =
+  | { success: true; data: NewClientPayload }
+  | { success: false; error: string };
 

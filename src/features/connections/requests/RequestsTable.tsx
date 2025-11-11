@@ -16,7 +16,7 @@ import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateRequestAssignee, updateRequestStatus, deleteRequest } from './actions'
+import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
 import type { Request } from '../server'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 
@@ -51,9 +51,10 @@ interface RequestsTableProps {
     logoUrl?: string
   }
   onRequestDeleted?: (requestId: string) => void
+  onConvertToTask?: (request: Request) => void
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask }: RequestsTableProps) {
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -95,11 +96,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     };
   } | null>(null)
 
-  // Mock current user organization ID (in real app, this would come from context/auth)
-  const currentUserOrgId = 'client-org-1' // This should match the submitted by organization ID
-  const submittedByOrgId = 'client-org-1' // This should come from the actual request data
-  const canDeleteRequest = currentUserOrgId === submittedByOrgId
-  
   // Use total count from database, fallback to displayed requests count if not provided
   const requestCount = totalCount !== undefined ? totalCount : optimisticRequests.length
   
@@ -165,7 +161,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       try {
         await updateRequestAssignee(requestId, memberId)
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
-        router.refresh() // Refresh to get updated data from server
+        // Real-time subscription will handle UI updates
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
           console.error('Failed to update assignee:', error)
@@ -211,7 +207,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     try {
       await updateRequestAssignee(requestId, null)
       toast.success('Assignee removed')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to clear assignee:', error)
@@ -273,7 +269,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         canceled: 'Canceled'
       }
       toast.success(`Status updated to ${statusLabels[typedStatus]}`)
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to update status:', error)
@@ -336,7 +332,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     try {
       await deleteRequest(requestId)
       toast.success('Request deleted')
-      router.refresh() // Refresh to get updated data from server
+      // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error deleting request:', error)
@@ -485,6 +481,28 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               style={{ paddingLeft: '16px', paddingRight: '16px' }}
               onClick={() => {
                 onNewRequest?.();
+              }}
+              onMouseEnter={() => {
+                // Prefetch projects on hover for instant modal opening
+                if (onNewRequest) {
+                  const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
+                  if (connectionId) {
+                    fetchProjectsForConnection(connectionId).catch(() => {
+                      // Silently fail - modal will fetch on open if prefetch fails
+                    });
+                  }
+                }
+              }}
+              onFocus={() => {
+                // Prefetch projects on focus for keyboard navigation
+                if (onNewRequest) {
+                  const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
+                  if (connectionId) {
+                    fetchProjectsForConnection(connectionId).catch(() => {
+                      // Silently fail - modal will fetch on open if prefetch fails
+                    });
+                  }
+                }
               }}
             >
               <Plus size={16} className="mr-1" />
@@ -774,7 +792,12 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                           View details
                         </DropdownMenuItem>
                         {isAgency && (
-                          <DropdownMenuItem onClick={() => setOpenActionsDropdown(null)}>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setOpenActionsDropdown(null)
+                              onConvertToTask?.(request)
+                            }}
+                          >
                             <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                             Convert to task
                           </DropdownMenuItem>

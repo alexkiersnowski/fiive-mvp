@@ -26,6 +26,7 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
           connectionId={connectionId} 
           initialRequests={requestsData.requests} 
           initialTotalCount={requestsData.totalCount}
+          initialNewCount={requestsData.newCount}
           agencyMembers={agencyMembers}
           projects={projects}
         />
