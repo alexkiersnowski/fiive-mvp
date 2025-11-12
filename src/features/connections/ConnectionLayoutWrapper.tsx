@@ -47,26 +47,38 @@ export default async function ConnectionLayoutWrapper({
   // Note: Server components don't have direct pathname access, so we use a best-effort detection
   // ConnectionLayout will handle null snapshot gracefully for detail pages
   const headersList = await headers();
-  const referer = headersList.get('referer') || '';
+  const pathname = headersList.get('x-pathname') || headersList.get('referer') || '';
   let isDetailPage = false;
   
-  // Try to detect detail pages from referer header (works for client-side navigation)
-  if (referer) {
+  // Try to detect detail pages from pathname header (set by middleware) or referer
+  if (pathname) {
     try {
-      const url = new URL(referer);
-      const pathname = url.pathname;
+      // If pathname header is available (set by middleware), use it directly
+      // Otherwise, parse from referer URL
+      const urlPathname = pathname.startsWith('/') 
+        ? pathname 
+        : (() => {
+            try {
+              const url = new URL(pathname);
+              return url.pathname;
+            } catch {
+              return pathname;
+            }
+          })();
+      
       // Check if pathname matches detail page patterns
-      isDetailPage = /\/requests\/[^/]+$/.test(pathname) || 
-                     /\/tasks\/[^/]+$/.test(pathname) || 
-                     /\/projects\/[^/]+$/.test(pathname);
+      isDetailPage = /\/requests\/[^/]+$/.test(urlPathname) || 
+                     /\/tasks\/[^/]+$/.test(urlPathname) || 
+                     /\/projects\/[^/]+$/.test(urlPathname);
     } catch {
       // If URL parsing fails, assume we need snapshot (conservative approach)
     }
   }
-  // Note: On initial page load without referer, we'll fetch snapshot (conservative)
+  // Note: On initial page load without pathname/referer, we'll fetch snapshot (conservative)
   // This is acceptable since ConnectionLayout handles both cases correctly
   
   // Only fetch snapshot if not detected as detail page
+  // getConnectionSnapshot is cached, so multiple calls within the same request are deduplicated
   const snapshot = isDetailPage ? null : await getConnectionSnapshot(context, connectionId);
 
   return (

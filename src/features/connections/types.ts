@@ -42,6 +42,7 @@ export type ConnectionSnapshot = {
   connection: {
     id: string;
     status: string;
+    isDraft: boolean;
     engagementStatus?: string | null;
     health?: string;
     contractEnd?: string;

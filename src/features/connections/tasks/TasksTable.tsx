@@ -66,10 +66,12 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   const [searchQuery, setSearchQuery] = useState('')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
-  // Optimistic UI state for tasks
+  // Client-side sorting function (applied to tasks prop)
   const orderTasks = (list: Task[]) => sortTasksWithPinnedFirst(list, sortMode)
-
-  const [optimisticTasks, setOptimisticTasks] = useState<Task[]>(() => orderTasks(tasks))
+  
+  // Apply sorting to tasks prop
+  const orderedTasks = useMemo(() => orderTasks(tasks), [tasks, sortMode])
+  
   const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
   const clientEditableMembers = useMemo(() => {
@@ -93,11 +95,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       options
     }
   }, [agencyMembers])
-
-  // Update optimistic tasks when props change
-  useEffect(() => {
-    setOptimisticTasks(orderTasks(tasks))
-  }, [tasks, sortMode])
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
@@ -123,7 +120,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   } | null>(null)
 
   // Use total count from database, fallback to displayed tasks count if not provided
-  const taskCount = totalCount !== undefined ? totalCount : optimisticTasks.length
+  const taskCount = totalCount !== undefined ? totalCount : tasks.length
   
   // Transform agency members to combobox options (memoized to prevent recreation)
   const comboboxOptions = useMemo(() => 
@@ -159,22 +156,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         avatarUrl: selectedMember.avatarUrl
       }
       
-      // Optimistic update
-      setOptimisticTasks(prev => 
-        orderTasks(
-        prev.map(req => 
-          req.id === taskId 
-            ? { 
-                ...req, 
-                assignee: newAssignee,
-                clientVisible: isClientMember ? true : req.clientVisible,
-                clientVisibilityLocked: isClientMember ? true : false
-              } 
-            : req
-          )
-        )
-      )
-      
       // Notify parent for bidirectional updates (table → modal)
       if (onTaskUpdate) {
         onTaskUpdate(taskId, { 
@@ -196,10 +177,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
           console.error('Failed to update assignee:', error)
         }
         toast.error('Failed to update assignee')
-        // Revert optimistic update on error
-        setOptimisticTasks(orderTasks(tasks))
+        // Revert parent state on error
         if (onTaskUpdate) {
-          // Revert parent state as well
           const originalTask = tasks.find(r => r.id === taskId)
           if (originalTask) {
             onTaskUpdate(taskId, { assignee: originalTask.assignee })
@@ -215,17 +194,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   const handleClearAssignee = async (taskId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
-    
-    // Optimistic update
-    setOptimisticTasks(prev => 
-      orderTasks(
-      prev.map(req => 
-        req.id === taskId 
-          ? { ...req, assignee: null, clientVisibilityLocked: false } 
-          : req
-        ),
-      )
-    )
     
     // Notify parent for bidirectional updates (table → modal)
     if (onTaskUpdate) {
@@ -244,10 +212,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         console.error('Failed to clear assignee:', error)
       }
       toast.error('Failed to clear assignee')
-      // Revert optimistic update on error
-      setOptimisticTasks(orderTasks(tasks))
+      // Revert parent state on error
       if (onTaskUpdate) {
-        // Revert parent state as well
         const originalTask = tasks.find(r => r.id === taskId)
         if (originalTask) {
           onTaskUpdate(taskId, { assignee: originalTask.assignee })
@@ -274,17 +240,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     
     const typedStatus = newStatus as 'to_do' | 'in_progress' | 'on_hold' | 'done'
     
-    // Optimistic update
-    setOptimisticTasks(prev => 
-      orderTasks(
-      prev.map(req => 
-        req.id === taskId 
-          ? { ...req, status: typedStatus } 
-          : req
-        ),
-      )
-    )
-    
     // Notify parent for bidirectional updates (table → modal)
     if (onTaskUpdate) {
       onTaskUpdate(taskId, { status: typedStatus })
@@ -308,10 +263,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         console.error('Failed to update status:', error)
       }
       toast.error('Failed to update status')
-      // Revert optimistic update on error
-      setOptimisticTasks(orderTasks(tasks))
+      // Revert parent state on error
       if (onTaskUpdate) {
-        // Revert parent state as well
         const originalTask = tasks.find(r => r.id === taskId)
         if (originalTask) {
           onTaskUpdate(taskId, { status: originalTask.status })
@@ -356,9 +309,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   }
   
   const handleDeleteTask = async (taskId: string) => {
-    // Optimistically remove task from table
-    setOptimisticTasks(prev => prev.filter(r => r.id !== taskId))
-    
     // Notify parent for badge count updates
     onTaskDeleted?.(taskId)
     
@@ -371,14 +321,12 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         console.error('Error deleting task:', error)
       }
       toast.error('Failed to delete task')
-      // Revert optimistic update on error
-      setOptimisticTasks(orderTasks(tasks))
     }
   }
 
   // Virtual scroll setup using shared hook
   const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
-    items: optimisticTasks,
+    items: orderedTasks,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],
     parentRef
@@ -592,7 +540,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
             </div>
           ) : (
             <VirtualTableBody
-            items={optimisticTasks}
+            items={orderedTasks}
             virtualItems={virtualItems}
             rowVirtualizer={rowVirtualizer}
             onRowClick={(task) => handleRowClick(task.id)}

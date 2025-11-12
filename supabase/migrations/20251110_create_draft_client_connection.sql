@@ -22,6 +22,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   v_client_id uuid;
@@ -32,7 +33,8 @@ DECLARE
   v_code_source text;
   v_attempts integer := 0;
 BEGIN
-  PERFORM set_config('search_path', 'public', true);
+  -- Explicitly set search_path at function level (via SET clause above) to prevent search path issues
+  -- The SET clause ensures search_path is set for the entire function execution
 
   v_sanitized_name := NULLIF(btrim(p_client_name), '');
   IF v_sanitized_name IS NULL THEN
@@ -49,9 +51,7 @@ BEGIN
     RAISE EXCEPTION 'Invalid agency org';
   END IF;
 
-  -- Ensure policies that rely on current_org_id can validate inserts
-  PERFORM set_config('app.current_org_id', p_agency_id::text, true);
-
+  -- Generate unique connection code
   LOOP
     v_code_source := lower(replace(gen_random_uuid()::text, '-', '')); -- 32 chars
     v_connection_code :=
@@ -156,5 +156,5 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.create_draft_client_connection(uuid, uuid, text)
-IS 'Creates a draft client organization and linked connection for an agency in a single transaction.';
+IS 'Creates a draft client organization and linked connection for an agency in a single transaction. RLS policies use existing helper functions (auth_user_owns_org, user_is_member_of_org) to validate membership - no session variables needed.';
 

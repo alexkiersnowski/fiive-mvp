@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useCallback, useEffect, useRef, useMemo, useTransition } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, Link } from '@phosphor-icons/react/ssr';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -41,17 +41,22 @@ export function ClientsContent({
   initialSortValue = 'newest-first' 
 }: ClientsContentProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const rootRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement | null>(null);
   const headerWrapperRef = useRef<HTMLDivElement>(null);
   const [headerOffset, setHeaderOffset] = useState(0);
   const [clients, setClients] = useState<Client[]>(snapshot.clients);
   const [totalCount, setTotalCount] = useState(snapshot.total);
+  const [unfilteredTotalCount, setUnfilteredTotalCount] = useState(snapshot.unfilteredTotalCount);
   const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
   const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
+  const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
   const [sortValue, setSortValue] = useState(initialSortValue || 'newest-first');
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
   const [isAddNewClientDialogOpen, setIsAddNewClientDialogOpen] = useState(false);
   const [isConnectToClientDialogOpen, setIsConnectToClientDialogOpen] = useState(false);
@@ -63,11 +68,47 @@ export function ClientsContent({
 
   // Sync local state with server snapshot when props change
   useEffect(() => {
-    setClients(snapshot.clients);
-    setTotalCount(snapshot.total);
-    setCursor(snapshot.cursor || null);
-    setHasNextPage(snapshot.hasNextPage);
-  }, [snapshot]);
+    // Use transition for smooth updates (prevents flicker)
+    startTransition(() => {
+      setClients(snapshot.clients);
+      setTotalCount(snapshot.total);
+      setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
+      setCursor(snapshot.cursor || null);
+      setHasNextPage(snapshot.hasNextPage);
+      setIsFetchingServerResults(false);
+    });
+  }, [snapshot, startTransition]);
+
+  // Debounce server fetch (150ms - reduced from 300ms for faster response)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchValue(searchValue);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [searchValue]);
+
+  // Trigger server fetch when debounced search or sort changes (for complete results)
+  useEffect(() => {
+    const currentSearchParam = searchParams.get('search') || '';
+    const currentSortParam = searchParams.get('sort') || 'newest-first';
+    
+    if (debouncedSearchValue !== currentSearchParam || sortValue !== currentSortParam) {
+      setIsFetchingServerResults(true);
+      const params = new URLSearchParams(searchParams.toString());
+      if (debouncedSearchValue.trim()) {
+        params.set('search', debouncedSearchValue.trim());
+      } else {
+        params.delete('search');
+      }
+      params.set('sort', sortValue);
+      router.push(`/clients?${params.toString()}`, { scroll: false });
+    }
+  }, [debouncedSearchValue, sortValue, router, searchParams]);
+
+  // Display: Use server results directly (no optimistic filtering)
+  const displayedClients = clients;
+  const displayedTotal = totalCount;
 
   // Locate the dashboard main scroll container
   useEffect(() => {
@@ -130,18 +171,19 @@ export function ClientsContent({
 
   const loadMore = useCallback(async () => {
     // TODO: Implement pagination with server actions
-    console.log('Pagination not yet implemented for real data');
+    // For now, pagination is handled server-side via cursor
+    console.log('Pagination handled server-side via cursor');
   }, []);
 
-  const handleSearchChange = (value: string) => {
+  const handleSearchChange = useCallback((value: string) => {
     setSearchValue(value);
-    // Search will be applied instantly via useMemo in ClientsTable
-  };
+    // Debounced server fetch handled by useEffect
+  }, []);
 
-  const handleSortChange = (newSortValue: string) => {
+  const handleSortChange = useCallback((newSortValue: string) => {
     setSortValue(newSortValue);
-    // Sort will be applied instantly via useMemo in ClientsTable
-  };
+    // Server fetch handled by useEffect
+  }, []);
 
   const handleAddClientClick = () => {
     setIsAddClientDialogOpen(true);
@@ -194,32 +236,69 @@ export function ClientsContent({
   const handleAddNewClientSubmit = async (data: AddNewClientFormData) => {
     setIsCreatingClient(true);
 
+    // Create optimistic client with temporary ID
+    const optimisticId = `optimistic-${Date.now()}-${data.clientName}`;
+    const unassignedAccountManager: Client['accountManager'] = {
+      id: '',
+      name: 'Unassigned',
+      firstName: '',
+      lastName: '',
+      email: '',
+      jobTitle: undefined,
+      avatar: undefined,
+      organization: {
+        id: context.organization.id,
+        name: context.organization.name,
+        logo_url: context.organization.logoUrl
+      }
+    };
+
+    const optimisticClient: Client = {
+      id: optimisticId,
+      clientId: optimisticId, // Temporary ID, will be replaced with real clientId
+      name: data.clientName,
+      logo: undefined,
+      status: 'draft',
+      is_draft: true,
+      createdAt: new Date().toISOString(),
+      accountManager: unassignedAccountManager,
+      contractEnd: undefined,
+      health: 'unassigned',
+      badge: undefined
+    };
+
+    // Start server call and minimum delay in parallel
+    const MIN_DELAY_MS = 400; // Standardized spinner duration for intentional feel
+    const serverCallPromise = createNewClient(data.clientName, context);
+    const minDelayPromise = new Promise<void>(resolve => setTimeout(resolve, MIN_DELAY_MS));
+
     try {
-      const result = await createNewClient(data.clientName, context);
+      // Wait for both minimum delay and server response (whichever is longer)
+      // This ensures spinner shows for at least 400ms, and dialog closes after 400ms
+      const [result] = await Promise.all([
+        serverCallPromise,
+        minDelayPromise.then(() => {
+          // After minimum delay, close dialog and show optimistic row
+          handleAddNewClientDialogClose();
+          
+          // Add optimistic client to UI after dialog closes
+          setClients(prev => [optimisticClient, ...prev]);
+          setTotalCount(prev => prev + 1);
+          setUnfilteredTotalCount(prev => prev + 1);
+        })
+      ]);
 
       if (result.success) {
         const payload = result.data;
 
-        const unassignedAccountManager: Client['accountManager'] = {
-          id: '',
-          name: 'Unassigned',
-          firstName: '',
-          lastName: '',
-          email: '',
-          jobTitle: undefined,
-          avatar: undefined,
-          organization: {
-            id: context.organization.id,
-            name: context.organization.name,
-            logo_url: context.organization.logoUrl
-          }
-        };
-
-        const newClient: Client = {
+        // Replace optimistic client with real server data
+        const realClient: Client = {
           id: payload.connection_id,
+          clientId: payload.client_id,
           name: payload.client_name,
           logo: payload.logo_url || undefined,
           status: 'draft',
+          is_draft: payload.is_draft ?? true,
           createdAt: payload.created_at,
           accountManager: unassignedAccountManager,
           contractEnd: undefined,
@@ -227,30 +306,44 @@ export function ClientsContent({
           badge: payload.engagement_status ?? undefined
         };
 
-        setClients(prev => [newClient, ...prev]);
-        setTotalCount(prev => prev + 1);
-
-        handleAddNewClientDialogClose();
+        // Replace optimistic client with real one (merge with server response)
+        startTransition(() => {
+          setClients(prev => {
+            // Remove optimistic client and add real one at the beginning
+            const filtered = prev.filter(client => client.id !== optimisticId);
+            return [realClient, ...filtered];
+          });
+          // Counts are already correct from optimistic update
+        });
       } else {
+        // Remove optimistic client on error
+        setClients(prev => prev.filter(client => client.id !== optimisticId));
+        setTotalCount(prev => Math.max(0, prev - 1));
+        setUnfilteredTotalCount(prev => Math.max(0, prev - 1));
+
+        // Reopen dialog to show error
+        setIsAddNewClientDialogOpen(true);
         addNewClientForm.setError('clientName', {
-          message: result.error || 'Failed to create client'
+          message: result.error || 'Failed to create client. Please try again.'
         });
       }
     } catch (error) {
-      console.error('Failed to create client:', error);
-      addNewClientForm.setError('clientName', {
-        message: 'Failed to create client. Please try again.'
-      });
+      // Remove optimistic client on error
+      setClients(prev => prev.filter(client => client.id !== optimisticId));
+      setTotalCount(prev => Math.max(0, prev - 1));
+      setUnfilteredTotalCount(prev => Math.max(0, prev - 1));
 
-      try {
-        const refreshedSnapshot = await refreshClientsData(context);
-        setClients(refreshedSnapshot.clients);
-        setTotalCount(refreshedSnapshot.total);
-        setCursor(refreshedSnapshot.cursor || null);
-        setHasNextPage(refreshedSnapshot.hasNextPage);
-      } catch (refreshError) {
-        console.error('Failed to refresh clients after error:', refreshError);
-      }
+      console.error('Unexpected error creating client:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      
+      // Reopen dialog to show error
+      setIsAddNewClientDialogOpen(true);
+      addNewClientForm.setError('clientName', {
+        message: error instanceof Error ? error.message : 'Failed to create client. Please try again.'
+      });
     } finally {
       setIsCreatingClient(false);
     }
@@ -277,11 +370,17 @@ export function ClientsContent({
         
         // Refresh clients data from server and update local state
         try {
-          const refreshedSnapshot = await refreshClientsData(context);
+          const refreshedSnapshot = await refreshClientsData(context, {
+            search: debouncedSearchValue,
+            sort: sortValue
+          });
+        startTransition(() => {
           setClients(refreshedSnapshot.clients);
           setTotalCount(refreshedSnapshot.total);
+          setUnfilteredTotalCount(refreshedSnapshot.unfilteredTotalCount);
           setCursor(refreshedSnapshot.cursor || null);
           setHasNextPage(refreshedSnapshot.hasNextPage);
+        });
         } catch (error) {
           console.error('Failed to refresh clients:', error);
         }
@@ -311,7 +410,7 @@ export function ClientsContent({
         }}
       >
         <ClientsHeader
-          totalCount={totalCount}
+          totalCount={displayedTotal}
           searchValue={searchValue}
           onSearchChange={handleSearchChange}
           sortValue={sortValue}
@@ -322,15 +421,41 @@ export function ClientsContent({
       </div>
 
       <ClientsTable
-        clients={clients}
+        clients={displayedClients}
         searchValue={searchValue}
         sortValue={sortValue}
         isLoading={isLoading}
+        isBootstrapping={isFetchingServerResults && displayedClients.length === 0}
+        isSearching={searchValue.trim() !== debouncedSearchValue.trim()}
         hasNextPage={hasNextPage}
+        unfilteredTotalCount={unfilteredTotalCount}
         onLoadMore={loadMore}
         onAddClient={handleAddClientClick}
         parentRef={parentRef}
         headerOffset={headerOffset}
+        context={context}
+        onClientDeleteOptimistic={(clientId) => {
+          // Optimistically remove client from UI immediately (synchronous for instant feedback)
+          setClients(prev => prev.filter(client => client.clientId !== clientId));
+          setTotalCount(prev => Math.max(0, prev - 1));
+          setUnfilteredTotalCount(prev => Math.max(0, prev - 1));
+        }}
+        onClientDeleted={async () => {
+          // Only refresh on error to restore correct state if deletion failed
+          // On success, the optimistic update is already correct, so we merge with server response
+          const refreshedSnapshot = await refreshClientsData(context, {
+            search: debouncedSearchValue,
+            sort: sortValue
+          });
+          startTransition(() => {
+            // Merge server response with optimistic state (server response is source of truth)
+            setClients(refreshedSnapshot.clients);
+            setTotalCount(refreshedSnapshot.total);
+            setUnfilteredTotalCount(refreshedSnapshot.unfilteredTotalCount);
+            setCursor(refreshedSnapshot.cursor || null);
+            setHasNextPage(refreshedSnapshot.hasNextPage);
+          });
+        }}
       />
 
       {/* Add Client Dialog */}

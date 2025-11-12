@@ -65,14 +65,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   const [requestStatus, setRequestStatus] = useState('in_review')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
-  // Optimistic UI state for requests
-  const [optimisticRequests, setOptimisticRequests] = useState<Request[]>(requests)
-  
-  // Update optimistic requests when props change
-  useEffect(() => {
-    setOptimisticRequests(requests)
-  }, [requests])
-  
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
   const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
@@ -97,7 +89,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   } | null>(null)
 
   // Use total count from database, fallback to displayed requests count if not provided
-  const requestCount = totalCount !== undefined ? totalCount : optimisticRequests.length
+  const requestCount = totalCount !== undefined ? totalCount : requests.length
   
   // Transform agency members to combobox options (memoized to prevent recreation)
   const comboboxOptions = useMemo(() => 
@@ -141,15 +133,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         avatarUrl: selectedMember.avatarUrl
       }
       
-      // Optimistic update
-      setOptimisticRequests(prev => 
-        prev.map(req => 
-          req.id === requestId 
-            ? { ...req, assignee: newAssignee } 
-            : req
-        )
-      )
-      
       // Notify parent for bidirectional updates (table → modal)
       if (onRequestUpdate) {
         onRequestUpdate(requestId, { assignee: newAssignee })
@@ -167,10 +150,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           console.error('Failed to update assignee:', error)
         }
         toast.error('Failed to update assignee')
-        // Revert optimistic update on error
-        setOptimisticRequests(requests)
+        // Revert parent state on error
         if (onRequestUpdate) {
-          // Revert parent state as well
           const originalRequest = requests.find(r => r.id === requestId)
           if (originalRequest) {
             onRequestUpdate(requestId, { assignee: originalRequest.assignee })
@@ -186,15 +167,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   const handleClearAssignee = async (requestId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
-    
-    // Optimistic update
-    setOptimisticRequests(prev => 
-      prev.map(req => 
-        req.id === requestId 
-          ? { ...req, assignee: null } 
-          : req
-      )
-    )
     
     // Notify parent for bidirectional updates (table → modal)
     if (onRequestUpdate) {
@@ -213,10 +185,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         console.error('Failed to clear assignee:', error)
       }
       toast.error('Failed to clear assignee')
-      // Revert optimistic update on error
-      setOptimisticRequests(requests)
+      // Revert parent state on error
       if (onRequestUpdate) {
-        // Revert parent state as well
         const originalRequest = requests.find(r => r.id === requestId)
         if (originalRequest) {
           onRequestUpdate(requestId, { assignee: originalRequest.assignee })
@@ -243,15 +213,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     
     const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled'
     
-    // Optimistic update
-    setOptimisticRequests(prev => 
-      prev.map(req => 
-        req.id === requestId 
-          ? { ...req, status: typedStatus } 
-          : req
-      )
-    )
-    
     // Notify parent for bidirectional updates (table → modal)
     if (onRequestUpdate) {
       onRequestUpdate(requestId, { status: typedStatus })
@@ -275,10 +236,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         console.error('Failed to update status:', error)
       }
       toast.error('Failed to update status')
-      // Revert optimistic update on error
-      setOptimisticRequests(requests)
+      // Revert parent state on error
       if (onRequestUpdate) {
-        // Revert parent state as well
         const originalRequest = requests.find(r => r.id === requestId)
         if (originalRequest) {
           onRequestUpdate(requestId, { status: originalRequest.status })
@@ -323,9 +282,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
   
   const handleDeleteRequest = async (requestId: string) => {
-    // Optimistically remove request from table
-    setOptimisticRequests(prev => prev.filter(r => r.id !== requestId))
-    
     // Notify parent for badge count updates
     onRequestDeleted?.(requestId)
     
@@ -338,24 +294,25 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         console.error('Error deleting request:', error)
       }
       toast.error('Failed to delete request')
-      // Revert optimistic update on error
-      setOptimisticRequests(requests)
     }
   }
 
   // Virtual scroll setup using shared hook
   const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
-    items: optimisticRequests,
+    items: requests,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],
     parentRef
   })
   
+  // Check if there are active filters
+  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
+  
   // isNearEnd available for future use (e.g., showing loading indicator)
 
-  // Derived from current filter state — prevents flicker during search clear
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe;
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters;
+  // Empty state logic: ONLY show empty state when no requests exist at all
+  // When requests exist but search returns no results, VirtualTableBody will show "no results"
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
 
   // Empty state component matching ClientsTable design
   const emptyState = isEmptyState ? (
@@ -571,7 +528,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             </div>
           ) : (
             <VirtualTableBody
-            items={optimisticRequests}
+            items={requests}
             virtualItems={virtualItems}
             rowVirtualizer={rowVirtualizer}
             onRowClick={(request) => handleRowClick(request.id)}

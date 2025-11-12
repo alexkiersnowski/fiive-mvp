@@ -4,15 +4,19 @@ import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ListRow } from '@/components/ui/list-row';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Circle, DotsThree, Link, Plus } from '@phosphor-icons/react/ssr';
+import { Circle, DotsThree, Link, Plus, Trash } from '@phosphor-icons/react/ssr';
 import { StatusBadge } from '@/components/ui/connection-badge';
 import { EngagementBadge } from '@/components/ui/engagement-badge';
 import { HealthBadge } from '@/components/ui/health-badge';
 import { ProfileCard } from '@/components/ui/profile-card';
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table';
+import { toast } from 'sonner';
+import { deleteClient } from './actions';
 import type { Client } from './types';
+import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 // Style constants to prevent object recreation on each render
 const STYLES = {
@@ -58,11 +62,17 @@ interface ClientsTableProps {
   searchValue?: string;
   sortValue?: string;
   isLoading?: boolean;
+  isBootstrapping?: boolean;
+  isSearching?: boolean; // True when search is pending server confirmation
   hasNextPage?: boolean;
+  unfilteredTotalCount?: number; // Total count without search/filter applied
   onAddClient?: () => void;
   onLoadMore?: (virtualRows: any[]) => void;
   parentRef?: React.RefObject<HTMLDivElement | null>;
   headerOffset?: number;
+  context: EnhancedModeContext;
+  onClientDeleted?: () => void; // Callback to refresh data after deletion
+  onClientDeleteOptimistic?: (clientId: string) => void; // Callback for optimistic removal
 }
 
 // Extract column components for better readability and reusability
@@ -222,8 +232,29 @@ const HealthCell = React.memo(function HealthCell({ client }: { client: Client }
   );
 });
 
-const ActionsCell = React.memo(function ActionsCell({ client }: { client: Client }) {
+const ActionsCell = React.memo(function ActionsCell({ 
+  client, 
+  context, 
+  onDeleteClick 
+}: { 
+  client: Client; 
+  context: EnhancedModeContext;
+  onDeleteClick: (clientId: string, clientName: string) => void;
+}) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const isDraft = client.is_draft === true;
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!client.clientId) {
+      toast.error('Unable to delete: Client ID not found');
+      return;
+    }
+
+    setIsDropdownOpen(false);
+    onDeleteClick(client.clientId, client.name);
+  };
 
   return (
     <TableCell className="py-0 w-[44px] p-0" onClick={(e) => e.stopPropagation()}>
@@ -246,6 +277,20 @@ const ActionsCell = React.memo(function ActionsCell({ client }: { client: Client
             <Link size={16} style={{ color: 'var(--color-base-text-primary)' }} />
             Connection settings
           </DropdownMenuItem>
+          {isDraft && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleDelete}
+                className="focus:bg-red-50"
+              >
+                <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
+                <span style={{ color: 'var(--color-red-11)' }}>
+                  Delete draft
+                </span>
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </TableCell>
@@ -257,109 +302,77 @@ export function ClientsTable({
   searchValue = '',
   sortValue = 'alphabetical',
   isLoading = false,
+  isBootstrapping = false,
+  isSearching = false,
   hasNextPage = false,
+  unfilteredTotalCount = 0,
   onAddClient,
   onLoadMore,
   parentRef,
   headerOffset = 0,
+  context,
+  onClientDeleted,
+  onClientDeleteOptimistic,
 }: ClientsTableProps) {
   const router = useRouter();
   const [selectedAccountManager, setSelectedAccountManager] = useState<Client['accountManager'] | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{clientId: string; clientName: string} | null>(null);
+
+  const handleDeleteClick = useCallback((clientId: string, clientName: string) => {
+    setPendingDelete({ clientId, clientName });
+    setDeleteDialogOpen(true);
+  }, []);
+
+  const confirmDeleteClient = useCallback(async () => {
+    if (pendingDelete) {
+      const { clientId, clientName } = pendingDelete;
+      
+      // Optimistically remove client from UI immediately (row disappears right away)
+      onClientDeleteOptimistic?.(clientId);
+      
+      // Close dialog (name stays visible during close animation because pendingDelete state persists)
+      setDeleteDialogOpen(false);
+      
+      // Clear pendingDelete after dialog closes (keeps name visible during close animation)
+      setTimeout(() => {
+        setPendingDelete(null);
+      }, 200); // Delay to let dialog close animation complete
+      
+      // Show success toast immediately
+      toast.success('Draft client deleted');
+      
+      // Delete in background - only refresh on error to restore state
+      try {
+        const result = await deleteClient(clientId, context);
+        if (!result.success) {
+          // If deletion failed, refresh from server to restore correct state
+          toast.error(result.error || 'Failed to delete draft client');
+          onClientDeleted?.();
+        }
+        // On success, optimistic update is already correct - no refresh needed
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error deleting client:', error);
+        }
+        // If deletion failed, refresh from server to restore correct state
+        toast.error('Failed to delete draft client');
+        onClientDeleted?.();
+      }
+    }
+  }, [pendingDelete, context, onClientDeleted, onClientDeleteOptimistic]);
 
   const handleAccountManagerClick = useCallback((accountManager: Client['accountManager']) => {
     setSelectedAccountManager(accountManager);
     setProfileDialogOpen(true);
   }, []);
 
+  // Clients are already filtered and sorted server-side
+  // No need for client-side filtering/sorting anymore
   const displayedClients = useMemo(() => {
-    let filtered = clients;
-    if (searchValue.trim()) {
-      const query = searchValue.toLowerCase().trim();
-      const searchTerms = query.split(' ').filter((term) => term.length > 0);
-
-      filtered = clients.filter((client) => {
-        if (searchTerms.length === 0) return true;
-
-        const searchableText = [
-          client.name.toLowerCase(),
-          client.accountManager.name.toLowerCase(),
-          client.status.toLowerCase(),
-          client.health.toLowerCase(),
-          client.contractEnd?.toLowerCase() || '',
-          client.badge?.toLowerCase() || '',
-        ].join(' ');
-
-        return searchTerms.every((term) => searchableText.includes(term));
-      });
-    }
-
-    const sorted = [...filtered].sort((a, b) => {
-      switch (sortValue) {
-        case 'newest-first':
-          {
-            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-
-            if (dateA !== dateB) {
-              return dateB - dateA;
-            }
-
-            return a.name.localeCompare(b.name);
-          }
-        case 'alphabetical':
-          return a.name.localeCompare(b.name);
-        case 'reverse-alphabetical':
-          return b.name.localeCompare(a.name);
-        case 'contract-end-soonest':
-          if (!a.contractEnd && !b.contractEnd) return 0;
-          if (!a.contractEnd) return 1;
-          if (!b.contractEnd) return -1;
-          const parseDate = (dateStr: string) => {
-            const [day, month, year] = dateStr.split(' ');
-            const monthMap: { [key: string]: number } = {
-              Jan: 0,
-              Feb: 1,
-              Mar: 2,
-              Apr: 3,
-              May: 4,
-              Jun: 5,
-              Jul: 6,
-              Aug: 7,
-              Sep: 8,
-              Oct: 9,
-              Nov: 10,
-              Dec: 11,
-            };
-            return new Date(parseInt(year), monthMap[month], parseInt(day));
-          };
-          const dateA = parseDate(a.contractEnd);
-          const dateB = parseDate(b.contractEnd);
-          return dateA.getTime() - dateB.getTime();
-        case 'status-critical-first': {
-          const healthPriority = {
-            critical: 0,
-            'at-risk': 1,
-            healthy: 2,
-            unassigned: 3,
-          };
-
-          const priorityA = healthPriority[a.health as keyof typeof healthPriority] ?? 999;
-          const priorityB = healthPriority[b.health as keyof typeof healthPriority] ?? 999;
-
-          if (priorityA !== priorityB) {
-            return priorityA - priorityB;
-          }
-
-          return a.name.localeCompare(b.name);
-        }
-        default:
-          return a.name.localeCompare(b.name);
-      }
-    });
-
-    return sorted;
-  }, [clients, searchValue, sortValue]);
+    return clients;
+  }, [clients]);
 
   const guardedLoadMore = useCallback(
     (virtualRows: any[]) => {
@@ -383,65 +396,49 @@ export function ClientsTable({
     [router],
   );
 
-  const emptyStateContent =
-    !isLoading && clients.length === 0 ? (
-      <TableRow
-        className="hover:bg-transparent"
-        style={{
-          backgroundColor: 'var(--color-base-surface-page-background)',
-          borderBottomColor: 'var(--color-neutral-5)',
-          height: '100%',
-        }}
+  // Empty state logic: ONLY show empty state when no connections exist at all
+  // When connections exist but search returns no results, VirtualTableBody will show "no results"
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+
+  // Empty state component matching RequestsTable/TasksTable design
+  // Only show full-page empty state when truly empty (no connections exist)
+  // Let VirtualTableBody handle "No results" with its built-in message
+  const emptyStateContent = isEmptyState ? (
+    <TableRow
+      className="hover:bg-transparent"
+      style={{
+        backgroundColor: 'var(--color-base-surface-page-background)',
+        borderBottomColor: 'var(--color-neutral-5)',
+        height: '100%',
+      }}
+    >
+      <TableCell
+        colSpan={7}
+        className="text-left"
+        style={{ height: 'calc(100vh - 200px)', minHeight: '400px', paddingLeft: '120px' }}
       >
-        <TableCell
-          colSpan={7}
-          className="text-left"
-          style={{ height: 'calc(100vh - 200px)', minHeight: '400px', paddingLeft: '120px' }}
-        >
-          <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-            <div className="flex flex-col items-start gap-2">
-              <h2 className="display-8-medium">Your best work starts here</h2>
-              <span className="text-sm-regular text-neutral-11">
-                Add your first client and start creating connections that drive success
-              </span>
-            </div>
-            {onAddClient && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-                onClick={onAddClient}
-              >
-                <Plus size={16} weight="regular" />
-                Add client
-              </Button>
-            )}
+        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+          <div className="flex flex-col items-start gap-2">
+            <h2 className="display-8-medium">Your best work starts here</h2>
+            <span className="text-sm-regular text-neutral-11">
+              Add your first client and start creating connections that drive success
+            </span>
           </div>
-        </TableCell>
-      </TableRow>
-    ) : !isLoading && displayedClients.length === 0 ? (
-      <TableRow
-        className="hover:bg-transparent"
-        style={{
-          backgroundColor: 'var(--color-base-surface-page-background)',
-          borderBottomColor: 'var(--color-neutral-5)',
-          height: '100%',
-        }}
-      >
-        <TableCell
-          colSpan={7}
-          className="text-left"
-          style={{ height: 'calc(100vh - 200px)', minHeight: '400px', paddingLeft: '120px' }}
-        >
-          <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-            <div className="flex flex-col items-start gap-2">
-              <h2 className="display-8-medium">No results</h2>
-              <span className="text-sm-regular text-neutral-11">No clients match your search criteria</span>
-            </div>
-          </div>
-        </TableCell>
-      </TableRow>
-    ) : undefined;
+          {onAddClient && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+              onClick={onAddClient}
+            >
+              <Plus size={16} weight="regular" />
+              Add client
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  ) : undefined;
 
   const columnLayout = (
     <colgroup>
@@ -538,6 +535,11 @@ export function ClientsTable({
             backgroundColor: 'var(--color-neutral-2)',
           }}
         >
+          {(isBootstrapping || (isSearching && displayedClients.length === 0 && searchValue.trim().length > 0)) ? (
+            <div className="px-5 py-2">
+              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+            </div>
+          ) : (
           <VirtualTableBody
             items={displayedClients}
             virtualItems={virtualItems}
@@ -554,22 +556,13 @@ export function ClientsTable({
                 <StatusCell client={client} />
                 <ContractEndCell client={client} />
                 <HealthCell client={client} />
-                <ActionsCell client={client} />
+                <ActionsCell client={client} context={context} onDeleteClick={handleDeleteClick} />
               </>
             )}
           />
+          )}
         </div>
       </div>
-     
-      {isLoading && (
-        <div
-          className="flex items-center justify-center gap-2 py-4 text-sm-regular"
-          style={{ color: 'var(--color-base-text-tertiary)' }}
-        >
-          <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
-          Loading more clients...
-        </div>
-      )}
 
       {selectedAccountManager && (
         <ProfileCard
@@ -593,6 +586,40 @@ export function ClientsTable({
           }}
         />
       )}
+
+      {/* Delete Client Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent style={{ padding: '24px', width: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto">
+          <DialogHeader className="space-y-0">
+            <DialogTitle className="display-5-medium mb-0">
+              Delete {pendingDelete?.clientName}?
+            </DialogTitle>
+          </DialogHeader>
+          <DialogDescription 
+            className="text-sm-regular mb-0"
+          >
+            This will permanently delete the draft client and all related data. It won't affect any live clients or shared workspaces.
+          </DialogDescription>
+          <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
+            <Button 
+              variant="ghost" 
+              onClick={() => setDeleteDialogOpen(false)}
+              style={{ height: '40px' }}
+              className="cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={confirmDeleteClient}
+              style={{ height: '40px' }}
+              className="cursor-pointer"
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

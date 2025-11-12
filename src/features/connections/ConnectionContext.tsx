@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, Dispatch, SetStateAction } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, Dispatch, SetStateAction } from 'react';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 
@@ -31,8 +31,19 @@ export function ConnectionProvider({
     }
   }, [snapshot.newRequestsCount]);
   
+  // Memoize context value to prevent unnecessary re-renders
+  // Only recreate when snapshot, context, isEmpty, or newRequestsCount actually change
+  const contextValue = useMemo(() => ({
+    snapshot,
+    context,
+    isEmpty,
+    setIsEmpty,
+    newRequestsCount,
+    setNewRequestsCount,
+  }), [snapshot, context, isEmpty, newRequestsCount]);
+  
   return (
-    <ConnectionContext.Provider value={{ snapshot, context, isEmpty, setIsEmpty, newRequestsCount, setNewRequestsCount }}>
+    <ConnectionContext.Provider value={contextValue}>
       {children}
     </ConnectionContext.Provider>
   );

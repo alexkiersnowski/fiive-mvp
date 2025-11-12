@@ -1,6 +1,6 @@
 'use client'
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useEffect, useRef } from 'react';
@@ -15,8 +15,10 @@ interface ConnectionTabsProps {
 
 export function ConnectionTabs({ connectionId, baseRoute, currentUserType, newRequestsCount }: ConnectionTabsProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const previousPathnameRef = useRef(pathname);
   const scrollableElementRef = useRef<HTMLElement | null>(null);
+  const prefetchedTabsRef = useRef<Set<string>>(new Set());
 
   // Scroll to top when tab changes
   useEffect(() => {
@@ -73,6 +75,25 @@ export function ConnectionTabs({ connectionId, baseRoute, currentUserType, newRe
     { name: 'Projects', href: `${baseHref}/projects` },
   ];
 
+  // Aggressively prefetch all tab routes on mount for instant navigation
+  useEffect(() => {
+    tabs.forEach((tab) => {
+      if (!prefetchedTabsRef.current.has(tab.href)) {
+        router.prefetch(tab.href);
+        prefetchedTabsRef.current.add(tab.href);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionId, baseRoute, router]); // Re-prefetch if connectionId or baseRoute changes
+
+  // Prefetch on hover for additional responsiveness
+  const handleTabHover = (href: string) => {
+    if (!prefetchedTabsRef.current.has(href)) {
+      router.prefetch(href);
+      prefetchedTabsRef.current.add(href);
+    }
+  };
+
   return (
     <div 
       style={{
@@ -89,9 +110,12 @@ export function ConnectionTabs({ connectionId, baseRoute, currentUserType, newRe
             <Link
               key={tab.href}
               href={tab.href}
+              prefetch={true}
               role="tab"
               aria-current={isActive ? 'page' : undefined}
               className="inline-flex items-center"
+              onMouseEnter={() => handleTabHover(tab.href)}
+              onFocus={() => handleTabHover(tab.href)}
             >
               <span
                 className={cn(

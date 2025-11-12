@@ -41,6 +41,7 @@ interface ProjectsTableProps {
   unfilteredTotalCount?: number
   parentRef?: React.RefObject<HTMLDivElement | null>
   isBootstrapping?: boolean
+  isSearching?: boolean
   isAgency?: boolean
   agencyOrganization?: {
     id: string
@@ -52,7 +53,7 @@ interface ProjectsTableProps {
   onSortChange?: (sortValue: string) => void
 }
 
-export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
+export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
   
   const pathname = usePathname()
   const router = useRouter()
@@ -69,14 +70,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{projectId: string; projectName: string} | null>(null)
-  
-  // Optimistic UI state for projects
-  const [optimisticProjects, setOptimisticProjects] = useState<Project[]>(projects)
-  
-  // Update optimistic projects when props change
-  useEffect(() => {
-    setOptimisticProjects(projects)
-  }, [projects])
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
@@ -102,7 +95,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   } | null>(null)
 
   // Use total count from database, fallback to displayed projects count if not provided
-  const projectCount = totalCount !== undefined ? totalCount : optimisticProjects.length
+  const projectCount = totalCount !== undefined ? totalCount : projects.length
   
   // Transform agency members to combobox options (memoized to prevent recreation)
   const comboboxOptions = useMemo(() => 
@@ -150,15 +143,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
         avatarUrl: selectedMember.avatarUrl
       }
       
-      // Optimistic update
-      setOptimisticProjects(prev => 
-        prev.map(proj => 
-          proj.id === projectId 
-            ? { ...proj, assignee: newAssignee } 
-            : proj
-        )
-      )
-      
       // Notify parent for bidirectional updates (table → modal)
       if (onProjectUpdate) {
         onProjectUpdate(projectId, { assignee: newAssignee })
@@ -176,10 +160,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
           console.error('Failed to update assignee:', error)
         }
         toast.error('Failed to update assignee')
-        // Revert optimistic update on error
-        setOptimisticProjects(projects)
+        // Revert parent state on error
         if (onProjectUpdate) {
-          // Revert parent state as well
           const originalProject = projects.find(p => p.id === projectId)
           if (originalProject) {
             onProjectUpdate(projectId, { assignee: originalProject.assignee })
@@ -195,15 +177,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   const handleClearAssignee = async (projectId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
-    
-    // Optimistic update
-    setOptimisticProjects(prev => 
-      prev.map(proj => 
-        proj.id === projectId 
-          ? { ...proj, assignee: null } 
-          : proj
-      )
-    )
     
     // Notify parent for bidirectional updates (table → modal)
     if (onProjectUpdate) {
@@ -222,10 +195,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
         console.error('Failed to clear assignee:', error)
       }
       toast.error('Failed to clear assignee')
-      // Revert optimistic update on error
-      setOptimisticProjects(projects)
+      // Revert parent state on error
       if (onProjectUpdate) {
-        // Revert parent state as well
         const originalProject = projects.find(p => p.id === projectId)
         if (originalProject) {
           onProjectUpdate(projectId, { assignee: originalProject.assignee })
@@ -252,15 +223,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     
     const typedStatus = newStatus as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
     
-    // Optimistic update
-    setOptimisticProjects(prev => 
-      prev.map(proj => 
-        proj.id === projectId 
-          ? { ...proj, status: typedStatus } 
-          : proj
-      )
-    )
-    
     // Notify parent for bidirectional updates (table → modal)
     if (onProjectUpdate) {
       onProjectUpdate(projectId, { status: typedStatus })
@@ -285,10 +247,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
         console.error('Failed to update status:', error)
       }
       toast.error('Failed to update status')
-      // Revert optimistic update on error
-      setOptimisticProjects(projects)
+      // Revert parent state on error
       if (onProjectUpdate) {
-        // Revert parent state as well
         const originalProject = projects.find(p => p.id === projectId)
         if (originalProject) {
           onProjectUpdate(projectId, { status: originalProject.status })
@@ -333,7 +293,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   }
   
   const handleDeleteProject = (projectId: string) => {
-    const project = optimisticProjects.find(p => p.id === projectId)
+    const project = projects.find(p => p.id === projectId)
     if (project) {
       setPendingDelete({ projectId, projectName: project.title })
       setDeleteDialogOpen(true)
@@ -349,9 +309,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
       // Show success toast immediately
       toast.success('Project deleted')
       
-      // Optimistically remove project from table
-      setOptimisticProjects(prev => prev.filter(p => p.id !== pendingDelete.projectId))
-      
       // Notify parent for badge count updates
       onProjectDeleted?.(pendingDelete.projectId)
       
@@ -361,8 +318,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
           console.error('Error deleting project:', error)
         }
         toast.error('Failed to delete project')
-        // Revert optimistic update on error
-        setOptimisticProjects(projects)
       })
       
       // Real-time subscription will handle UI updates
@@ -371,7 +326,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
 
   // Virtual scroll setup using shared hook
   const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
-    items: optimisticProjects,
+    items: projects,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],
     parentRef
@@ -379,9 +334,9 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   
   // isNearEnd available for future use (e.g., showing loading indicator)
 
-  // Derived from current filter state — prevents flicker during search clear
-  const hasActiveFilters = searchQuery.trim().length > 0;
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters;
+  // Empty state logic: ONLY show empty state when no projects exist at all
+  // When projects exist but search returns no results, VirtualTableBody will show "no results"
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
 
   // Empty state component matching ClientsTable design
   const emptyState = isEmptyState ? (
@@ -522,7 +477,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
       </div>
 
       {/* Table Header - Sticky */}
-      {(unfilteredTotalCount > 0 || hasActiveFilters) && (
+      {(unfilteredTotalCount > 0 || searchQuery.trim().length > 0) && (
       <div className="sticky top-[112px] z-10 bg-[var(--color-base-surface-page-background)] px-5">
         <Table className="table-fixed w-full border-collapse">
           <TableHeader>
@@ -557,14 +512,14 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
       {/* Table Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="px-5 pb-5">
-          {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
-          {isBootstrapping && projects.length === 0 ? (
+          {/* During initial bootstrap or when searching, suppress empty-state flash with skeleton block */}
+          {(isBootstrapping || (isSearching && projects.length === 0 && searchQuery.trim().length > 0)) ? (
             <div>
               <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
             </div>
           ) : (
             <VirtualTableBody
-            items={optimisticProjects}
+            items={projects}
             virtualItems={virtualItems}
             rowVirtualizer={rowVirtualizer}
             onRowClick={(project) => handleRowClick(project.id)}

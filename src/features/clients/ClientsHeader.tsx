@@ -57,7 +57,7 @@ export function ClientsHeader({
 
       <div className="flex items-center justify-between">
         <SearchInput
-          placeholder="Search clients"
+          placeholder="Search clients…"
           count={totalCount}
           countLabel={totalCount === 1 ? 'client' : 'clients'}
           value={searchValue}

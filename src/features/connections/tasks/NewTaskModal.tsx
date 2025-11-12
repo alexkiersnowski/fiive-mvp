@@ -26,6 +26,7 @@ interface NewTaskModalProps {
     orgName?: string
     orgType?: 'agency' | 'client'
   }>
+  projects?: Array<{ id: string; name: string }> // Optional: if provided, skip fetching projects
   isOpen: boolean
   onClose: () => void
   onTaskOptimistic?: (payload: {
@@ -42,7 +43,7 @@ interface NewTaskModalProps {
   variant?: 'agency' | 'client'
 }
 
-export function NewTaskModal({ client, agencyMembers = [], isOpen, onClose, onTaskOptimistic, onTaskCreated, connectionId, currentOrgId, variant = 'agency' }: NewTaskModalProps) {
+export function NewTaskModal({ client, agencyMembers = [], projects: providedProjects, isOpen, onClose, onTaskOptimistic, onTaskCreated, connectionId, currentOrgId, variant = 'agency' }: NewTaskModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
@@ -52,18 +53,21 @@ export function NewTaskModal({ client, agencyMembers = [], isOpen, onClose, onTa
   const [description, setDescription] = useState('')
   const [projectId, setProjectId] = useState<string>('')
   const [assigneeUserId, setAssigneeUserId] = useState<string | null>(null)
-  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>(providedProjects || [])
   
-  // Fetch projects when modal opens
+  // Fetch projects when modal opens only if not provided as prop (optimization: use pre-fetched projects)
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !providedProjects) {
       fetchProjectsForConnection(connectionId)
         .then(setProjects)
         .catch(error => {
           console.error('Error fetching projects:', error)
         })
+    } else if (providedProjects) {
+      // Use provided projects immediately (no fetch needed)
+      setProjects(providedProjects)
     }
-  }, [isOpen, connectionId])
+  }, [isOpen, connectionId, providedProjects])
   
   // Auto-focus title when modal opens and reset form when it closes
   useEffect(() => {

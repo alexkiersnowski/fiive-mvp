@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
-import type { ConnectionResult, NewClientResult, ClientsSnapshot } from './types';
+import type { ConnectionResult, NewClientResult, NewClientPayload, DeleteClientResult, ClientsSnapshot } from './types';
 import { getClientsSnapshot } from './server';
 
 /**
@@ -16,6 +16,23 @@ export async function createNewClient(
   context: EnhancedModeContext
 ): Promise<NewClientResult> {
   try {
+    // Validate context before proceeding
+    if (!context || !context.orgId || !context.userId) {
+      console.error('Invalid context provided to createNewClient:', { context });
+      return {
+        success: false,
+        error: 'Invalid session. Please refresh the page and try again.',
+      };
+    }
+
+    // Only agencies can create clients
+    if (context.variant !== 'agency') {
+      return {
+        success: false,
+        error: 'Only agencies can create clients',
+      };
+    }
+
     const trimmedName = clientName.trim();
 
     if (!trimmedName) {
@@ -32,28 +49,79 @@ export async function createNewClient(
       };
     }
 
+    // Validate owner ID exists
+    const ownerId = context.organization.ownerId ?? context.userId;
+    if (!ownerId) {
+      console.error('Missing owner ID in context:', { context });
+      return {
+        success: false,
+        error: 'Unable to determine organization owner. Please refresh the page and try again.',
+      };
+    }
+
     const supabase = await createClient();
 
-    const { data, error } = await supabase
+    // Call RPC with timeout protection
+    const rpcPromise = supabase
       .rpc('create_draft_client_connection', {
         p_agency_id: context.orgId,
         // Always assign the draft client to the agency owner so ownership stays with the org
-        p_owner_id: context.organization.ownerId ?? context.userId,
+        p_owner_id: ownerId,
         p_client_name: trimmedName,
       })
       .single();
 
+    // Add timeout to prevent hanging requests
+    const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
+      setTimeout(() => resolve({ data: null, error: { message: 'Request timeout' } }), 10000); // 10 second timeout
+    });
+
+    let data, error;
+    try {
+      const result = await Promise.race([rpcPromise, timeoutPromise]);
+      data = result.data;
+      error = result.error;
+      
+      // Check if timeout occurred
+      if (error && error.message === 'Request timeout') {
+        console.error('RPC call timed out:', {
+          input: { agencyId: context.orgId, ownerId, clientName: trimmedName },
+        });
+        return {
+          success: false,
+          error: 'Request timed out. Please try again.',
+        };
+      }
+    } catch (unexpectedError) {
+      console.error('Unexpected error during RPC call:', {
+        unexpectedError,
+        input: { agencyId: context.orgId, ownerId, clientName: trimmedName },
+      });
+      return {
+        success: false,
+        error: 'An unexpected error occurred. Please try again.',
+      };
+    }
+
     if (error || !data) {
+      // Type-safe error handling
+      const errorObj = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+      
       console.error('Error creating draft client connection:', {
         error,
         data,
-        input: { agencyId: context.orgId, ownerId: context.userId, clientName: trimmedName },
+        input: { agencyId: context.orgId, ownerId, clientName: trimmedName },
+        errorCode: errorObj?.code,
+        errorMessage: errorObj?.message,
+        errorDetails: errorObj?.details,
+        errorHint: errorObj?.hint,
       });
 
+      // Extract error message with priority order
       const message =
-        (error && ('message' in error ? error.message : undefined)) ||
-        (error && ('details' in error ? (error as { details?: string }).details : undefined)) ||
-        (error && ('hint' in error ? (error as { hint?: string }).hint : undefined)) ||
+        errorObj?.message ||
+        errorObj?.details ||
+        errorObj?.hint ||
         'Failed to create client. Please try again.';
 
       return {
@@ -62,14 +130,19 @@ export async function createNewClient(
       };
     }
 
+    // Revalidate the clients page to show the new client
     revalidatePath('/clients');
 
     return {
       success: true,
-      data,
+      data: data as NewClientPayload,
     };
   } catch (error) {
-    console.error('Error creating client:', error);
+    console.error('Unexpected error creating client:', {
+      error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to create client. Please try again.'
@@ -207,9 +280,14 @@ export async function connectToExistingClient(
  * Used to update the client-side state after mutations
  */
 export async function refreshClientsData(
-  context: EnhancedModeContext
+  context: EnhancedModeContext,
+  options?: { search?: string; sort?: string }
 ): Promise<ClientsSnapshot> {
-  const snapshot = await getClientsSnapshot(context);
+  const snapshot = await getClientsSnapshot(context, {
+    search: options?.search || '',
+    sort: options?.sort || 'newest-first',
+    limit: 50
+  });
   return snapshot;
 }
 
@@ -292,12 +370,64 @@ export async function updateClientStatus(
   revalidatePath('/clients');
 }
 
+/**
+ * Deletes a draft client organization and all related data.
+ * Only works for draft clients (is_draft = true) that have never been invited/claimed.
+ * For non-draft clients, use soft delete instead.
+ */
 export async function deleteClient(
   clientId: string,
   context: EnhancedModeContext
-) {
-  // TODO: Implement actual client deletion
-  console.log('Deleting client:', { clientId, context });
-  
+): Promise<DeleteClientResult> {
+  try {
+    // Only agencies can delete clients
+    if (context.variant !== 'agency') {
+      return {
+        success: false,
+        error: 'Only agencies can delete clients',
+      };
+    }
+
+    const supabase = await createClient();
+
+    // Call the RPC function to delete the draft client
+    const { error } = await supabase.rpc('delete_draft_client', {
+      p_client_id: clientId,
+      p_agency_id: context.orgId,
+      p_user_id: context.userId,
+    });
+
+    if (error) {
+      console.error('Error deleting draft client:', {
+        error,
+        clientId,
+        agencyId: context.orgId,
+        userId: context.userId,
+      });
+
+      const message =
+        (error && ('message' in error ? error.message : undefined)) ||
+        (error && ('details' in error ? (error as { details?: string }).details : undefined)) ||
+        (error && ('hint' in error ? (error as { hint?: string }).hint : undefined)) ||
+        'Failed to delete client. Please try again.';
+
+      return {
+        success: false,
+        error: message,
+      };
+    }
+
+    // Revalidate the clients page to reflect the deletion
   revalidatePath('/clients');
+
+    return {
+      success: true,
+    };
+  } catch (error) {
+    console.error('Error deleting client:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to delete client. Please try again.',
+    };
+  }
 }

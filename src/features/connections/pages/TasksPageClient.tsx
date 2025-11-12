@@ -197,24 +197,6 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     }
   }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, startTransition, sortTasksWithMode, clientTeamMemberIds])
 
-  // Helper to check if a task matches current search criteria
-  const matchesSearchCriteria = useCallback((task: Task): boolean => {
-    if (!debouncedSearchQuery) return true
-    
-    const query = debouncedSearchQuery.toLowerCase().trim()
-    const matchesTitle = task.title.toLowerCase().includes(query)
-    const matchesDescription = task.description?.toLowerCase().includes(query) || false
-    const matchesProject = task.project?.name.toLowerCase().includes(query) || false
-    const matchesStatus = task.status.toLowerCase().includes(query) || 
-                         (query === 'to do' && task.status === 'to_do') ||
-                         (query === 'todo' && task.status === 'to_do') ||
-                         (query.includes('progress') && task.status === 'in_progress') ||
-                         (query === 'on hold' && task.status === 'on_hold') ||
-                         (query === 'done' && task.status === 'done')
-    
-    return matchesTitle || matchesDescription || matchesProject || matchesStatus
-  }, [debouncedSearchQuery])
-
   // DRY: prepend unique task by id
   const prependUnique = useCallback((task: Task) => {
     setTasks(prev => {
@@ -363,10 +345,10 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Reset pagination and fetch new results when debounced search query changes
+  // Reset pagination and fetch new results when debounced search query or assignedToMe changes
   useEffect(() => {
-    // Skip on initial mount if there's no search query (we already have initialTasks)
-    if (isInitialMount.current && !debouncedSearchQuery) {
+    // Skip on initial mount if there's no search query and not assigned to me (we already have initialTasks)
+    if (isInitialMount.current && !debouncedSearchQuery && !assignedToMe) {
       isInitialMount.current = false
       return
     }
@@ -535,16 +517,16 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             const task = await fetchTaskById(connectionId, newId)
             if (!task) return
             
-            // If search is active, only add if it matches search criteria
-            if (debouncedSearchQuery && !matchesSearchCriteria(task)) {
-              // Still update unfiltered count but don't add to visible list
+            // Server-side filtering handles search/assignee filters
+            // If filters are active, refresh first page to get filtered results
+            if (debouncedSearchQuery || assignedToMe) {
+              await refreshFirstPage()
+            } else {
+              // No filters - add directly
+              prependUnique(task)
+              setTotalCount(c => c + 1)
               setUnfilteredTotalCount(c => c + 1)
-              return
             }
-            
-            prependUnique(task)
-            setTotalCount(c => c + 1)
-            setUnfilteredTotalCount(c => c + 1)
           } catch (_) {
             // fallback to full refresh if single-row fetch fails
             await refreshFirstPage()
@@ -568,7 +550,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             return
           }
           
-          // For non-delete updates, fetch single row and merge
+          // For non-delete updates, refresh first page to ensure server-side filtering is applied
+          // This ensures the task appears/disappears based on current filters
           try {
             const task = await fetchTaskById(connectionId, updated.id)
             if (!task) return
@@ -595,30 +578,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
               return prev
             })
             
-            // If search is active, check if task matches search criteria
-            if (debouncedSearchQuery) {
-              const matches = matchesSearchCriteria(task)
-              const isCurrentlyVisible = tasks.some(t => t.id === task.id)
-              
-              if (matches && !isCurrentlyVisible) {
-                // Matches search but not currently visible - add it
-                prependUnique(task)
-                setTotalCount(c => c + 1)
-              } else if (!matches && isCurrentlyVisible) {
-                // No longer matches search - remove it
-                const wasRemoved = removeById(task.id)
-                if (wasRemoved) {
-                  setTotalCount(c => Math.max(0, c - 1))
-                }
-              } else if (matches && isCurrentlyVisible) {
-                // Matches and is visible - update it
-                setTasks(prev => sortTasksWithMode(prev.map(r => (r.id === task.id ? task : r))))
-              }
-              // If doesn't match and not visible, do nothing
-            } else {
-              // No search active - update normally
-              setTasks(prev => sortTasksWithMode(prev.map(r => (r.id === task.id ? task : r))))
-            }
+            // Refresh first page to apply server-side filtering
+            await refreshFirstPage()
           } catch (_) {
             await refreshFirstPage()
           }
@@ -629,7 +590,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById, matchesSearchCriteria, tasks, sortTasksWithMode])
+  }, [connectionId, debouncedSearchQuery, assignedToMe, refreshFirstPage, prependUnique, removeById])
 
   // Load more tasks function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
@@ -790,50 +751,13 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   const handleToggleAssignedToMe = useCallback(() => {
     const next = !assignedToMe
     setAssignedToMe(next)
-    // Update URL
+    // Update URL - the fetch useEffect will handle the actual fetch when assignedToMe state changes
     const newSearchParams = new URLSearchParams(searchParams.toString())
     if (next) newSearchParams.set('assigned', 'me')
     else newSearchParams.delete('assigned')
     const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
     router.replace(newUrl, { scroll: false })
-    
-    // Cancel all in-flight tasks
-    inFlightTasks.current.clear()
-    isLoadingMore.current = false
-    // Clear all prefetch timeouts
-    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-    prefetchTimeouts.current.clear()
-    
-    // Fetch new results (keep previous results visible during fetch, like search)
-    const fetchFilteredResults = async () => {
-      try {
-        const result = await fetchTasksForConnection(connectionId, {
-          limit: PAGE_SIZE,
-          offset: 0,
-          searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: next && context.variant === 'agency' ? context.user?.id : undefined,
-          assignedToUserIds: next && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-          sortMode
-        })
-        if (!isMountedRef.current) return
-        setTasks(sortTasksWithMode(result.tasks))
-        setTotalCount(result.totalCount)
-        setHasMore(result.tasks.length === PAGE_SIZE)
-        setCurrentOffset(PAGE_SIZE)
-        setPrefetchedTasks([])
-        setPrefetchedOffset(null)
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch filtered results:', error)
-        }
-        if (isMountedRef.current) {
-          setHasMore(false)
-        }
-      }
-    }
-    
-    fetchFilteredResults()
-  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id, context.variant, sortMode, sortTasksWithMode, clientTeamMemberIds])
+  }, [assignedToMe, searchParams, pathname, router])
 
   // Prefetch next batch when initial tasks load or after consuming prefetched data
   useEffect(() => {
@@ -1303,6 +1227,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           logoUrl: snapshot.partner.logo
         }}
         agencyMembers={sortedMembers}
+        projects={projects}
         isOpen={isNewModalOpen}
         onClose={handleNewModalClose}
         onTaskOptimistic={handleTaskOptimistic}

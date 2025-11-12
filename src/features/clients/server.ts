@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
+import { escapeForILike } from '@/lib/utils';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ClientsSnapshot, Client, ClientsPaginationOptions } from './types';
 
@@ -76,12 +77,44 @@ export const getClientsSnapshot = cache(async (
 ): Promise<ClientsSnapshot> => {
   const { search = '', cursor, limit = 50, sort = 'newest-first' } = options;
   
-  // Fetch real data from connections table
+  // Validate context before proceeding
+  if (!context || !context.orgId || !context.userId) {
+    console.error('Invalid context provided to getClientsSnapshot:', { context });
+    return {
+      clients: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+    };
+  }
+
+  // Only agencies can view clients
+  if (context.variant !== 'agency') {
+    console.error('Non-agency context provided to getClientsSnapshot:', { variant: context.variant });
+    return {
+      clients: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+    };
+  }
+  
   const supabase = await createClient();
   
-  // Get connections for this agency with related organization and contact data
-  // RLS policy allows reading organizations through connections if user's org owns the connection
-  const { data: connections, error } = await supabase
+  // Always fetch unfiltered total count first (for empty state logic)
+  const { count: unfilteredTotalCount, error: unfilteredCountError } = await supabase
+    .from('connections')
+    .select('id', { count: 'exact', head: true })
+    .eq('agency_id', context.orgId);
+  
+  if (unfilteredCountError) {
+    console.error('Error fetching unfiltered total count:', unfilteredCountError);
+  }
+  
+  // Build base query with joins including profiles for account manager search
+  let query = supabase
     .from('connections')
     .select(`
       id,
@@ -97,65 +130,152 @@ export const getClientsSnapshot = cache(async (
         name,
         logo_url,
         is_draft
+      ),
+      profiles!connections_agency_primary_contact_id_fkey (
+        id,
+        first_name,
+        last_name,
+        email,
+        job_title,
+        avatar_url
       )
     `)
-    .eq('agency_id', context.orgId)
-    .order('created_at', { ascending: false });
+    .eq('agency_id', context.orgId);
+  
+  // Apply sorting at database level
+  switch (sort) {
+    case 'newest-first':
+      query = query.order('created_at', { ascending: false });
+      break;
+    case 'alphabetical':
+      query = query.order('organizations(name)', { ascending: true });
+      break;
+    case 'reverse-alphabetical':
+      query = query.order('organizations(name)', { ascending: false });
+      break;
+    case 'contract-end-soonest':
+      // Sort by contract_end_on ascending (NULLS LAST)
+      query = query.order('contract_end_on', { ascending: true, nullsFirst: false });
+      break;
+    case 'status-critical-first':
+      // Sort by health_status priority, then by name
+      // We'll need to handle this with a custom order or post-process
+      // For now, order by health_status then name
+      query = query.order('health_status', { ascending: true }).order('organizations(name)', { ascending: true });
+      break;
+    default:
+      query = query.order('created_at', { ascending: false });
+  }
+  
+  // When searching, fetch all connections first (for account manager search), then filter and paginate in memory
+  // When not searching, apply pagination at database level for performance
+  const startIndex = cursor ? decodeCursor(cursor) : 0;
+  if (!search.trim()) {
+    query = query.range(startIndex, startIndex + limit - 1);
+  }
+  
+  // Execute query
+  const { data: connections, error } = await query;
   
   if (error) {
-    console.error('Error fetching connections:', error);
-    // Return empty snapshot on error
+    console.error('Error fetching connections:', {
+      error,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+      agencyId: context.orgId,
+    });
     return {
       clients: [],
       total: 0,
+      unfilteredTotalCount: 0,
       cursor: null,
       hasNextPage: false,
     };
   }
   
-  // Fetch account manager profiles for connections that have agency_primary_contact_id
-  const connectionsWithContactIds = (connections || []).filter(conn => conn.agency_primary_contact_id);
-  const contactIds = connectionsWithContactIds.map(conn => conn.agency_primary_contact_id);
+  const connectionsArray = connections || [];
   
-  let accountManagerProfiles: { [key: string]: { 
-    id: string; 
-    name: string; 
-    firstName: string; 
-    lastName: string; 
-    email: string; 
-    jobTitle?: string; 
-    avatar?: string;
-    organization: {
-      id: string;
-      name: string;
-      logo_url?: string;
-    }
-  } } = {};
+  // Fetch agency organization data (needed for account manager organization info)
+  const { data: agencyOrg, error: agencyError } = await supabase
+    .from('organizations')
+    .select('id, name, logo_url')
+    .eq('id', context.orgId)
+    .single();
+
+  if (agencyError) {
+    console.error('Error fetching agency organization:', {
+      error: agencyError,
+      orgId: context.orgId,
+    });
+  }
   
-  if (contactIds.length > 0) {
-    // Fetch agency organization data
-    const { data: agencyOrg, error: agencyError } = await supabase
-      .from('organizations')
-      .select('id, name, logo_url')
-      .eq('id', context.orgId)
-      .single();
-
-    if (agencyError) {
-      console.error('Error fetching agency organization:', agencyError);
-    }
-
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('id, first_name, last_name, email, job_title, avatar_url')
-      .in('id', contactIds);
+  // Apply search filter in memory (supports all fields including account manager)
+  let filteredConnections = connectionsArray;
+  
+  if (search.trim()) {
+    const escapedSearch = escapeForILike(search.trim());
+    const searchLower = search.trim().toLowerCase();
+    const searchTerms = searchLower.split(' ').filter(t => t.length > 0);
     
-    if (profilesError) {
-      console.error('Error fetching account manager profiles:', profilesError);
-    } else {
-      // Create a map of profile ID to profile data
-      accountManagerProfiles = (profiles || []).reduce((acc, profile) => {
-        acc[profile.id] = {
-          id: profile.id,
+    filteredConnections = connectionsArray.filter(conn => {
+      const org = conn.organizations as { name?: string } | null;
+      const orgName = (org?.name || '').toLowerCase();
+      const connectionStatus = (conn.connection_status || '').toLowerCase();
+      const engagementStatus = (conn.engagement_status || '').toLowerCase();
+      const healthStatus = (conn.health_status || '').toLowerCase();
+      const contractEnd = conn.contract_end_on 
+        ? new Date(conn.contract_end_on).toLocaleDateString('en-GB', { 
+            day: 'numeric', month: 'short', year: 'numeric' 
+          }).toLowerCase()
+        : '';
+      
+      // Get account manager name from joined profile
+      const profile = conn.profiles as { first_name?: string; last_name?: string } | null;
+      const accountManagerName = profile
+        ? `${(profile.first_name || '').toLowerCase()} ${(profile.last_name || '').toLowerCase()}`.trim()
+        : '';
+      
+      // Check if all search terms match any field
+      return searchTerms.every(term => 
+        orgName.includes(term) ||
+        connectionStatus.includes(term) ||
+        engagementStatus.includes(term) ||
+        healthStatus.includes(term) ||
+        contractEnd.includes(term) ||
+        accountManagerName.includes(term)
+      );
+    });
+  }
+  
+  // Get total count for pagination
+  // When searching, use filtered count; otherwise use unfilteredTotalCount
+  const totalCount = search.trim() 
+    ? filteredConnections.length 
+    : (unfilteredTotalCount ?? connectionsArray.length);
+  
+  // Transform connections to Client format
+  const allClients: Client[] = filteredConnections.map(conn => {
+    // Handle case where organizations join might be null due to RLS or missing data
+    const org = conn.organizations as { name?: string; logo_url?: string; id?: string; is_draft?: boolean } | null;
+    const profile = conn.profiles as { 
+      id?: string; 
+      first_name?: string; 
+      last_name?: string; 
+      email?: string; 
+      job_title?: string; 
+      avatar_url?: string;
+    } | null;
+    
+    // If org is null but we have a client_id, it might be a draft org blocked by RLS
+    // In that case, we can infer it's a draft from the connection_status
+    const isDraft = org?.is_draft ?? (conn.connection_status === 'draft');
+    
+    // Build account manager data from joined profile
+    const accountManager = conn.agency_primary_contact_id && profile
+      ? {
+          id: profile.id || '',
           name: `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
           firstName: profile.first_name || '',
           lastName: profile.last_name || '',
@@ -163,68 +283,35 @@ export const getClientsSnapshot = cache(async (
           jobTitle: profile.job_title || undefined,
           avatar: profile.avatar_url || undefined,
           organization: {
-            id: agencyOrg?.id || '',
-            name: agencyOrg?.name || 'Agency',
-            logo_url: agencyOrg?.logo_url || undefined
+            id: agencyOrg?.id || context.organization.id,
+            name: agencyOrg?.name || context.organization.name,
+            logo_url: agencyOrg?.logo_url || context.organization.logoUrl || undefined
+          }
+        }
+      : {
+          id: '',
+          name: 'Unassigned',
+          firstName: '',
+          lastName: '',
+          email: '',
+          jobTitle: undefined,
+          avatar: undefined,
+          organization: {
+            id: agencyOrg?.id || context.organization.id,
+            name: agencyOrg?.name || context.organization.name,
+            logo_url: agencyOrg?.logo_url || context.organization.logoUrl || undefined
           }
         };
-        return acc;
-      }, {} as { [key: string]: { 
-        id: string; 
-        name: string; 
-        firstName: string; 
-        lastName: string; 
-        email: string; 
-        jobTitle?: string; 
-        avatar?: string;
-        organization: {
-          id: string;
-          name: string;
-          logo_url?: string;
-        }
-      } });
-    }
-  }
-
-  // Transform connections to Client format
-  const allClients: Client[] = (connections || []).map(conn => {
-    const org = conn.organizations as { name?: string; logo_url?: string } | null;
     
     return {
-      id: conn.id,
+      id: conn.id, // Connection ID
+      clientId: conn.client_id, // Client organization ID (for deletion)
       createdAt: conn.created_at || undefined,
       name: org?.name || 'Unknown Client',
       logo: org?.logo_url,
       status: (conn.connection_status as "draft" | "onboarding" | "active" | "offboarded") || 'draft', // Used for connection badge color
-      accountManager: conn.agency_primary_contact_id
-        ? (accountManagerProfiles[conn.agency_primary_contact_id] || { 
-            id: '', 
-            name: 'Loading...', 
-            firstName: '', 
-            lastName: '', 
-            email: '', 
-            jobTitle: undefined, 
-            avatar: undefined,
-            organization: {
-              id: '',
-              name: 'Agency',
-              logo_url: undefined
-            }
-          })
-        : { 
-            id: '', 
-            name: 'Unassigned', 
-            firstName: '', 
-            lastName: '', 
-            email: '', 
-            jobTitle: undefined, 
-            avatar: undefined,
-            organization: {
-              id: '',
-              name: 'Agency',
-              logo_url: undefined
-            }
-          },
+      is_draft: isDraft, // Indicates if this is a draft client organization
+      accountManager,
       contractEnd: conn.contract_end_on 
         ? new Date(conn.contract_end_on).toLocaleDateString('en-GB', { 
             day: 'numeric', 
@@ -232,116 +319,53 @@ export const getClientsSnapshot = cache(async (
             year: 'numeric' 
           })
         : undefined,
-      health: conn.health_status || 'unassigned',
+      health: (conn.health_status as "unassigned" | "healthy" | "at-risk" | "critical" | "n/a") || 'unassigned',
       badge: conn.engagement_status || undefined // Status column shows engagement_status
     };
   });
-
-  // Apply search filter
-  let filteredClients = allClients;
-  if (search) {
-    const query = search.toLowerCase().trim();
+  
+  // Apply post-processing for complex sorts that require client-side logic
+  let sortedClients = allClients;
+  if (sort === 'status-critical-first') {
+    const healthPriority = {
+      'critical': 0,
+      'at-risk': 1,
+      'healthy': 2,
+      'unassigned': 3,
+      'n/a': 4
+    };
     
-    // Pre-compute search terms for better performance
-    const searchTerms = query.split(' ').filter(term => term.length > 0);
-    
-    filteredClients = allClients.filter(client => {
-      // Early exit if no search terms
-      if (searchTerms.length === 0) return true;
+    sortedClients = [...allClients].sort((a, b) => {
+      const priorityA = healthPriority[a.health as keyof typeof healthPriority] ?? 999;
+      const priorityB = healthPriority[b.health as keyof typeof healthPriority] ?? 999;
       
-      // Create searchable text once per client
-      const searchableText = [
-        client.name.toLowerCase(),
-        client.accountManager.name.toLowerCase(),
-        client.status.toLowerCase(),
-        client.health.toLowerCase(),
-        client.contractEnd?.toLowerCase() || '',
-        client.badge?.toLowerCase() || ''
-      ].join(' ');
-      
-      // Check if all search terms are present
-      const allTermsMatch = searchTerms.every(term => searchableText.includes(term));
-      
-      // Smart number matching for client names (only if query starts with 'client ')
-      let numberMatch = false;
-      if (query.startsWith('client ') && searchTerms.length === 1) {
-        const numberPart = searchTerms[0].replace('client', '');
-        if (/^\d+$/.test(numberPart)) {
-          const searchNumber = parseInt(numberPart);
-          const clientNumber = parseInt(client.name.replace('Client ', ''));
-          numberMatch = clientNumber === searchNumber;
-        }
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
       }
       
-      return allTermsMatch || numberMatch;
+      return a.name.localeCompare(b.name);
     });
   }
 
-  // Sort clients based on sort parameter
-  const sortedClients = filteredClients.sort((a, b) => {
-    switch (sort) {
-      case 'newest-first':
-        // Sort by ID descending (higher ID = newer)
-        return parseInt(b.id) - parseInt(a.id);
-      
-      case 'alphabetical':
-        return a.name.localeCompare(b.name); // A to Z
-      
-      case 'reverse-alphabetical':
-        return b.name.localeCompare(a.name); // Z to A
-      
-      case 'contract-end-soonest':
-        // Sort by contract end date (soonest first)
-        // Clients without contracts go to the end
-        if (!a.contractEnd && !b.contractEnd) return 0;
-        if (!a.contractEnd) return 1;
-        if (!b.contractEnd) return -1;
-        
-        // Parse dates (format: "DD MMM YYYY")
-        const parseDate = (dateStr: string) => {
-          const [day, month, year] = dateStr.split(' ');
-          return new Date(parseInt(year), MONTH_MAP[month], parseInt(day));
-        };
-        
-        const dateA = parseDate(a.contractEnd);
-        const dateB = parseDate(b.contractEnd);
-        return dateA.getTime() - dateB.getTime();
-      
-      case 'status-critical-first':
-        // Sort by health priority (critical first), then alphabetically within each category
-        const healthPriority = {
-          'critical': 0,
-          'at-risk': 1,
-          'healthy': 2,
-          'unassigned': 3
-        };
-        
-        const priorityA = healthPriority[a.health as keyof typeof healthPriority] ?? 999;
-        const priorityB = healthPriority[b.health as keyof typeof healthPriority] ?? 999;
-        
-        // If different priorities, sort by priority
-        if (priorityA !== priorityB) {
-          return priorityA - priorityB;
-        }
-        
-        // If same priority, sort alphabetically by name
-        return a.name.localeCompare(b.name);
-      
-      default:
-        return a.name.localeCompare(b.name); // Default to A to Z
-    }
-  });
-
-  // Apply cursor-based pagination
-  const startIndex = cursor ? decodeCursor(cursor) : 0;
+  // Apply pagination (in memory when searching, already applied at DB level when not searching)
   const endIndex = startIndex + limit;
-  const paginatedClients = sortedClients.slice(startIndex, endIndex);
+  let paginatedClients = sortedClients;
+  
+  if (search.trim()) {
+    // Paginate in memory after filtering/sorting
+    paginatedClients = sortedClients.slice(startIndex, endIndex);
+  }
+  
+  // Calculate total and pagination state
+  const total = totalCount;
+  const hasNextPage = endIndex < total;
 
   return {
     clients: paginatedClients,
-    total: sortedClients.length,
-    cursor: endIndex < sortedClients.length ? encodeCursor(endIndex) : null,
-    hasNextPage: endIndex < sortedClients.length,
+    total,
+    unfilteredTotalCount: unfilteredTotalCount || 0,
+    cursor: hasNextPage ? encodeCursor(endIndex) : null,
+    hasNextPage,
   };
 });
 

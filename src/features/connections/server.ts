@@ -313,10 +313,14 @@ export const getConnectionSnapshot = cache(async (
     }
   }
   
+  const connectionStatus = connection.connection_status || 'draft';
+  const isDraft = connectionStatus === 'draft';
+  
   return {
     connection: {
       id: connection.id,
-      status: connection.connection_status || 'draft',
+      status: connectionStatus,
+      isDraft,
       engagementStatus: connection.engagement_status,
       health: connection.health_status || undefined,
       contractEnd: connection.contract_end_on 
@@ -567,6 +571,69 @@ export const getRequestsForConnection = cache(async (
   };
 
 
+  // When searching, first find matching profile IDs for name search (DB-level)
+  let matchingUserIds: string[] = [];
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const trimmedQuery = searchQuery.trim();
+    const escaped = escapeForILike(trimmedQuery);
+    const searchPattern = `%${escaped}%`;
+    const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0);
+    
+    // Query profiles table for matching names (DB-level search)
+    // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
+    // Also match if full search term appears in either first_name or last_name
+    let profilesQuery = supabase
+      .from('profiles')
+      .select('id, first_name, last_name')
+      .is('deleted_at', null);
+    
+    if (searchTerms.length > 1) {
+      // Multi-word search: try to match first word in first_name AND second word in last_name
+      // OR vice versa, OR full term in either field
+      const firstTermEscaped = escapeForILike(searchTerms[0]);
+      const secondTermEscaped = escapeForILike(searchTerms[1]);
+      const firstPattern = `%${firstTermEscaped}%`;
+      const secondPattern = `%${secondTermEscaped}%`;
+      
+      // Match: (first_name contains first term AND last_name contains second term)
+      // OR (first_name contains second term AND last_name contains first term)
+      // OR (first_name contains full term) OR (last_name contains full term)
+      profilesQuery = profilesQuery.or(
+        `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
+        `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
+        `first_name.ilike.${searchPattern},` +
+        `last_name.ilike.${searchPattern}`
+      );
+    } else {
+      // Single word search: match in either first_name or last_name
+      profilesQuery = profilesQuery.or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern}`);
+    }
+    
+    const { data: matchingProfiles, error: profilesError } = await profilesQuery;
+    
+    if (!profilesError && matchingProfiles) {
+      // For multi-word searches, also filter in memory to ensure all terms match
+      if (searchTerms.length > 1) {
+        matchingUserIds = matchingProfiles
+          .filter(profile => {
+            const firstName = (profile.first_name || '').toLowerCase();
+            const lastName = (profile.last_name || '').toLowerCase();
+            const fullName = `${firstName} ${lastName}`.trim();
+            
+            // Check if all search terms appear somewhere in the name
+            return searchTerms.every(term => 
+              firstName.includes(term) || 
+              lastName.includes(term) || 
+              fullName.includes(term)
+            );
+          })
+          .map(p => p.id);
+      } else {
+        matchingUserIds = matchingProfiles.map(p => p.id);
+      }
+    }
+  }
+  
   // Build the base query for filtering (used for both count and data)
   let baseQuery = supabase
     .from('requests')
@@ -582,17 +649,33 @@ export const getRequestsForConnection = cache(async (
     baseQuery = baseQuery.eq('created_by_user_id', createdByUserId);
   }
   
-  // Apply search filter if searchQuery is provided
+  // Apply search filter if searchQuery is provided (DB-level for all fields)
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
     const escaped = escapeForILike(trimmedQuery);
     const matchedStatus = normalizeStatusQuery(trimmedQuery);
+    const searchLower = trimmedQuery.toLowerCase();
     
-    // Build OR list for search
+    // Build OR list for search (all DB-level)
     const orParts: string[] = [];
     orParts.push(`title.ilike.%${escaped}%`);
     orParts.push(`project_name_cached.ilike.%${escaped}%`);
-    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
+    
+    // Handle "General request" search
+    if (searchLower.includes('general')) {
+      orParts.push(`project_id.is.null`);
+    }
+    
+    if (matchedStatus) {
+      orParts.push(`status.eq.${matchedStatus}`);
+    }
+    
+    // Add profile name matches (DB-level via user IDs)
+    if (matchingUserIds.length > 0) {
+      orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
+      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
+    }
+    
     baseQuery = baseQuery.or(orParts.join(','));
   }
   
@@ -621,24 +704,43 @@ export const getRequestsForConnection = cache(async (
     requestsQuery = requestsQuery.eq('created_by_user_id', createdByUserId);
   }
   
-  // Apply search filter if searchQuery is provided
+  // Apply search filter if searchQuery is provided (DB-level for all fields)
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
     const escaped = escapeForILike(trimmedQuery);
     const matchedStatus = normalizeStatusQuery(trimmedQuery);
+    const searchLower = trimmedQuery.toLowerCase();
     
     const orParts: string[] = [];
     orParts.push(`title.ilike.%${escaped}%`);
     orParts.push(`project_name_cached.ilike.%${escaped}%`);
-    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
+    
+    // Handle "General request" search
+    if (searchLower.includes('general')) {
+      orParts.push(`project_id.is.null`);
+    }
+    
+    if (matchedStatus) {
+      orParts.push(`status.eq.${matchedStatus}`);
+    }
+    
+    // Add profile name matches (DB-level via user IDs)
+    if (matchingUserIds.length > 0) {
+      orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
+      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
+    }
+    
     requestsQuery = requestsQuery.or(orParts.join(','));
   }
   
+  // Apply pagination at database level (always, even when searching)
+  requestsQuery = requestsQuery
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+  
   const [countResult, requestsResult, clientOrgResult, agencyOrgResult] = await Promise.all([
     baseQuery,
-    requestsQuery
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1),
+    requestsQuery,
     clientOrgPromise,
     agencyOrgPromise
   ]);
@@ -662,12 +764,7 @@ export const getRequestsForConnection = cache(async (
   }
   
   // If requests is null/undefined, treat as no results (empty query result)
-  const requestsData = requests || [];
-  const totalCount = countError ? 0 : (count ?? 0);
-  
-  if (requestsData.length === 0 && totalCount === 0) {
-    return { requests: [], totalCount: 0, newCount: 0 };
-  }
+  let requestsData = requests || [];
   
   if (clientOrgError && isDev) {
     console.error('Error fetching client organization:', clientOrgError);
@@ -783,6 +880,10 @@ export const getRequestsForConnection = cache(async (
     }
   }
   
+  // All filtering is now DB-level, no in-memory filtering needed
+  // Pagination is already applied at DB level
+  const finalTotalCount = countError ? 0 : (count ?? 0);
+  
   // Map the requests to the UI format
   const formattedRequests = requestsData.map(request => {
     const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] : null;
@@ -839,7 +940,7 @@ export const getRequestsForConnection = cache(async (
     console.error('Error fetching new requests count:', newCountError);
   }
 
-  return { requests: formattedRequests, totalCount, newCount };
+  return { requests: formattedRequests, totalCount: finalTotalCount, newCount };
 });
 
 export const getRecentRequestsForConnection = cache(async (
@@ -1210,9 +1311,70 @@ export const getTasksForConnection = cache(async (
     .eq('id', connection.agency_id)
     .single()
 
+  // When searching, first find matching profile IDs for assignee name search (DB-level)
+  let matchingUserIds: string[] = []
   let projectIdsMatchingSearch: string[] = []
   if (searchQuery && searchQuery.trim().length > 0) {
-    const escaped = escapeForILike(searchQuery.trim())
+    const trimmedQuery = searchQuery.trim()
+    const escaped = escapeForILike(trimmedQuery)
+    const searchPattern = `%${escaped}%`
+    const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0)
+    
+    // Query profiles table for matching names (DB-level search)
+    // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
+    // Also match if full search term appears in either first_name or last_name
+    let profilesQuery = supabase
+      .from('profiles')
+      .select('id, first_name, last_name')
+      .is('deleted_at', null)
+    
+    if (searchTerms.length > 1) {
+      // Multi-word search: try to match first word in first_name AND second word in last_name
+      // OR vice versa, OR full term in either field
+      const firstTermEscaped = escapeForILike(searchTerms[0])
+      const secondTermEscaped = escapeForILike(searchTerms[1])
+      const firstPattern = `%${firstTermEscaped}%`
+      const secondPattern = `%${secondTermEscaped}%`
+      
+      // Match: (first_name contains first term AND last_name contains second term)
+      // OR (first_name contains second term AND last_name contains first term)
+      // OR (first_name contains full term) OR (last_name contains full term)
+      profilesQuery = profilesQuery.or(
+        `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
+        `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
+        `first_name.ilike.${searchPattern},` +
+        `last_name.ilike.${searchPattern}`
+      )
+    } else {
+      // Single word search: match in either first_name or last_name
+      profilesQuery = profilesQuery.or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern}`)
+    }
+    
+    const { data: matchingProfiles, error: profilesError } = await profilesQuery
+    
+    if (!profilesError && matchingProfiles) {
+      // For multi-word searches, also filter in memory to ensure all terms match
+      if (searchTerms.length > 1) {
+        matchingUserIds = matchingProfiles
+          .filter(profile => {
+            const firstName = (profile.first_name || '').toLowerCase()
+            const lastName = (profile.last_name || '').toLowerCase()
+            const fullName = `${firstName} ${lastName}`.trim()
+            
+            // Check if all search terms appear somewhere in the name
+            return searchTerms.every(term => 
+              firstName.includes(term) || 
+              lastName.includes(term) || 
+              fullName.includes(term)
+            )
+          })
+          .map(p => p.id)
+      } else {
+        matchingUserIds = matchingProfiles.map(p => p.id)
+      }
+    }
+    
+    // Query projects table for matching project names
     const { data: matchingProjects, error: projectSearchError } = await supabase
       .from('projects')
       .select('id')
@@ -1272,6 +1434,11 @@ export const getTasksForConnection = cache(async (
     if (projectIdsMatchingSearch.length > 0) {
       const inClause = projectIdsMatchingSearch.map(id => `"${id}"`).join(',')
       orParts.push(`project_id.in.(${inClause})`)
+    }
+
+    // Add assignee name matches (DB-level via user IDs)
+    if (matchingUserIds.length > 0) {
+      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`)
     }
 
     tasksQuery = tasksQuery.or(orParts.join(','))

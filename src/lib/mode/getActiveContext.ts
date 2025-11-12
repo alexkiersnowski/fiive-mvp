@@ -59,8 +59,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         .eq('id', user.id)
         .single(),
       
-      // Query 2: Membership WITH joined organization data AND member count in a single query
-      // This uses Supabase's aggregate functions to get the count without a separate query
+      // Query 2: Membership WITH joined organization data
       // CRITICAL: Filter out draft organizations - they cannot be active contexts
       supabase
         .from('memberships')

@@ -7,6 +7,8 @@ export type Client = {
   logo?: string
   status: "draft" | "onboarding" | "active" | "offboarded"
   createdAt?: string
+  is_draft?: boolean // Indicates if this is a draft client organization
+  clientId?: string // The organization ID of the client (for deletion)
   accountManager: {
     id: string
     name: string
@@ -29,6 +31,7 @@ export type Client = {
 export type ClientsSnapshot = {
   clients: Client[];
   total: number;
+  unfilteredTotalCount: number; // Total count without search/filter applied
   cursor?: string | null;
   hasNextPage: boolean;
 };
@@ -86,5 +89,9 @@ export interface NewClientPayload {
 
 export type NewClientResult =
   | { success: true; data: NewClientPayload }
+  | { success: false; error: string };
+
+export type DeleteClientResult =
+  | { success: true }
   | { success: false; error: string };
 

@@ -281,7 +281,7 @@ export default function ResourcesCardClient({ snapshot, context, initialResource
       )}
       {hasResources && (
         <div className="flex-1 overflow-hidden relative">
-          <div className="h-full overflow-auto pr-1 flex flex-col gap-2">
+          <div className="h-full overflow-auto pr-1 flex flex-col gap-1.5 mt-1 pb-4">
             {resources.map((resource) => {
               const primaryText = resource.label?.trim() || formatHostname(resource.url);
               const displayUrl = normalizeUrl(resource.url);

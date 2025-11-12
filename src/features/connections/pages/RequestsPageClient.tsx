@@ -143,23 +143,6 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   useEffect(() => {
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
   }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
-  
-  // Helper to check if a request matches current search criteria
-  const matchesSearchCriteria = useCallback((request: Request): boolean => {
-    if (!debouncedSearchQuery) return true
-    
-    const query = debouncedSearchQuery.toLowerCase().trim()
-    const matchesTitle = request.title.toLowerCase().includes(query)
-    const matchesProject = request.project?.name.toLowerCase().includes(query) || false
-    const matchesStatus = request.status.toLowerCase().includes(query) || 
-                         (query === 'new' && request.status === 'new') ||
-                         (query === 'open' && request.status === 'new') ||
-                         (query.includes('review') && request.status === 'in_review') ||
-                         (query === 'accepted' && request.status === 'accepted') ||
-                         (query === 'canceled' && request.status === 'canceled')
-    
-    return matchesTitle || matchesProject || matchesStatus
-  }, [debouncedSearchQuery])
 
   // DRY: refresh first page (used by realtime fallback and deletes under search)
   const refreshFirstPage = useCallback(async () => {
@@ -293,10 +276,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Reset pagination and fetch new results when debounced search query changes
+  // Reset pagination and fetch new results when debounced search query or assignedToMe changes
   useEffect(() => {
-    // Skip on initial mount if there's no search query (we already have initialRequests)
-    if (isInitialMount.current && !debouncedSearchQuery) {
+    // Skip on initial mount if there's no search query and not assigned to me (we already have initialRequests)
+    if (isInitialMount.current && !debouncedSearchQuery && !assignedToMe) {
       isInitialMount.current = false
       return
     }
@@ -469,16 +452,16 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             const req = await fetchRequestById(connectionId, newId)
             if (!req) return
             
-            // If search is active, only add if it matches search criteria
-            if (debouncedSearchQuery && !matchesSearchCriteria(req)) {
-              // Still update unfiltered count but don't add to visible list
+            // Server-side filtering handles search/assignee filters
+            // If filters are active, refresh first page to get filtered results
+            if (debouncedSearchQuery || assignedToMe) {
+              await refreshFirstPage()
+            } else {
+              // No filters - add directly
+              prependUnique(req)
+              setTotalCount(c => c + 1)
               setUnfilteredTotalCount(c => c + 1)
-              return
             }
-            
-            prependUnique(req)
-            setTotalCount(c => c + 1)
-            setUnfilteredTotalCount(c => c + 1)
           } catch (_) {
             // fallback to full refresh if single-row fetch fails
             await refreshFirstPage()
@@ -502,37 +485,12 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             return
           }
           
-          // For non-delete updates, fetch single row and merge
+          // For non-delete updates, refresh first page to ensure server-side filtering is applied
+          // This ensures the request appears/disappears based on current filters
           try {
-            const req = await fetchRequestById(connectionId, updated.id)
-            if (!req) return
-            
-            // If search is active, check if request matches search criteria
-            if (debouncedSearchQuery) {
-              const matches = matchesSearchCriteria(req)
-              const isCurrentlyVisible = requests.some(r => r.id === req.id)
-              
-              if (matches && !isCurrentlyVisible) {
-                // Matches search but not currently visible - add it
-                prependUnique(req)
-                setTotalCount(c => c + 1)
-              } else if (!matches && isCurrentlyVisible) {
-                // No longer matches search - remove it
-                const wasRemoved = removeById(req.id)
-                if (wasRemoved) {
-                  setTotalCount(c => Math.max(0, c - 1))
-                }
-              } else if (matches && isCurrentlyVisible) {
-                // Matches and is visible - update it
-                setRequests(prev => prev.map(r => (r.id === req.id ? req : r)))
-              }
-              // If doesn't match and not visible, do nothing
-            } else {
-              // No search active - update normally
-              setRequests(prev => prev.map(r => (r.id === req.id ? req : r)))
-            }
-          } catch (_) {
             await refreshFirstPage()
+          } catch (_) {
+            // Ignore errors - real-time updates are best-effort
           }
         }
       )
@@ -541,7 +499,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, refreshFirstPage, prependUnique, removeById, matchesSearchCriteria, requests])
+  }, [connectionId, debouncedSearchQuery, assignedToMe, refreshFirstPage, prependUnique, removeById])
 
   // Load more requests function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
@@ -704,49 +662,13 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const handleToggleAssignedToMe = useCallback(() => {
     const next = !assignedToMe
     setAssignedToMe(next)
-    // Update URL
+    // Update URL - the fetch useEffect will handle the actual fetch when assignedToMe state changes
     const newSearchParams = new URLSearchParams(searchParams.toString())
     if (next) newSearchParams.set('assigned', 'me')
     else newSearchParams.delete('assigned')
     const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
     router.replace(newUrl, { scroll: false })
-    
-    // Cancel all in-flight requests
-    inFlightRequests.current.clear()
-    isLoadingMore.current = false
-    // Clear all prefetch timeouts
-    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-    prefetchTimeouts.current.clear()
-    
-    // Fetch new results (keep previous results visible during fetch, like search)
-    const fetchFilteredResults = async () => {
-      try {
-        const result = await fetchRequestsForConnection(connectionId, {
-          limit: PAGE_SIZE,
-          offset: 0,
-          searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: next && context.variant === 'agency' ? context.user?.id : undefined,
-          createdByUserId: next && context.variant === 'client' ? context.user?.id : undefined
-        })
-        if (!isMountedRef.current) return
-        setRequests(result.requests)
-        setTotalCount(result.totalCount)
-        setHasMore(result.requests.length === PAGE_SIZE)
-        setCurrentOffset(PAGE_SIZE)
-        setPrefetchedRequests([])
-        setPrefetchedOffset(null)
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch filtered results:', error)
-        }
-        if (isMountedRef.current) {
-          setHasMore(false)
-        }
-      }
-    }
-    
-    fetchFilteredResults()
-  }, [assignedToMe, searchParams, pathname, router, connectionId, debouncedSearchQuery, context.user?.id, context.variant])
+  }, [assignedToMe, searchParams, pathname, router])
 
   // Prefetch next batch when initial requests load or after consuming prefetched data
   useEffect(() => {
@@ -1225,6 +1147,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           logoUrl: snapshot.partner.logo
         }}
         agencyMembers={agencyMembers}
+        projects={projects}
         isOpen={isNewModalOpen}
         onClose={handleNewModalClose}
         onRequestOptimistic={handleRequestOptimistic}
