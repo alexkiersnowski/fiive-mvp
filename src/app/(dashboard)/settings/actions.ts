@@ -353,7 +353,7 @@ export async function updateOrganizationDetails(data: {
   } = {
     name: values.name,
     website: values.website || null,
-    description: values.description || null,
+    description: values.description ? values.description.replace(/\r?\n/g, ' ').trim() || null : null,
     industry: values.industry,
     updated_at: new Date().toISOString()
   }
@@ -1016,7 +1016,7 @@ export async function inviteMembers(data: {
       const { error: inviteError, data: inviteData } = await adminSupabase.auth.admin.inviteUserByEmail(
         email,
         {
-          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/member-invite-test`,
+          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/member-invite/profile`,
           data: {
             organization_name: orgName,
             organization_id: data.organizationId

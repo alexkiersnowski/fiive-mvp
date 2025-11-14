@@ -82,6 +82,9 @@ export const getConnectionSnapshot = cache(async (
         client_primary_contact_id,
         agency_id,
         client_id,
+        invited_email,
+        invited_at,
+        invite_token,
         organizations!connections_client_id_fkey (
           id,
           name,
@@ -113,6 +116,9 @@ export const getConnectionSnapshot = cache(async (
         client_primary_contact_id,
         agency_id,
         client_id,
+        invited_email,
+        invited_at,
+        invite_token,
         organizations!connections_agency_id_fkey (
           id,
           name,
@@ -331,6 +337,7 @@ export const getConnectionSnapshot = cache(async (
           })
         : undefined,
       contractValue: formattedContractValue,
+      invitedEmail: connection.invited_email || undefined,
       accountManager: connection.agency_primary_contact_id
         ? { name: 'Loading...', avatar: undefined } // TODO: Fetch from profiles when RLS allows
         : { name: 'Unassigned', avatar: undefined },

@@ -7,7 +7,7 @@ import { ListRow } from '@/components/ui/list-row';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Circle, DotsThree, Link, Plus, Trash } from '@phosphor-icons/react/ssr';
+import { Circle, DotsThree, Link, PaperPlaneTilt, Plus, Trash, XCircle } from '@phosphor-icons/react/ssr';
 import { StatusBadge } from '@/components/ui/connection-badge';
 import { EngagementBadge } from '@/components/ui/engagement-badge';
 import { HealthBadge } from '@/components/ui/health-badge';
@@ -15,6 +15,7 @@ import { ProfileCard } from '@/components/ui/profile-card';
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table';
 import { toast } from 'sonner';
 import { deleteClient } from './actions';
+import { resendInviteEmail, cancelInvitation } from '@/features/connections/actions';
 import type { Client } from './types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
@@ -242,7 +243,10 @@ const ActionsCell = React.memo(function ActionsCell({
   onDeleteClick: (clientId: string, clientName: string) => void;
 }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [isCanceling, setIsCanceling] = useState(false);
   const isDraft = client.is_draft === true;
+  const isInvited = client.status === 'invited';
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -254,6 +258,52 @@ const ActionsCell = React.memo(function ActionsCell({
 
     setIsDropdownOpen(false);
     onDeleteClick(client.clientId, client.name);
+  };
+
+  const handleResendClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDropdownOpen(false);
+    setIsResending(true);
+    
+    try {
+      const result = await resendInviteEmail({
+        connectionId: client.id
+      });
+
+      if (result.success) {
+        toast.success('Invitation email resent');
+      } else {
+        toast.error(result.error || 'Failed to resend invitation email');
+      }
+    } catch (error) {
+      console.error('Error resending invitation:', error);
+      toast.error('Failed to resend invitation email');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const handleCancelClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDropdownOpen(false);
+    setIsCanceling(true);
+    
+    try {
+      const result = await cancelInvitation({
+        connectionId: client.id
+      });
+
+      if (result.success) {
+        toast.success('Invitation canceled');
+      } else {
+        toast.error(result.error || 'Failed to cancel invitation');
+      }
+    } catch (error) {
+      console.error('Error canceling invitation:', error);
+      toast.error('Failed to cancel invitation');
+    } finally {
+      setIsCanceling(false);
+    }
   };
 
   return (
@@ -277,6 +327,28 @@ const ActionsCell = React.memo(function ActionsCell({
             <Link size={16} style={{ color: 'var(--color-base-text-primary)' }} />
             Connection settings
           </DropdownMenuItem>
+          {isInvited && (
+            <>
+              <DropdownMenuItem 
+                onClick={handleResendClick}
+                disabled={isResending}
+              >
+                <PaperPlaneTilt size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                {isResending ? 'Resending...' : 'Resend email'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleCancelClick}
+                disabled={isCanceling}
+                className="focus:bg-red-50"
+              >
+                <XCircle size={16} style={{ color: 'var(--color-red-11)' }} />
+                <span style={{ color: 'var(--color-red-11)' }}>
+                  {isCanceling ? 'Canceling...' : 'Cancel invitation'}
+                </span>
+              </DropdownMenuItem>
+            </>
+          )}
           {isDraft && (
             <>
               <DropdownMenuSeparator />

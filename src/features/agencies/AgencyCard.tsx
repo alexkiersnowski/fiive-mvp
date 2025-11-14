@@ -165,13 +165,11 @@ export function AgencyCard({
       
       {/* Profile Card Modal */}
       {selectedAccountManager && (
-        <div onClick={(e) => e.stopPropagation()}>
-          <ProfileCard
-            member={selectedAccountManager}
-            isOpen={profileDialogOpen}
-            onClose={() => setProfileDialogOpen(false)}
-          />
-        </div>
+        <ProfileCard
+          member={selectedAccountManager}
+          isOpen={profileDialogOpen}
+          onClose={() => setProfileDialogOpen(false)}
+        />
       )}
     </>
   );

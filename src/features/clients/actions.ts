@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { deleteLogoFolder } from '@/lib/supabase/storage';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionResult, NewClientResult, NewClientPayload, DeleteClientResult, ClientsSnapshot } from './types';
 import { getClientsSnapshot } from './server';
@@ -390,7 +391,19 @@ export async function deleteClient(
 
     const supabase = await createClient();
 
-    // Call the RPC function to delete the draft client
+    // Delete logo folder from storage FIRST (before organization is deleted)
+    // This is necessary so RLS policy can verify the organization exists and user has permission
+    // Storage deletion is best-effort - if it fails, we still proceed with DB deletion
+    const storageResult = await deleteLogoFolder(clientId);
+    if (!storageResult.success) {
+      // Log the error but don't fail the deletion - storage cleanup is best-effort
+      console.warn('Failed to delete logo folder for draft client:', {
+        clientId,
+        error: storageResult.error,
+      });
+    }
+
+    // Call the RPC function to delete the draft client (deletes organization and all related data)
     const { error } = await supabase.rpc('delete_draft_client', {
       p_client_id: clientId,
       p_agency_id: context.orgId,

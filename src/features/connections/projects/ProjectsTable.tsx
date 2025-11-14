@@ -18,6 +18,7 @@ import { toast } from 'sonner'
 import { updateProjectAssignee, updateProjectStatus, deleteProject } from './actions'
 import type { Project } from '../server'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import { useConnection } from '../ConnectionContext'
 
 interface ProjectsTableProps {
   userAvatar?: string
@@ -54,7 +55,7 @@ interface ProjectsTableProps {
 }
 
 export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
-  
+  const { snapshot } = useConnection()
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -414,7 +415,9 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={8}>
                 {isAgency 
-                  ? 'Your client can see this. Only your agency can edit.' 
+                  ? (snapshot.connection.isDraft
+                      ? 'Visible after invite. Only your agency can edit.'
+                      : 'Your client can see this. Only your agency can edit.')
                   : 'Only your agency can edit this'}
               </TooltipContent>
             </Tooltip>

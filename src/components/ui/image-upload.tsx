@@ -6,6 +6,7 @@ import { UploadIcon } from 'lucide-react'
 
 interface ImageUploadProps {
   onLogoChange?: (file: File | null) => void
+  onError?: (error: string) => void // Callback for validation/upload errors
   currentLogo?: string
   initialLogoUrl?: string
   className?: string
@@ -13,9 +14,11 @@ interface ImageUploadProps {
   changeText?: string
   useSessionStorage?: boolean // Only use sessionStorage during onboarding flows
   readOnly?: boolean // When true, shows preview only without upload functionality
+  size?: number // Custom size in pixels (default: 96px for h-24 w-24)
+  iconSize?: number // Custom icon size in pixels (default: auto-calculated based on size)
 }
 
-export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, className, uploadText = "Upload image", changeText = "Click to change image", useSessionStorage = false, readOnly = false }: ImageUploadProps) {
+export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl, className, uploadText = "Upload image", changeText = "Click to change image", useSessionStorage = false, readOnly = false, size = 96, iconSize }: ImageUploadProps) {
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
@@ -53,66 +56,83 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
     setFiles(files)
     setError(null) // Clear any previous errors
     
-    // Rate limiting: prevent uploads more than once every 2 seconds
-    const now = Date.now()
-    if (now - lastUploadTime < 2000) {
-      setError('Please wait a moment before uploading another file.')
+    if (files.length === 0) {
       return
     }
     
-    if (files.length > 0) {
-      setIsUploading(true)
-      setLastUploadTime(now)
-      const file = files[0]
-      
-      // Validate file size
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Please choose an image smaller than 5MB.')
-        return
-      }
-      
-      // Validate file type
-      const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']
-      if (!allowedTypes.includes(file.type)) {
-        setError('Please choose a PNG, JPG, JPEG, or SVG file.')
-        return
-      }
-      
-      // Create preview immediately and store base64
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        if (typeof e.target?.result === 'string') {
-          setLogoPreview(e.target.result)
-          setBase64Preview(e.target.result)
-          // Store in sessionStorage only if enabled (for onboarding flows)
-          if (useSessionStorage) {
-            const sessionKey = `logoPreview_${Date.now()}`
-            sessionStorage.setItem('logoPreview', e.target.result)
-            sessionStorage.setItem('logoPreviewKey', sessionKey)
-          }
+    // Rate limiting: prevent uploads more than once every 2 seconds
+    const now = Date.now()
+    if (now - lastUploadTime < 2000) {
+      const errorMessage = 'Please wait a moment before uploading another file.'
+      setError(errorMessage)
+      onError?.(errorMessage)
+      return
+    }
+    
+    setIsUploading(true)
+    setLastUploadTime(now)
+    const file = files[0]
+    
+    // Validate file size
+    if (file.size > 5 * 1024 * 1024) {
+      const errorMessage = 'Please choose an image smaller than 5MB.'
+      setError(errorMessage)
+      onError?.(errorMessage)
+      setIsUploading(false)
+      return
+    }
+    
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml']
+    if (!allowedTypes.includes(file.type)) {
+      const errorMessage = 'Please choose a PNG, JPG, JPEG, or SVG file.'
+      setError(errorMessage)
+      onError?.(errorMessage)
+      setIsUploading(false)
+      return
+    }
+    
+    // Create preview immediately and store base64
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      if (typeof e.target?.result === 'string') {
+        setLogoPreview(e.target.result)
+        setBase64Preview(e.target.result)
+        // Store in sessionStorage only if enabled (for onboarding flows)
+        if (useSessionStorage) {
+          const sessionKey = `logoPreview_${Date.now()}`
+          sessionStorage.setItem('logoPreview', e.target.result)
+          sessionStorage.setItem('logoPreviewKey', sessionKey)
         }
       }
-      reader.readAsDataURL(file)
-      
-      // Just pass the file - upload will happen on form submit
-      onLogoChange?.(file)
     }
+    reader.readAsDataURL(file)
+    
+    // Only pass the file if validation passed - upload will happen in parent
+    onLogoChange?.(file)
     setIsUploading(false)
   }
 
 
   const handleError = (error: Error) => {
+    let errorMessage: string
     
     // Add user-friendly error messages based on react-dropzone error messages
     if (error.message.includes('larger than') || error.message.includes('File too large') || error.message.includes('bytes') || error.message.includes('5242880')) {
-      setError('Please choose an image smaller than 5MB')
+      errorMessage = 'Please choose an image smaller than 5MB'
     } else if (error.message.includes('File type not supported') || error.message.includes('Invalid file type') || error.message.includes('file type must be')) {
-      setError('Please choose a PNG, JPG, JPEG, or SVG file')
+      errorMessage = 'Please choose a PNG, JPG, JPEG, or SVG file'
     } else {
-      setError('Upload failed. Please try again.')
+      errorMessage = 'Upload failed. Please try again.'
     }
+    
+    setError(errorMessage)
+    onError?.(errorMessage)
   }
 
+  const sizeStyle = { width: `${size}px`, height: `${size}px` };
+  const calculatedIconSize = iconSize ?? Math.max(16, Math.min(20, size * 0.33)); // Scale icon between 16-24px based on size, or use custom size
+  
   if (readOnly) {
     return (
       <div className={`space-y-4 ${className}`}>
@@ -120,7 +140,7 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
           {/* Read-only Logo Preview */}
           <div className="flex-shrink-0">
             <div className="relative">
-              <div className="h-24 w-24 rounded-full border border-gray-200 bg-[var(--color-base-surface-page-background)] flex items-center justify-center overflow-hidden">
+              <div className="rounded-full border border-gray-200 bg-[var(--color-base-surface-page-background)] flex items-center justify-center overflow-hidden" style={sizeStyle}>
                 {logoPreview ? (
                   <img
                     src={logoPreview}
@@ -129,7 +149,7 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center">
-                    <UploadIcon className="h-8 w-8 text-gray-400" />
+                    <UploadIcon style={{ width: `${calculatedIconSize}px`, height: `${calculatedIconSize}px` }} className="text-gray-400" />
                   </div>
                 )}
               </div>
@@ -154,8 +174,8 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
     <div className={`space-y-4 ${className}`}>
       <div className="flex items-center gap-6">
         {/* Circular Drop Area */}
-        <div className="flex-shrink-0">
-          <div className="relative">
+        <div className="flex-shrink-0" style={sizeStyle}>
+          <div className="relative" style={sizeStyle}>
             <Dropzone
               accept={{ 'image/*': ['.png', '.jpg', '.jpeg', '.svg'] }}
               maxFiles={1}
@@ -163,16 +183,16 @@ export function ImageUpload({ onLogoChange, currentLogo, initialLogoUrl, classNa
               onDrop={handleDrop}
               onError={handleError}
               src={files}
-              className="h-24 w-24 rounded-full border border-dashed border-gray-300 bg-[var(--color-base-surface-page-background)] hover:border-gray-400 hover:bg-gray-100 transition-all duration-200 cursor-pointer flex items-center justify-center overflow-hidden"
+              className="!h-full !w-full rounded-full border border-dashed border-gray-300 bg-[var(--color-base-surface-page-background)] hover:border-gray-400 hover:bg-gray-100 transition-all duration-200 cursor-pointer flex items-center justify-center overflow-hidden !p-0"
             >
               <DropzoneEmptyState>
                 <div className="flex flex-col items-center justify-center text-center">
-                  <UploadIcon className="h-8 w-8 text-gray-400" />
+                  <UploadIcon style={{ width: `${calculatedIconSize}px`, height: `${calculatedIconSize}px` }} className="text-gray-400" />
                 </div>
               </DropzoneEmptyState>
               <DropzoneContent>
                 <div className="flex flex-col items-center justify-center text-center">
-                  <UploadIcon className="h-8 w-8 text-gray-400" />
+                  <UploadIcon style={{ width: `${calculatedIconSize}px`, height: `${calculatedIconSize}px` }} className="text-gray-400" />
                 </div>
               </DropzoneContent>
             </Dropzone>

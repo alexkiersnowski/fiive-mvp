@@ -22,6 +22,15 @@ function sanitizeInput(input: string): string {
     .slice(0, 255) // Limit length to prevent buffer overflow
 }
 
+// Sanitization utility for description fields (no length limit)
+function sanitizeDescription(input: string): string {
+  return input
+    .trim()
+    .replace(/[<>]/g, '') // Remove potential HTML tags
+    .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+    // No length limit - descriptions can be longer
+}
+
 // Profile actions
 export async function handleProfileCreation(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string; avatarFile?: File } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
   // Type guard to ensure we have profile data
@@ -120,7 +129,7 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
   }
   
   // Redirect to next step (account type selection)
-  redirect('/account-type')
+  redirect('/signup/account-type')
 }
 
 // Member invite completion action
@@ -311,7 +320,7 @@ export async function handleAccountTypeSelection(data: { email: string } | { fir
   }
   
   // Redirect to organization details with the selected type
-  redirect(`/organization-details?type=${accountType}`)
+  redirect(`/signup/organization-details?type=${accountType}`)
 }
 
 // Organization actions
@@ -434,5 +443,260 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
   }
   
   // Redirect to next step (dashboard home)
+  redirect('/home')
+}
+
+// Claim profile update action
+export async function handleClaimProfileUpdate(data: { email?: string; firstName: string; lastName: string; jobTitle?: string; avatarFile?: File } | { email: string } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
+  // Type guard to ensure we have profile data
+  // Note: email may be present in data (read-only field), but we ignore it
+  if (!('firstName' in data)) {
+    throw new Error('This function only handles profile data')
+  }
+  
+  // Extract profile fields, ignoring email if present (it's read-only)
+  const { firstName, lastName, jobTitle, avatarFile } = data as { firstName: string; lastName: string; jobTitle?: string; avatarFile?: File; email?: string }
+  
+  // Sanitize inputs
+  const sanitizedFirstName = sanitizeInput(firstName)
+  const sanitizedLastName = sanitizeInput(lastName)
+  const sanitizedJobTitle = jobTitle ? sanitizeInput(jobTitle) : null
+  
+  // Basic validation
+  if (!sanitizedFirstName) {
+    throw new Error('First name is required')
+  }
+  
+  if (!sanitizedLastName) {
+    throw new Error('Last name is required')
+  }
+  
+  // Create Supabase client
+  const supabase = await createClient()
+  
+  // Get the current user (centralized auth)
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  
+  if (userError || !user) {
+    console.error('User authentication error:', userError)
+    throw new Error('You must be logged in to update your profile')
+  }
+  
+  // Update the existing user profile (profile was created via trigger)
+  const profileUpdateData = {
+    first_name: sanitizedFirstName,
+    last_name: sanitizedLastName,
+    job_title: sanitizedJobTitle,
+    updated_at: new Date().toISOString()
+  }
+  
+  const result = await withTimeout(
+    supabase
+      .from('profiles')
+      .update(profileUpdateData)
+      .eq('id', user.id)
+      .select(),
+    3000 // 3 second timeout for profile updates
+  )
+  
+  const { data: profileData, error: profileError } = result as { data: unknown; error: unknown }
+  
+  if (profileError) {
+    // Extract error message from Supabase error object
+    const supabaseError = profileError as { message?: string; code?: string; details?: string; hint?: string }
+    const errorMessage = supabaseError.message 
+      || supabaseError.details
+      || (profileError instanceof Error ? profileError.message : JSON.stringify(profileError))
+    
+    console.error('Profile update error details:', {
+      error: profileError,
+      errorMessage,
+      errorCode: supabaseError.code,
+      user: user.id,
+      email: user.email,
+      firstName,
+      lastName,
+      jobTitle
+    })
+    throw new Error(`Failed to update profile: ${errorMessage}`)
+  }
+  
+  // Upload avatar if provided
+  if (avatarFile) {
+    try {
+      const { uploadAvatar } = await import('@/lib/supabase/storage')
+      const avatarUrl = await uploadAvatar(avatarFile, user.id)
+      
+      // Update profile with avatar URL
+      const avatarResult = await withTimeout(
+        supabase
+          .from('profiles')
+          .update({ avatar_url: avatarUrl })
+          .eq('id', user.id),
+        3000
+      )
+      
+      const { error: avatarError } = avatarResult as { error: unknown }
+      
+      if (avatarError) {
+        console.error('Failed to update profile with avatar URL:', avatarError)
+        // Don't throw error here - profile was updated successfully, avatar is optional
+      }
+    } catch (avatarUploadError) {
+      console.error('Failed to upload avatar:', avatarUploadError)
+      // Don't throw error here - profile was updated successfully, avatar is optional
+    }
+  }
+  
+  // Redirect to organization details (no token)
+  redirect('/claim/organization-details')
+}
+
+// Claim organization update action
+export async function handleClaimOrganizationUpdate(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { name: string; agencyType?: string; industry?: string; logoUrl?: string | File } | { accountType: string }) {
+  // Type guard to ensure we have organization data
+  if (!('name' in data)) {
+    throw new Error('This function only handles organization data')
+  }
+  
+  const { name, agencyType, industry, website, description, logoUrl } = data as { name: string; agencyType?: string; industry?: string; website?: string; description?: string; logoUrl?: string | File }
+  
+  // Sanitize inputs
+  const sanitizedName = sanitizeInput(name)
+  const sanitizedAgencyType = agencyType ? sanitizeInput(agencyType) : null
+  const sanitizedIndustry = industry ? sanitizeInput(industry) : null
+  // Normalize description: remove line breaks, sanitize (no length limit)
+  const sanitizedDescription = description 
+    ? sanitizeDescription(description.replace(/\r?\n/g, ' ')) || null
+    : null
+  
+  // Normalize website URL for storage (adds https://, removes www.)
+  const normalizeWebsiteForStorage = (url: string | undefined): string | undefined => {
+    if (!url || url.trim() === '') return undefined
+    
+    const trimmed = url.trim()
+    let cleanDomain = trimmed
+    
+    // Remove protocol if present
+    if (cleanDomain.startsWith('http://')) {
+      cleanDomain = cleanDomain.replace('http://', '')
+    } else if (cleanDomain.startsWith('https://')) {
+      cleanDomain = cleanDomain.replace('https://', '')
+    }
+    
+    // Remove www. if present
+    if (cleanDomain.startsWith('www.')) {
+      cleanDomain = cleanDomain.replace('www.', '')
+    }
+    
+    // Return standardized format: https://domain.com
+    return `https://${cleanDomain}`
+  }
+  
+  const normalizedWebsite = website ? normalizeWebsiteForStorage(website) : undefined
+  
+  // Basic validation
+  if (!sanitizedName) {
+    throw new Error('Organization name is required')
+  }
+  
+  // Create Supabase client
+  const supabase = await createClient()
+  
+  // Get the current user (centralized auth)
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  
+  if (userError || !user) {
+    console.error('User authentication error:', userError)
+    throw new Error('You must be logged in to update the organization')
+  }
+
+  // Load organization via owner_id (ownership is tracked in organizations.owner_id, not memberships.role)
+  // Claimed organizations set owner_id to the claiming user's ID
+  const { data: organization, error: orgLoadError } = await supabase
+    .from('organizations')
+    .select('id, type')
+    .eq('owner_id', user.id)
+    .is('is_draft', false)
+    .maybeSingle()
+
+  if (orgLoadError || !organization) {
+    console.error('Error loading organization:', orgLoadError)
+    throw new Error('Organization not found')
+  }
+
+  // Determine organization type and validate appropriate field
+  const isAgency = organization.type === 'agency'
+  
+  if (isAgency && !sanitizedAgencyType) {
+    throw new Error('Agency type is required')
+  }
+  
+  if (!isAgency && !sanitizedIndustry) {
+    throw new Error('Industry is required')
+  }
+
+  // Use the appropriate field value (both are stored in the industry column)
+  const industryValue = isAgency ? sanitizedAgencyType : sanitizedIndustry
+
+  // Prepare organization update data (only update name, industry, website, description, logo - claim already done)
+  const organizationUpdateData: {
+    name: string
+    industry: string
+    website?: string
+    description?: string
+    updated_at: string
+    logo_url?: string
+  } = {
+    name: sanitizedName,
+    industry: industryValue!,
+    updated_at: new Date().toISOString()
+  }
+  
+  // Add website and description if provided
+  if (normalizedWebsite !== undefined) {
+    organizationUpdateData.website = normalizedWebsite
+  }
+  if (sanitizedDescription !== null) {
+    organizationUpdateData.description = sanitizedDescription || undefined
+  }
+
+  // Handle logo upload if provided
+  if (logoUrl && logoUrl instanceof File) {
+    try {
+      const { uploadLogo } = await import('@/lib/supabase/storage')
+      const logoUrlString = await uploadLogo(logoUrl, organization.id)
+      organizationUpdateData.logo_url = logoUrlString
+    } catch (logoError) {
+      console.error('Failed to upload logo:', logoError)
+      throw new Error(`Failed to upload logo: ${logoError instanceof Error ? logoError.message : String(logoError)}`)
+    }
+  } else if (logoUrl && typeof logoUrl === 'string') {
+    // logoUrl is already a URL string (existing logo)
+    organizationUpdateData.logo_url = logoUrl
+  }
+
+  // Update organization
+  const orgUpdateResult = await withTimeout(
+    supabase
+      .from('organizations')
+      .update(organizationUpdateData)
+      .eq('id', organization.id)
+      .select(),
+    3000
+  )
+
+  const { error: orgUpdateError } = orgUpdateResult as { error: unknown }
+
+  if (orgUpdateError) {
+    console.error('Organization update error:', {
+      error: orgUpdateError,
+      orgId: organization.id,
+      userId: user.id
+    })
+    throw new Error(`Failed to update organization: ${orgUpdateError instanceof Error ? orgUpdateError.message : String(orgUpdateError)}`)
+  }
+
+  // Redirect to dashboard home
   redirect('/home')
 }

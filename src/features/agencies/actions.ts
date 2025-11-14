@@ -21,55 +21,225 @@ export type NewAgencyResult = {
 };
 
 /**
- * Creates a new agency organization and establishes connection
+ * Creates a new agency organization and establishes connection with invite
  * Used when a client adds an agency who is NOT on Fiive yet
  * 
- * Database implementation will:
- * 1. Create new organization record for the agency (type: 'agency')
- * 2. Generate a unique connection_code for the new agency
- * 3. Create connection record linking client org to agency org
- * 4. Set up default workspace/permissions
- * 
- * TODO: Implement when "Add new agency" flow is ready
+ * Implementation:
+ * 1. Validates client context and email
+ * 2. Calls create_draft_agency_connection RPC to create draft agency org + connection + invite token
+ * 3. Sends invitation email to the primary contact
+ * 4. Revalidates agencies page
  */
-export async function createNewAgency(
+export async function createNewAgencyAndInvite(
   agencyName: string,
+  primaryContactEmail: string,
   context: EnhancedModeContext
 ): Promise<NewAgencyResult> {
+  const supabase = await createClient();
+  
   try {
-    // TODO: Implement when database is ready
-    console.log('Creating new agency:', { agencyName, context });
+    // Validate context before proceeding
+    if (!context || !context.orgId || !context.userId) {
+      console.error('Invalid context provided to createNewAgencyAndInvite:', { context });
+      return {
+        success: false,
+        error: 'Invalid session. Please refresh the page and try again.',
+      };
+    }
+
+    // Only clients can invite agencies
+    if (context.variant !== 'client') {
+      return {
+        success: false,
+        error: 'Only clients can invite agencies',
+      };
+    }
+
+    const trimmedName = agencyName.trim();
+    const trimmedEmail = primaryContactEmail.trim().toLowerCase();
+
+    if (!trimmedName) {
+      return {
+        success: false,
+        error: 'Agency name is required',
+      };
+    }
+
+    if (trimmedName.length > 255) {
+      return {
+        success: false,
+        error: 'Agency name must be 255 characters or fewer',
+      };
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      return {
+        success: false,
+        error: 'Please enter a valid email address',
+      };
+    }
+
+    // Validate owner ID exists
+    const ownerId = context.organization.ownerId ?? context.userId;
+    if (!ownerId) {
+      console.error('Missing owner ID in context:', { context });
+      return {
+        success: false,
+        error: 'Unable to determine organization owner. Please refresh the page and try again.',
+      };
+    }
+
+    // Validation: Email must NOT already exist in auth.users
+    const { data: emailExists, error: userCheckError } = await supabase.rpc('check_user_email_exists', {
+      p_email: trimmedEmail
+    });
     
-    // Mock success response for now
-    await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
+    if (userCheckError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error checking existing users:', userCheckError);
+      }
+      return {
+        success: false,
+        error: 'Failed to validate email address',
+      };
+    }
+
+    if (emailExists === true) {
+      return {
+        success: false,
+        error: 'This email already has a Fiive account',
+      };
+    }
+
+    // Validation: Email cannot belong to the client org
+    const { data: clientMembers, error: clientMembersError } = await supabase
+      .from('memberships')
+      .select(`
+        profiles!inner(
+          email
+        )
+      `)
+      .eq('org_id', context.orgId);
+
+    if (clientMembersError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error checking client members:', clientMembersError);
+      }
+      return {
+        success: false,
+        error: 'Failed to validate email address',
+      };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const clientEmails = (clientMembers || []).map((m: any) => 
+      m.profiles?.email?.toLowerCase()
+    ).filter(Boolean);
+
+    if (clientEmails.includes(trimmedEmail)) {
+      return {
+        success: false,
+        error: 'This email belongs to your organization',
+      };
+    }
+
+    // Call RPC to create draft agency org + connection (status='invited', but no token yet)
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('create_draft_agency_connection', {
+      p_client_id: context.orgId,
+      p_owner_id: ownerId,
+      p_agency_name: trimmedName,
+      p_primary_contact_email: trimmedEmail
+    });
+
+    if (rpcError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error creating draft agency connection:', rpcError);
+      }
+      return {
+        success: false,
+        error: rpcError.message || 'Failed to create agency. Please try again.',
+      };
+    }
+
+    if (!rpcResult || rpcResult.length === 0) {
+      return {
+        success: false,
+        error: 'Failed to create agency. Please try again.',
+      };
+    }
+
+    const { connection_id, agency_id } = rpcResult[0];
+
+    if (!connection_id || !agency_id) {
+      return {
+        success: false,
+        error: 'Failed to create agency. Please try again.',
+      };
+    }
+
+    // Generate and store invite token (matching client invite flow pattern)
+    const { createInviteToken } = await import('@/lib/tokens/createInviteToken');
+    const tokenResult = await createInviteToken(connection_id, trimmedEmail);
+    if (!tokenResult.success) {
+      return {
+        success: false,
+        error: tokenResult.error || 'Failed to create invite token',
+      };
+    }
+
+    // Get client organization name for email
+    const { data: clientOrg, error: clientOrgError } = await supabase
+      .from('organizations')
+      .select('name')
+      .eq('id', context.orgId)
+      .single();
+
+    if (clientOrgError || !clientOrg) {
+      return {
+        success: false,
+        error: 'Failed to retrieve client information',
+      };
+    }
+
+    // Build invite URL
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`;
+
+    // Send invitation email via Resend
+    try {
+      const { sendAgencyInviteEmail } = await import('@/app/actions/sendAgencyInviteEmail');
+      await sendAgencyInviteEmail({
+        to: trimmedEmail,
+        clientName: clientOrg.name,
+        inviteUrl
+      });
+    } catch (emailError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error sending invitation email:', emailError);
+      }
+      return {
+        success: false,
+        error: emailError instanceof Error ? emailError.message : 'Failed to send invitation email',
+      };
+    }
+
+    // Revalidate agencies page to show the new connection
+    revalidatePath('/agencies');
     
     return {
       success: true,
-      agencyId: `agency-${Date.now()}`,
-      agencyName: agencyName
+      agencyId: agency_id,
+      agencyName: trimmedName,
     };
-    
-    // Real implementation will look like:
-    // const newOrg = await db.organizations.create({
-    //   name: agencyName,
-    //   type: 'agency',
-    //   createdBy: context.userId
-    // });
-    //
-    // const connection = await db.connections.create({
-    //   client_id: context.orgId,
-    //   agency_id: newOrg.id,
-    //   status: 'active',
-    //   createdBy: context.userId
-    // });
-    //
-    // revalidatePath('/agencies');
-    // return { success: true, agencyId: newOrg.id, agencyName: newOrg.name };
   } catch (error) {
-    console.error('Error creating agency:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error creating agency:', error);
+    }
     return {
       success: false,
-      error: 'Failed to create agency. Please try again.'
+      error: 'An unexpected error occurred',
     };
   }
 }

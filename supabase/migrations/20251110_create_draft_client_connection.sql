@@ -5,6 +5,9 @@
 --              client organization linked to their agency via connections.
 -- ============================================================================
 
+-- Drop existing function if it exists (for consistency and safety)
+DROP FUNCTION IF EXISTS public.create_draft_client_connection(uuid, uuid, text);
+
 CREATE OR REPLACE FUNCTION public.create_draft_client_connection(
   p_agency_id uuid,
   p_owner_id uuid,
@@ -86,7 +89,7 @@ BEGIN
     industry,
     logo_url,
     owner_id,
-    created_by_agency_id,
+    created_by_org_id,
     is_draft
   )
   VALUES (

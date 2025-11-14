@@ -42,6 +42,9 @@ const createDetailsSchema = (isAgency: boolean) => z.object({
       cleanDomain = cleanDomain.replace('www.', '')
     }
     
+    // Remove trailing slash, paths, query strings, and fragments
+    cleanDomain = cleanDomain.split('/')[0].split('?')[0].split('#')[0]
+    
     // Basic domain validation - must have at least one dot and valid TLD
     const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
     return domainRegex.test(cleanDomain)
@@ -359,6 +362,11 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                       e.target.style.boxShadow = 'none'
                       e.target.style.borderColor = 'var(--color-neutral-4)'
                     } : undefined}
+                    onChange={!canManageDetails ? undefined : (e) => {
+                      // Replace line breaks with spaces
+                      const normalizedValue = e.target.value.replace(/\r?\n/g, ' ')
+                      field.onChange(normalizedValue)
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault()

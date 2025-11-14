@@ -5,7 +5,7 @@ export type Client = {
   id: string
   name: string
   logo?: string
-  status: "draft" | "onboarding" | "active" | "offboarded"
+  status: "draft" | "invited" | "onboarding" | "active" | "offboarded"
   createdAt?: string
   is_draft?: boolean // Indicates if this is a draft client organization
   clientId?: string // The organization ID of the client (for deletion)

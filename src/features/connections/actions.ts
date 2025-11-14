@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { uploadLogo } from '@/lib/supabase/storage'
+import { getAgencyOrgId } from '@/lib/connections/agency-validation'
 import { z } from 'zod'
 
 export async function updateClientPrimaryContact(
@@ -286,60 +287,14 @@ export async function updateDraftClientOrganization(data: {
     }
 
     // Get user's organization and verify it's an agency
-    const { data: membership, error: membershipError } = await supabase
-      .from('memberships')
-      .select(`
-        id,
-        org_id,
-        role,
-        organizations!inner(
-          id,
-          type,
-          owner_id
-        )
-      `)
-      .eq('user_id', user.id)
-      .is('organizations.is_draft', false)
-      .single()
-
-    let agencyOrgId: string | null = null
-
-    if (membershipError || !membership) {
-      // Try fallback: check if user is owner
-      const { data: ownerOrg, error: ownerError } = await supabase
-        .from('organizations')
-        .select('id, type, owner_id')
-        .eq('owner_id', user.id)
-        .is('is_draft', false)
-        .single()
-
-      if (ownerError || !ownerOrg || ownerOrg.type !== 'agency') {
-        return { 
-          success: false, 
-          error: "You must be a member of an agency organization" 
-        }
-      }
-      
-      agencyOrgId = ownerOrg.id
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const org = (membership as any).organizations
-      if (!org || org.type !== 'agency') {
-        return { 
-          success: false, 
-          error: "You must be a member of an agency organization" 
-        }
-      }
-      
-      agencyOrgId = org.id
-    }
-
-    if (!agencyOrgId) {
-      return { 
-        success: false, 
-        error: "Agency organization not found" 
+    const agencyResult = await getAgencyOrgId()
+    if (!agencyResult.success) {
+      return {
+        success: false,
+        error: agencyResult.error
       }
     }
+    const agencyOrgId = agencyResult.agencyOrgId
 
     // Validate connection exists, belongs to agency, and is in draft state
     const { data: connection, error: connectionError } = await supabase
@@ -441,6 +396,640 @@ export async function updateDraftClientOrganization(data: {
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('Unexpected error updating draft client organization:', error)
+    }
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function inviteClientToConnection(data: {
+  connectionId: string
+  email: string
+}) {
+  const supabase = await createClient()
+  
+  try {
+    // Verify the user is authenticated
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { 
+        success: false, 
+        error: "Unauthorized" 
+      }
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(data.email)) {
+      return {
+        success: false,
+        error: "Please enter a valid email address"
+      }
+    }
+
+    // Get user's organization and verify it's an agency
+    const agencyResult = await getAgencyOrgId()
+    if (!agencyResult.success) {
+      return {
+        success: false,
+        error: agencyResult.error
+      }
+    }
+    const agencyOrgId = agencyResult.agencyOrgId
+
+    // Validate connection exists, belongs to agency, and is in draft or invited state
+    const { data: connection, error: connectionError } = await supabase
+      .from('connections')
+      .select('id, connection_status, client_id, agency_id')
+      .eq('id', data.connectionId)
+      .eq('agency_id', agencyOrgId)
+      .single()
+
+    if (connectionError || !connection) {
+      return { 
+        success: false, 
+        error: "Connection not found or access denied" 
+      }
+    }
+
+    // CRITICAL: Only allow invites if connection is in draft or invited state
+    // (invited allows re-invites after 7 days)
+    if (connection.connection_status !== 'draft' && connection.connection_status !== 'invited') {
+      return { 
+        success: false, 
+        error: "Client can only be invited for draft or invited connections" 
+      }
+    }
+
+    // Rate limiting: Check if last invite was less than 10 minutes ago (same as resend)
+    if (connection.connection_status === 'invited') {
+      // Get the connection with invite details to check rate limit
+      const { data: connectionWithInvite, error: inviteDetailsError } = await supabase
+        .from('connections')
+        .select('invited_at')
+        .eq('id', data.connectionId)
+        .single()
+
+      if (!inviteDetailsError && connectionWithInvite?.invited_at) {
+        const tenMinutesAgo = new Date()
+        tenMinutesAgo.setMinutes(tenMinutesAgo.getMinutes() - 10)
+        
+        const lastInviteDate = new Date(connectionWithInvite.invited_at)
+        if (lastInviteDate > tenMinutesAgo) {
+          // Calculate time remaining
+          const timeRemainingMs = lastInviteDate.getTime() + (10 * 60 * 1000) - Date.now()
+          const minutesRemaining = Math.ceil(timeRemainingMs / (60 * 1000))
+          
+          return {
+            success: false,
+            error: `Please wait ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''} before sending another invitation`
+          }
+        }
+      }
+    }
+
+    // Get client organization ID
+    const clientOrgId = connection.client_id
+    if (!clientOrgId) {
+      return { 
+        success: false, 
+        error: "Client organization not found" 
+      }
+    }
+
+    // Validation 4: Client org must be a draft (is_draft = TRUE)
+    const { data: clientOrg, error: clientOrgError } = await supabase
+      .from('organizations')
+      .select('id, is_draft')
+      .eq('id', clientOrgId)
+      .single()
+
+    if (clientOrgError || !clientOrg) {
+      return {
+        success: false,
+        error: "Client organization not found"
+      }
+    }
+
+    if (clientOrg.is_draft !== true) {
+      return {
+        success: false,
+        error: "Client organization is no longer a draft"
+      }
+    }
+
+    // Validation 5: Client org must have zero memberships
+    const { count: membershipCount, error: membershipCountError } = await supabase
+      .from('memberships')
+      .select('*', { count: 'exact', head: true })
+      .eq('org_id', clientOrgId)
+
+    if (membershipCountError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error checking client org memberships:', membershipCountError)
+      }
+      return {
+        success: false,
+        error: "Failed to validate client organization"
+      }
+    }
+
+    if (membershipCount && membershipCount > 0) {
+      return {
+        success: false,
+        error: "Client organization already has members"
+      }
+    }
+
+    // Validation 6: Email must NOT already exist in auth.users
+    // Use efficient RPC function instead of listing all users
+    const { data: emailExists, error: userCheckError } = await supabase.rpc('check_user_email_exists', {
+      p_email: data.email
+    })
+    
+    if (userCheckError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error checking existing users:', userCheckError)
+      }
+      return {
+        success: false,
+        error: "Failed to validate email address"
+      }
+    }
+
+    if (emailExists === true) {
+      return {
+        success: false,
+        error: "This email already has a Fiive account"
+      }
+    }
+
+    // Validation 7: No active invite within the last 7 days for this email
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    
+    const { data: existingInvite, error: inviteCheckError } = await supabase
+      .from('connections')
+      .select('id, invited_at, invite_token, invited_email')
+      .eq('id', data.connectionId)
+      .eq('invited_email', data.email.toLowerCase())
+      .not('invite_token', 'is', null)
+      .not('invited_at', 'is', null)
+      .gte('invited_at', sevenDaysAgo.toISOString())
+      .single()
+
+    if (inviteCheckError && inviteCheckError.code !== 'PGRST116') {
+      // PGRST116 = no rows returned, which is fine
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error checking existing invite:', inviteCheckError)
+      }
+      return {
+        success: false,
+        error: "Failed to validate existing invitations"
+      }
+    }
+
+    if (existingInvite) {
+      return {
+        success: false,
+        error: "An active invitation was sent less than 7 days ago"
+      }
+    }
+
+    // Validation 8: Email cannot belong to the agency
+    const { data: agencyMembers, error: agencyMembersError } = await supabase
+      .from('memberships')
+      .select(`
+        profiles!inner(
+          email
+        )
+      `)
+      .eq('org_id', agencyOrgId)
+
+    if (agencyMembersError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error checking agency members:', agencyMembersError)
+      }
+      return {
+        success: false,
+        error: "Failed to validate email address"
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const agencyEmails = (agencyMembers || []).map((m: any) => 
+      m.profiles?.email?.toLowerCase()
+    ).filter(Boolean)
+
+    if (agencyEmails.includes(data.email.toLowerCase())) {
+      return {
+        success: false,
+        error: "This email belongs to your agency"
+      }
+    }
+
+    // Import token creation and email sending functions
+    const { createInviteToken } = await import('@/lib/tokens/createInviteToken')
+    const { sendClientInviteEmail } = await import('@/app/actions/sendClientInviteEmail')
+
+    // Generate and store invite token
+    const tokenResult = await createInviteToken(data.connectionId, data.email)
+    if (!tokenResult.success) {
+      return {
+        success: false,
+        error: tokenResult.error || 'Failed to create invite token'
+      }
+    }
+
+    // Get agency organization name for email
+    const { data: agencyOrg, error: agencyOrgError } = await supabase
+      .from('organizations')
+      .select('name')
+      .eq('id', agencyOrgId)
+      .single()
+
+    if (agencyOrgError || !agencyOrg) {
+      return {
+        success: false,
+        error: 'Failed to retrieve agency information'
+      }
+    }
+
+    // Build invite URL
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`
+
+    // Send invitation email via Resend
+    try {
+      await sendClientInviteEmail({
+        to: data.email,
+        agencyName: agencyOrg.name,
+        inviteUrl
+      })
+    } catch (emailError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error sending invitation email:', emailError)
+      }
+      return {
+        success: false,
+        error: emailError instanceof Error ? emailError.message : 'Failed to send invitation email'
+      }
+    }
+
+    // Revalidate connection pages to reflect the changes
+    revalidatePath(`/clients/${data.connectionId}`)
+    revalidatePath(`/agencies/${data.connectionId}`)
+    revalidatePath('/clients')
+    revalidatePath('/agencies')
+
+    return {
+      success: true
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error inviting client:', error)
+    }
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function resendInviteEmail(data: {
+  connectionId: string
+}) {
+  const supabase = await createClient()
+  
+  try {
+    // Verify the user is authenticated
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { 
+        success: false, 
+        error: "Unauthorized" 
+      }
+    }
+
+    // Get user's organization ID and type
+    const { data: membership, error: membershipError } = await supabase
+      .from('memberships')
+      .select(`
+        org_id,
+        organizations!inner(id, type, owner_id)
+      `)
+      .eq('user_id', user.id)
+      .is('organizations.is_draft', false)
+      .single()
+
+    let userOrgId: string | null = null
+    let userOrgType: string | null = null
+
+    if (membershipError || !membership) {
+      // Fallback: check if user is owner
+      const { data: ownerOrg, error: ownerError } = await supabase
+        .from('organizations')
+        .select('id, type')
+        .eq('owner_id', user.id)
+        .is('is_draft', false)
+        .single()
+
+      if (ownerError || !ownerOrg) {
+        return {
+          success: false,
+          error: 'You must be a member of an organization'
+        }
+      }
+
+      userOrgId = ownerOrg.id
+      userOrgType = ownerOrg.type
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const org = (membership as any).organizations
+      userOrgId = org.id
+      userOrgType = org.type
+    }
+
+    if (!userOrgId || !userOrgType) {
+      return {
+        success: false,
+        error: 'Organization not found'
+      }
+    }
+
+    // Validate connection exists and belongs to user's org
+    const { data: connection, error: connectionError } = await supabase
+      .from('connections')
+      .select('id, connection_status, client_id, agency_id, invited_email, invited_at, invite_token')
+      .eq('id', data.connectionId)
+      .or(userOrgType === 'agency' 
+        ? `agency_id.eq.${userOrgId}` 
+        : `client_id.eq.${userOrgId}`)
+      .single()
+
+    if (connectionError || !connection) {
+      return { 
+        success: false, 
+        error: "Connection not found or access denied" 
+      }
+    }
+
+    // CRITICAL: Only allow resend for invited connections
+    if (connection.connection_status !== 'invited') {
+      return { 
+        success: false, 
+        error: "Can only resend invitations for invited connections" 
+      }
+    }
+
+    // Validate invite fields exist
+    if (!connection.invited_email || !connection.invited_at || !connection.invite_token) {
+      return {
+        success: false,
+        error: "Invitation details not found"
+      }
+    }
+
+    // Rate limiting: Check if last invite was less than 10 minutes ago
+    const tenMinutesAgo = new Date()
+    tenMinutesAgo.setMinutes(tenMinutesAgo.getMinutes() - 10)
+    
+    const lastInviteDate = new Date(connection.invited_at)
+    if (lastInviteDate > tenMinutesAgo) {
+      // Calculate time remaining
+      const timeRemainingMs = lastInviteDate.getTime() + (10 * 60 * 1000) - Date.now()
+      const minutesRemaining = Math.ceil(timeRemainingMs / (60 * 1000))
+      
+      return {
+        success: false,
+        error: `Please wait ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''} before resending the invitation`
+      }
+    }
+
+    // Check if token is still valid (within 7 days)
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    
+    if (lastInviteDate < sevenDaysAgo) {
+      return {
+        success: false,
+        error: "Invitation has expired. Please send a new invitation."
+      }
+    }
+
+    // Import token creation and email sending functions
+    const { createInviteToken } = await import('@/lib/tokens/createInviteToken')
+    const { sendClientInviteEmail } = await import('@/app/actions/sendClientInviteEmail')
+
+    // Invalidate old token before creating new one (security: only one valid token at a time)
+    const { error: clearTokenError } = await supabase
+      .from('connections')
+      .update({ invite_token: null })
+      .eq('id', data.connectionId)
+
+    if (clearTokenError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error clearing old token:', clearTokenError)
+      }
+      return {
+        success: false,
+        error: 'Failed to invalidate previous invitation'
+      }
+    }
+
+    // Generate new token (old one is now invalid)
+    const tokenResult = await createInviteToken(data.connectionId, connection.invited_email)
+    if (!tokenResult.success) {
+      return {
+        success: false,
+        error: tokenResult.error || 'Failed to create invite token'
+      }
+    }
+
+    // Get partner organization name for email (agency name if client inviting, client name if agency inviting)
+    const partnerOrgId = userOrgType === 'agency' ? connection.client_id : connection.agency_id
+    const { data: partnerOrg, error: partnerOrgError } = await supabase
+      .from('organizations')
+      .select('name')
+      .eq('id', partnerOrgId)
+      .single()
+
+    if (partnerOrgError || !partnerOrg) {
+      return {
+        success: false,
+        error: 'Failed to retrieve organization information'
+      }
+    }
+
+    // Build invite URL
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`
+
+    // Send invitation email via Resend (use appropriate template based on context)
+    try {
+      if (userOrgType === 'agency') {
+        // Agency inviting client - use client invite template
+        const { sendClientInviteEmail } = await import('@/app/actions/sendClientInviteEmail')
+        await sendClientInviteEmail({
+          to: connection.invited_email,
+          agencyName: partnerOrg.name,
+          inviteUrl
+        })
+      } else {
+        // Client inviting agency - use agency invite template
+        const { sendAgencyInviteEmail } = await import('@/app/actions/sendAgencyInviteEmail')
+        await sendAgencyInviteEmail({
+          to: connection.invited_email,
+          clientName: partnerOrg.name,
+          inviteUrl
+        })
+      }
+    } catch (emailError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error sending invitation email:', emailError)
+      }
+      return {
+        success: false,
+        error: emailError instanceof Error ? emailError.message : 'Failed to send invitation email'
+      }
+    }
+
+    // Revalidate connection pages to reflect the changes
+    revalidatePath(`/clients/${data.connectionId}`)
+    revalidatePath(`/agencies/${data.connectionId}`)
+    revalidatePath('/clients')
+    revalidatePath('/agencies')
+
+    return {
+      success: true
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error resending invitation:', error)
+    }
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function cancelInvitation(data: {
+  connectionId: string
+}) {
+  const supabase = await createClient()
+  
+  try {
+    // Verify the user is authenticated
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { 
+        success: false, 
+        error: "Unauthorized" 
+      }
+    }
+
+    // Get user's organization ID and type
+    const { data: membership, error: membershipError } = await supabase
+      .from('memberships')
+      .select(`
+        org_id,
+        organizations!inner(id, type, owner_id)
+      `)
+      .eq('user_id', user.id)
+      .is('organizations.is_draft', false)
+      .single()
+
+    let userOrgId: string | null = null
+    let userOrgType: string | null = null
+
+    if (membershipError || !membership) {
+      // Fallback: check if user is owner
+      const { data: ownerOrg, error: ownerError } = await supabase
+        .from('organizations')
+        .select('id, type')
+        .eq('owner_id', user.id)
+        .is('is_draft', false)
+        .single()
+
+      if (ownerError || !ownerOrg) {
+        return {
+          success: false,
+          error: 'You must be a member of an organization'
+        }
+      }
+
+      userOrgId = ownerOrg.id
+      userOrgType = ownerOrg.type
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const org = (membership as any).organizations
+      userOrgId = org.id
+      userOrgType = org.type
+    }
+
+    if (!userOrgId || !userOrgType) {
+      return {
+        success: false,
+        error: 'Organization not found'
+      }
+    }
+
+    // Validate connection exists and belongs to user's org
+    const { data: connection, error: connectionError } = await supabase
+      .from('connections')
+      .select('id, connection_status, agency_id, client_id')
+      .eq('id', data.connectionId)
+      .or(userOrgType === 'agency' 
+        ? `agency_id.eq.${userOrgId}` 
+        : `client_id.eq.${userOrgId}`)
+      .single()
+
+    if (connectionError || !connection) {
+      return { 
+        success: false, 
+        error: "Connection not found or access denied" 
+      }
+    }
+
+    // CRITICAL: Only allow cancel for invited connections
+    if (connection.connection_status !== 'invited') {
+      return { 
+        success: false, 
+        error: "Can only cancel invitations for invited connections" 
+      }
+    }
+
+    // Clear invite fields
+    // For agency-invited clients: set status back to draft (agency can edit draft)
+    // For client-invited agencies: keep status as 'invited' (clients can't edit drafts)
+    const newStatus = userOrgType === 'agency' ? 'draft' : 'invited'
+    
+    const { error: updateError } = await supabase
+      .from('connections')
+      .update({
+        invite_token: null,
+        invited_email: null,
+        invited_at: null,
+        connection_status: newStatus
+      })
+      .eq('id', data.connectionId)
+
+    if (updateError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error canceling invitation:', updateError)
+      }
+      return {
+        success: false,
+        error: 'Failed to cancel invitation'
+      }
+    }
+
+    // Revalidate connection pages to reflect the changes
+    revalidatePath(`/clients/${data.connectionId}`)
+    revalidatePath(`/agencies/${data.connectionId}`)
+    revalidatePath('/clients')
+    revalidatePath('/agencies')
+
+    return {
+      success: true
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error canceling invitation:', error)
     }
     return { success: false, error: 'An unexpected error occurred' }
   }

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
-import { handleProfileCreation } from '../actions'
+import { handleProfileCreation } from '../../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getProfileData } from '@/lib/onboarding/data'
 
@@ -35,3 +35,4 @@ export default async function ProfilePage() {
     />
   )
 }
+

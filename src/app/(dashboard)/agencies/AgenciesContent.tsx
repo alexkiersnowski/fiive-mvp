@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { AgenciesSnapshot } from '@/features/agencies/types';
-import { connectToExistingAgency, refreshAgenciesData } from '@/features/agencies/actions';
+import { connectToExistingAgency, refreshAgenciesData, createNewAgencyAndInvite } from '@/features/agencies/actions';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,7 +24,8 @@ const accountTypeSchema = z.object({
 });
 
 const addNewAgencySchema = z.object({
-  agencyName: z.string().min(1, "Agency name is required")
+  agencyName: z.string().min(1, "Agency name is required"),
+  primaryContactEmail: z.string().email("Please enter a valid email address")
 });
 
 const connectToAgencySchema = z.object({
@@ -57,6 +58,7 @@ export function AgenciesContent({
   const [connectedAgencyName, setConnectedAgencyName] = useState('');
   const [connectedAgencyLogo, setConnectedAgencyLogo] = useState<string | undefined>(undefined);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isCreatingAgency, setIsCreatingAgency] = useState(false);
 
   // Client-side filtering for search
   const filteredAgencies = useMemo(() => {
@@ -94,7 +96,8 @@ export function AgenciesContent({
   const addNewAgencyForm = useForm<AddNewAgencyFormData>({
     resolver: zodResolver(addNewAgencySchema),
     defaultValues: {
-      agencyName: ""
+      agencyName: "",
+      primaryContactEmail: ""
     },
     mode: "onSubmit",
   });
@@ -149,10 +152,39 @@ export function AgenciesContent({
     }
   };
 
-  const handleAddNewAgencySubmit = (data: AddNewAgencyFormData) => {
-    // TODO: Add agency to database
-    console.log('Adding new agency:', data.agencyName);
-    handleAddNewAgencyDialogClose();
+  const handleAddNewAgencySubmit = async (data: AddNewAgencyFormData) => {
+    setIsCreatingAgency(true);
+    
+    try {
+      const result = await createNewAgencyAndInvite(
+        data.agencyName,
+        data.primaryContactEmail,
+        context
+      );
+      
+      if (result.success) {
+        // Update local state with fresh data
+        const refreshedData = await refreshAgenciesData(context);
+        setAgencies(refreshedData.agencies);
+        setTotalCount(refreshedData.total);
+        
+        // Close dialog and show success
+        handleAddNewAgencyDialogClose();
+        // Success toast will be handled by the action if needed
+      } else {
+        // Show error in form
+        addNewAgencyForm.setError('root', {
+          message: result.error || 'Failed to create agency'
+        });
+      }
+    } catch (error) {
+      console.error('Error creating agency:', error);
+      addNewAgencyForm.setError('root', {
+        message: 'Failed to create agency. Please try again.'
+      });
+    } finally {
+      setIsCreatingAgency(false);
+    }
   };
 
   const handleConnectToAgencySubmit = async (data: ConnectToAgencyFormData) => {
@@ -357,11 +389,11 @@ export function AgenciesContent({
         <DialogContent style={{ padding: '24px', maxWidth: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto" showCloseButton={false}>
           <DialogTitle className="display-5-medium" style={{ color: 'var(--color-base-text-primary)' }}>Add a new agency</DialogTitle>
           <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-            Create a shared workspace you can invite your agency to later
+            Invite your agency to start collaborating
           </DialogDescription>
           <Form {...addNewAgencyForm}>
             <form onSubmit={addNewAgencyForm.handleSubmit(handleAddNewAgencySubmit)} className="space-y-5">
-              <div className="mt-3">
+              <div className="mt-3 space-y-4">
                 <FormField
                   control={addNewAgencyForm.control}
                   name="agencyName"
@@ -379,6 +411,29 @@ export function AgenciesContent({
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={addNewAgencyForm.control}
+                  name="primaryContactEmail"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm font-medium">Primary contact email</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="email"
+                          placeholder="email@example.com"
+                          className="h-10 px-4 py-2 text-sm"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {addNewAgencyForm.formState.errors.root && (
+                  <p className="text-sm text-red-600">
+                    {addNewAgencyForm.formState.errors.root.message}
+                  </p>
+                )}
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <Button 
@@ -393,9 +448,15 @@ export function AgenciesContent({
                 <Button 
                   type="submit"
                   style={{ height: '40px' }}
-                  className="cursor-pointer"
+                  className="cursor-pointer relative"
+                  disabled={isCreatingAgency}
                 >
-                  Continue
+                  <span className={isCreatingAgency ? "invisible" : ""}>Continue</span>
+                  {isCreatingAgency && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Spinner size={16} />
+                    </div>
+                  )}
                 </Button>
               </div>
             </form>

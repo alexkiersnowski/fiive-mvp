@@ -1,6 +1,6 @@
 // import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
-import { handleMemberInviteCompletion } from '../actions'
+import { handleMemberInviteCompletion } from '../../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getProfileData } from '@/lib/onboarding/data'
 import { createClient } from '@/lib/supabase/server'
@@ -86,3 +86,4 @@ export default async function MemberInvitePage({ searchParams }: MemberInvitePag
     />
   )
 }
+

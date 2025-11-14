@@ -91,7 +91,7 @@ export function StatusBadge({ variant, size = "sm", className, showTooltip = fal
   }
 
   return (
-    <Tooltip delayDuration={400}>
+    <Tooltip delayDuration={250}>
       <TooltipTrigger asChild>
         {badge}
       </TooltipTrigger>

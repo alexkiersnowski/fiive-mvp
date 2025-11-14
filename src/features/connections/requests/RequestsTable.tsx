@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
 import type { Request } from '../server'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import { useConnection } from '../ConnectionContext'
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -55,6 +56,7 @@ interface RequestsTableProps {
 }
 
 export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask }: RequestsTableProps) {
+  const { snapshot } = useConnection()
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -395,7 +397,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={8}>
                 {isAgency 
-                  ? 'Both you and your client can see this' 
+                  ? (snapshot.connection.isDraft
+                      ? 'Visible after invite'
+                      : 'Both you and your client can see this')
                   : 'Both you and your agency can manage this'}
                 </TooltipContent>
               </Tooltip>

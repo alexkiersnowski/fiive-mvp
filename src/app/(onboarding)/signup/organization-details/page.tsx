@@ -1,6 +1,6 @@
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { ImageUpload } from '@/components/ui/image-upload'
-import { handleOrganizationDetails } from '../actions'
+import { handleOrganizationDetails } from '../../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getOrganizationData } from '@/lib/onboarding/data'
 
@@ -48,3 +48,4 @@ export default async function OrganizationDetailsPage({
     />
   )
 }
+

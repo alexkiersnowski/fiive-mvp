@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
-import { Plus, ArrowRight, ClipboardText } from "@phosphor-icons/react/dist/ssr";
+import { Plus, ArrowRight, ClipboardText, LockSimple } from "@phosphor-icons/react/dist/ssr";
 import { CheckCircle, Eye, EyeSlash } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
@@ -430,7 +430,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
               }}
             >
               {isAgency ? (
-                <Eye size={12} weight="fill" style={{ color: "var(--color-neutral-11, #44474f)" }} />
+                <LockSimple size={12} weight="fill" style={{ color: "var(--color-neutral-11, #44474f)" }} />
               ) : (
                 <ClipboardText size={12} weight="fill" style={{ color: "var(--color-neutral-11, #44474f)" }} />
               )}

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ListRow } from '@/components/ui/list-row';
 import { ProfileCard } from '@/components/ui/profile-card';
+import { StatusBadge } from '@/components/ui/connection-badge';
 import { Eye, ArrowsClockwise, UserMinus, User, Users } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 import { handleContactSelect, handleUnassignContact, handleAgencyContactSelect, handleUnassignAgencyContact } from '../client-actions';
@@ -13,6 +14,17 @@ import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 export default function ContactsCard({ snapshot, context }: { snapshot: ConnectionSnapshot; context: EnhancedModeContext }) {
   const title = 'Contacts';
   const isAgency = context.variant === 'agency';
+  
+  // Determine if this is a draft connection (agency user editing draft client)
+  const isDraft = snapshot.connection.isDraft && 
+                  snapshot.currentUserType === 'agency' && 
+                  snapshot.partner.type === 'client';
+  
+  // Determine if this is an invited connection (agency user viewing invited client)
+  const isInvited = snapshot.connection.status === 'invited' && 
+                    snapshot.currentUserType === 'agency' && 
+                    snapshot.partner.type === 'client';
+  
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [optimisticPrimaryContact, setOptimisticPrimaryContact] = useState<{
     id: string;
@@ -217,7 +229,9 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
             {isAgency 
-              ? 'Both you and your client can see this' 
+              ? (isDraft
+                  ? 'Visible after invite'
+                  : 'Both you and your client can see this')
               : 'Both you and your agency can manage this'}
           </TooltipContent>
         </Tooltip>
@@ -265,17 +279,46 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     comboboxPlaceholder="Search contacts..."
                     className="min-h-[44px]"
                   />
+                ) : isInvited && snapshot.connection.invitedEmail ? (
+                  <ListRow
+                    avatar={true}
+                    avatarFallback={<User size={16} weight="fill" className="text-white" />}
+                    text={snapshot.connection.invitedEmail}
+                    textColor="var(--color-base-text-primary)"
+                    secondaryText={false}
+                    actions={false}
+                    nonInteractive={true}
+                    iconEnd={
+                      <Badge
+                        variant="outline"
+                        className="text-xs border-0"
+                        style={{
+                          backgroundColor: "var(--color-semantic-info-3)",
+                          borderRadius: "var(--radius-1-max, 3px)",
+                          color: "var(--color-semantic-info-11)",
+                          paddingTop: '2px',
+                          paddingBottom: '2px',
+                          paddingLeft: '6px',
+                          paddingRight: '6px'
+                        }}
+                      >
+                        Invited
+                      </Badge>
+                    }
+                    className="min-h-[44px]"
+                  />
                 ) : (
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text="Assign contact"
+                    text={isDraft ? "To be invited" : "Assign contact"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
-                    comboboxOptions={comboboxOptions}
-                    onComboboxSelect={onContactSelect}
-                    comboboxPlaceholder="Search contacts..."
+                    nonInteractive={isDraft}
+                    comboboxOptions={isDraft ? undefined : comboboxOptions}
+                    onComboboxSelect={isDraft ? undefined : onContactSelect}
+                    comboboxPlaceholder={isDraft ? undefined : "Search contacts..."}
                     className="min-h-[44px]"
                   />
                 )}

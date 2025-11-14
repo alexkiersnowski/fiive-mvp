@@ -3,11 +3,12 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import React, { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 // Removed Next.js Image import to use regular img tag
 import { z } from "zod"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { RadioCards, RadioCard, AgencyIcon, ClientIcon } from '@/components/ui/radio-cards'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
@@ -32,24 +33,109 @@ const authSchema = z.object({
 const profileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
-  jobTitle: z.string().optional()
+  jobTitle: z.string().optional(),
+  email: z.string().email().optional()
 })
 
 const organizationSchema = z.object({
   name: z.string().min(1, "Please enter your organization name"),
   agencyType: z.string().optional(),
   industry: z.string().optional(),
+  website: z.string().trim().optional().or(z.literal("")).refine((val) => {
+    if (!val || val.trim() === '') return true // Empty is allowed
+    
+    const trimmed = val.trim()
+    let cleanDomain = trimmed
+    
+    // Remove protocol if present
+    if (cleanDomain.startsWith('http://')) {
+      cleanDomain = cleanDomain.replace('http://', '')
+    } else if (cleanDomain.startsWith('https://')) {
+      cleanDomain = cleanDomain.replace('https://', '')
+    }
+    
+    // Remove www. if present
+    if (cleanDomain.startsWith('www.')) {
+      cleanDomain = cleanDomain.replace('www.', '')
+    }
+    
+    // Remove trailing slash, paths, query strings, and fragments
+    cleanDomain = cleanDomain.split('/')[0].split('?')[0].split('#')[0]
+    
+    // Basic domain validation - must have at least one dot and valid TLD
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
+    return domainRegex.test(cleanDomain)
+  }, {
+    message: "Please enter a valid domain"
+  }),
+  description: z.string().optional(),
   logoUrl: z.string().optional(),
 })
 
 const agencySchema = z.object({
   name: z.string().min(1, "Please enter your agency name"),
   agencyType: z.string().min(1, "Please select an agency type"),
+  website: z.string().trim().optional().or(z.literal("")).refine((val) => {
+    if (!val || val.trim() === '') return true // Empty is allowed
+    
+    const trimmed = val.trim()
+    let cleanDomain = trimmed
+    
+    // Remove protocol if present
+    if (cleanDomain.startsWith('http://')) {
+      cleanDomain = cleanDomain.replace('http://', '')
+    } else if (cleanDomain.startsWith('https://')) {
+      cleanDomain = cleanDomain.replace('https://', '')
+    }
+    
+    // Remove www. if present
+    if (cleanDomain.startsWith('www.')) {
+      cleanDomain = cleanDomain.replace('www.', '')
+    }
+    
+    // Remove trailing slash, paths, query strings, and fragments
+    cleanDomain = cleanDomain.split('/')[0].split('?')[0].split('#')[0]
+    
+    // Basic domain validation - must have at least one dot and valid TLD
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
+    return domainRegex.test(cleanDomain)
+  }, {
+    message: "Please enter a valid domain"
+  }),
+  description: z.string().optional(),
 })
 
 const clientSchema = z.object({
   name: z.string().min(1, "Please enter your company name"),
   industry: z.string().min(1, "Please select an industry"),
+  website: z.string().trim().optional().or(z.literal("")).refine((val) => {
+    if (!val || val.trim() === '') return true // Empty is allowed
+    
+    const trimmed = val.trim()
+    let cleanDomain = trimmed
+    
+    // Remove protocol if present
+    if (cleanDomain.startsWith('http://')) {
+      cleanDomain = cleanDomain.replace('http://', '')
+    } else if (cleanDomain.startsWith('https://')) {
+      cleanDomain = cleanDomain.replace('https://', '')
+    }
+    
+    // Remove www. if present
+    if (cleanDomain.startsWith('www.')) {
+      cleanDomain = cleanDomain.replace('www.', '')
+    }
+    
+    // Remove trailing slash, paths, query strings, and fragments
+    cleanDomain = cleanDomain.split('/')[0].split('?')[0].split('#')[0]
+    
+    // Basic domain validation - must have at least one dot and valid TLD
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
+    return domainRegex.test(cleanDomain)
+  }, {
+    message: "Please enter a valid domain"
+  }),
+  description: z.string().optional(),
 })
 
 const accountTypeSchema = z.object({
@@ -108,10 +194,13 @@ interface OnboardingLayoutProps {
     firstName?: string
     lastName?: string
     jobTitle?: string
+    email?: string
     accountType?: string
     name?: string
     agencyType?: string
     industry?: string
+    website?: string
+    description?: string
   }
 }
 
@@ -133,9 +222,11 @@ export default function OnboardingLayout({
   initialData
 }: OnboardingLayoutProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const isProfileForm = formType === 'profile'
   const isOrganizationForm = formType === 'organization'
   const isAccountTypeForm = formType === 'accountType'
+  const isClaimFlow = pathname?.includes('/claim/')
   const [logoFile, setLogoFile] = useState<File | null>(() => {
     // Check if there's a stored logo file in sessionStorage
     if (typeof window !== 'undefined' && isOrganizationForm) {
@@ -199,10 +290,13 @@ export default function OnboardingLayout({
       name: initialData?.name || "",
       agencyType: initialData?.agencyType || "",
       industry: initialData?.industry || "",
+      website: initialData?.website || "",
+      description: initialData?.description || "",
     } : isProfileForm ? {
       firstName: initialData?.firstName || "",
       lastName: initialData?.lastName || "",
       jobTitle: initialData?.jobTitle || "",
+      email: initialData?.email || "",
     } : {
       email: "",
     },
@@ -303,11 +397,11 @@ export default function OnboardingLayout({
     }
   }
   return (
-    <div className="min-h-screen flex" style={{ backgroundColor: 'var(--color-neutral-1)' }}>
-      {/* Left side - Form content (2/3 width) */}
-      <div className="flex-1" style={{ width: '66.67%' }}>
-        {/* Navigation */}
-        <div className="py-5 px-10">
+    <div className="h-screen flex overflow-hidden" style={{ backgroundColor: 'var(--color-neutral-1)' }}>
+      {/* Left side - Form content (2/3 width) - Scrollable */}
+      <div className="flex-1 overflow-y-auto" style={{ width: '66.67%' }}>
+        {/* Navigation - Sticky */}
+        <div className="sticky top-0 py-5 px-10" style={{ backgroundColor: 'var(--color-neutral-1)', zIndex: 10 }}>
           <img 
             src="/logos/fiive-logo.svg" 
             alt="Fiive" 
@@ -320,7 +414,7 @@ export default function OnboardingLayout({
         </div>
 
         {/* Main content container */}
-        <div className="flex items-start justify-center" style={{ padding: '40px 32px 32px 32px' }}>
+        <div className="flex items-start justify-center" style={{ padding: '40px 32px 32px 32px', marginBottom: '80px' }}>
             <div className="w-full space-y-8" style={{ maxWidth: '520px' }}>
               {/* Title and description - left aligned */}
               <div className="text-left">
@@ -331,10 +425,13 @@ export default function OnboardingLayout({
                     className={`h-auto p-2 text-xs-bold cursor-pointer back-button ${!showBackButton ? 'invisible' : ''}`}
                     onClick={() => {
                       if (isAccountTypeForm) {
-                        router.push('/profile')
+                        router.push('/signup/profile')
+                      } else if (isOrganizationForm && isClaimFlow) {
+                        // Claim flow: go back to profile page
+                        router.push('/claim/profile')
                       } else if (isOrganizationForm && accountType) {
                         // Preserve account type when going back to account type page
-                        router.push(`/account-type?type=${accountType}`)
+                        router.push(`/signup/account-type?type=${accountType}`)
                       } else {
                         window.history.back()
                       }
@@ -344,7 +441,7 @@ export default function OnboardingLayout({
                     <span className="ml-1">Back</span>
                   </Button>
                 </div>
-                <h1 className="display-8-medium" style={{ marginBottom: '16px' }}>{title}</h1>
+                <h1 className="display-8-medium" style={{ marginBottom: '16px', whiteSpace: 'pre-line' }}>{title}</h1>
                 {subtitle && (
                   <p className="text-md-regular" style={{ 
                     color: 'var(--color-base-text-primary)',
@@ -436,43 +533,170 @@ export default function OnboardingLayout({
                               )}
                             />
                             {accountType === 'agency' ? (
-                              <FormField
-                                control={form.control}
-                                name="agencyType"
-                                render={({ field, fieldState }) => (
-                                  <FormItem>
-                                    <FormLabel className="text-sm font-medium">Agency type</FormLabel>
-                                    <FormControl>
-                                      <Combobox
-                                        options={agencyTypes}
-                                        value={field.value}
-                                        onValueChange={field.onChange}
-                                        placeholder="Select agency type..."
-                                        searchPlaceholder="Search agency types..."
-                                        emptyText="No agency type found."
-                                        hasError={!!fieldState.error}
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
+                              <>
+                                <FormField
+                                  control={form.control}
+                                  name="agencyType"
+                                  render={({ field, fieldState }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm font-medium">Agency type</FormLabel>
+                                      <FormControl>
+                                        <Combobox
+                                          options={agencyTypes}
+                                          value={field.value}
+                                          onValueChange={field.onChange}
+                                          placeholder="Select agency type..."
+                                          searchPlaceholder="Search agency types..."
+                                          emptyText="No agency type found."
+                                          hasError={!!fieldState.error}
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                <FormField
+                                  control={form.control}
+                                  name="website"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm font-medium">Website</FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          {...field}
+                                          value={field.value || ""}
+                                          placeholder="example.com"
+                                          className="h-10 px-4 py-2 text-sm"
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                <FormField
+                                  control={form.control}
+                                  name="description"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm font-medium">About</FormLabel>
+                                      <FormControl>
+                                        <Textarea
+                                          {...field}
+                                          value={field.value || ""}
+                                          placeholder="Tell clients about your agency..."
+                                          className="h-[120px] resize-none"
+                                          style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
+                                          onChange={(e) => {
+                                            // Replace line breaks with spaces
+                                            const normalizedValue = e.target.value.replace(/\r?\n/g, ' ')
+                                            field.onChange(normalizedValue)
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault()
+                                            }
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </>
                             ) : (
+                              <>
+                                <FormField
+                                  control={form.control}
+                                  name="industry"
+                                  render={({ field, fieldState }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm font-medium">Industry</FormLabel>
+                                      <FormControl>
+                                        <Combobox
+                                          options={industryTypes}
+                                          value={field.value}
+                                          onValueChange={field.onChange}
+                                          placeholder="Select industry..."
+                                          searchPlaceholder="Search industries..."
+                                          emptyText="No industry found."
+                                          hasError={!!fieldState.error}
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                <FormField
+                                  control={form.control}
+                                  name="website"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm font-medium">Website</FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          {...field}
+                                          value={field.value || ""}
+                                          placeholder="example.com"
+                                          className="h-10 px-4 py-2 text-sm"
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                <FormField
+                                  control={form.control}
+                                  name="description"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm font-medium">About</FormLabel>
+                                      <FormControl>
+                                        <Textarea
+                                          {...field}
+                                          value={field.value || ""}
+                                          placeholder="Tell agencies about your company…"
+                                          className="h-[120px] resize-none"
+                                          style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
+                                          onChange={(e) => {
+                                            // Replace line breaks with spaces
+                                            const normalizedValue = e.target.value.replace(/\r?\n/g, ' ')
+                                            field.onChange(normalizedValue)
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault()
+                                            }
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </>
+                            )}
+                          </>
+                        ) : isProfileForm ? (
+                          <>
+                            {/* Show email field if email is provided (for claim flow where user reviews existing account) */}
+                            {initialData?.email !== undefined && initialData.email !== null && initialData.email !== '' && (
                               <FormField
                                 control={form.control}
-                                name="industry"
-                                render={({ field, fieldState }) => (
+                                name="email"
+                                render={({ field }) => (
                                   <FormItem>
-                                    <FormLabel className="text-sm font-medium">Industry</FormLabel>
+                                    <FormLabel className="text-sm font-medium">Email</FormLabel>
                                     <FormControl>
-                                      <Combobox
-                                        options={industryTypes}
-                                        value={field.value}
-                                        onValueChange={field.onChange}
-                                        placeholder="Select industry..."
-                                        searchPlaceholder="Search industries..."
-                                        emptyText="No industry found."
-                                        hasError={!!fieldState.error}
+                                      <Input
+                                        {...field}
+                                        value={field.value || ''}
+                                        readOnly
+                                        className="h-10 px-4 py-2 text-sm cursor-default [&:focus]:outline-none [&:focus]:ring-0 [&:focus]:border-[var(--color-neutral-5)]"
+                                        style={{
+                                          background: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
+                                          color: 'var(--color-base-text-primary, #1C2024)',
+                                          userSelect: 'text'
+                                        }}
                                       />
                                     </FormControl>
                                     <FormMessage />
@@ -480,9 +704,6 @@ export default function OnboardingLayout({
                                 )}
                               />
                             )}
-                          </>
-                        ) : isProfileForm ? (
-                          <>
                             <FormField
                               control={form.control}
                               name="firstName"
@@ -587,8 +808,8 @@ export default function OnboardingLayout({
           </div>
         </div>
 
-      {/* Right side - Graphic container (1/3 width) */}
-      <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
+      {/* Right side - Graphic container (1/3 width) - Fixed height, no scroll */}
+      <div className="flex items-center justify-center overflow-hidden" style={{ width: '33.33%', height: '100vh' }}>
         <div className="w-full h-full p-2">
           <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
             <img 

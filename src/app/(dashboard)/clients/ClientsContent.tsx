@@ -236,115 +236,48 @@ export function ClientsContent({
   const handleAddNewClientSubmit = async (data: AddNewClientFormData) => {
     setIsCreatingClient(true);
 
-    // Create optimistic client with temporary ID
-    const optimisticId = `optimistic-${Date.now()}-${data.clientName}`;
-    const unassignedAccountManager: Client['accountManager'] = {
-      id: '',
-      name: 'Unassigned',
-      firstName: '',
-      lastName: '',
-      email: '',
-      jobTitle: undefined,
-      avatar: undefined,
-      organization: {
-        id: context.organization.id,
-        name: context.organization.name,
-        logo_url: context.organization.logoUrl
-      }
-    };
-
-    const optimisticClient: Client = {
-      id: optimisticId,
-      clientId: optimisticId, // Temporary ID, will be replaced with real clientId
-      name: data.clientName,
-      logo: undefined,
-      status: 'draft',
-      is_draft: true,
-      createdAt: new Date().toISOString(),
-      accountManager: unassignedAccountManager,
-      contractEnd: undefined,
-      health: 'unassigned',
-      badge: undefined
-    };
-
-    // Start server call and minimum delay in parallel
-    const MIN_DELAY_MS = 400; // Standardized spinner duration for intentional feel
-    const serverCallPromise = createNewClient(data.clientName, context);
-    const minDelayPromise = new Promise<void>(resolve => setTimeout(resolve, MIN_DELAY_MS));
-
     try {
-      // Wait for both minimum delay and server response (whichever is longer)
-      // This ensures spinner shows for at least 400ms, and dialog closes after 400ms
-      const [result] = await Promise.all([
-        serverCallPromise,
-        minDelayPromise.then(() => {
-          // After minimum delay, close dialog and show optimistic row
-          handleAddNewClientDialogClose();
-          
-          // Add optimistic client to UI after dialog closes
-          setClients(prev => [optimisticClient, ...prev]);
-          setTotalCount(prev => prev + 1);
-          setUnfilteredTotalCount(prev => prev + 1);
-        })
-      ]);
+      // Wait for server confirmation - no optimistic updates
+      // Spinner will show for the entire duration of this call
+      const result = await createNewClient(data.clientName, context);
 
       if (result.success) {
-        const payload = result.data;
-
-        // Replace optimistic client with real server data
-        const realClient: Client = {
-          id: payload.connection_id,
-          clientId: payload.client_id,
-          name: payload.client_name,
-          logo: payload.logo_url || undefined,
-          status: 'draft',
-          is_draft: payload.is_draft ?? true,
-          createdAt: payload.created_at,
-          accountManager: unassignedAccountManager,
-          contractEnd: undefined,
-          health: 'unassigned',
-          badge: payload.engagement_status ?? undefined
-        };
-
-        // Replace optimistic client with real one (merge with server response)
-        startTransition(() => {
-          setClients(prev => {
-            // Remove optimistic client and add real one at the beginning
-            const filtered = prev.filter(client => client.id !== optimisticId);
-            return [realClient, ...filtered];
-          });
-          // Counts are already correct from optimistic update
+        // Refresh data from server to ensure data integrity
+        const refreshedSnapshot = await refreshClientsData(context, {
+          search: debouncedSearchValue,
+          sort: sortValue
         });
-      } else {
-        // Remove optimistic client on error
-        setClients(prev => prev.filter(client => client.id !== optimisticId));
-        setTotalCount(prev => Math.max(0, prev - 1));
-        setUnfilteredTotalCount(prev => Math.max(0, prev - 1));
 
-        // Reopen dialog to show error
-        setIsAddNewClientDialogOpen(true);
+        // Update table with server response
+        startTransition(() => {
+          setClients(refreshedSnapshot.clients);
+          setTotalCount(refreshedSnapshot.total);
+          setUnfilteredTotalCount(refreshedSnapshot.unfilteredTotalCount);
+          setCursor(refreshedSnapshot.cursor || null);
+          setHasNextPage(refreshedSnapshot.hasNextPage);
+        });
+
+        // Close dialog only after everything is complete (spinner stops in finally)
+        handleAddNewClientDialogClose();
+      } else {
+        // Keep dialog open and show error - no optimistic updates to rollback
         addNewClientForm.setError('clientName', {
           message: result.error || 'Failed to create client. Please try again.'
         });
       }
     } catch (error) {
-      // Remove optimistic client on error
-      setClients(prev => prev.filter(client => client.id !== optimisticId));
-      setTotalCount(prev => Math.max(0, prev - 1));
-      setUnfilteredTotalCount(prev => Math.max(0, prev - 1));
-
       console.error('Unexpected error creating client:', {
         error,
         errorMessage: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
       
-      // Reopen dialog to show error
-      setIsAddNewClientDialogOpen(true);
+      // Keep dialog open and show error - no optimistic updates to rollback
       addNewClientForm.setError('clientName', {
         message: error instanceof Error ? error.message : 'Failed to create client. Please try again.'
       });
     } finally {
+      // Stop spinner after all operations complete
       setIsCreatingClient(false);
     }
   };

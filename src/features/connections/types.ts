@@ -47,6 +47,7 @@ export type ConnectionSnapshot = {
     health?: string;
     contractEnd?: string;
     contractValue?: string | null;
+    invitedEmail?: string | null;
     accountManager: {
       name: string;
       avatar?: string;
