@@ -43,6 +43,11 @@ export function useVirtualTable<T>({
     overscan: VIRTUAL_OVERSCAN,
   })
 
+  // Force virtualizer to recalculate when items length changes
+  useEffect(() => {
+    rowVirtualizer.measure()
+  }, [items.length, rowVirtualizer])
+
   const virtualItems = rowVirtualizer.getVirtualItems()
   
   // Calculate if user is near the end of the list

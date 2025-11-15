@@ -273,7 +273,7 @@ export async function updateDraftClientOrganization(data: {
     if (!parsed.success) {
       return { 
         success: false, 
-        error: parsed.error.errors[0]?.message || 'Invalid input data' 
+        error: parsed.error.issues[0]?.message || 'Invalid input data' 
       }
     }
 
@@ -842,15 +842,16 @@ export async function resendInviteEmail(data: {
       }
     }
 
-    // Get partner organization name for email (agency name if client inviting, client name if agency inviting)
-    const partnerOrgId = userOrgType === 'agency' ? connection.client_id : connection.agency_id
-    const { data: partnerOrg, error: partnerOrgError } = await supabase
+    // Get inviter organization name for email (the organization sending the invite)
+    // When agency invites client: show agency name (inviter)
+    // When client invites agency: show client name (inviter)
+    const { data: inviterOrg, error: inviterOrgError } = await supabase
       .from('organizations')
       .select('name')
-      .eq('id', partnerOrgId)
+      .eq('id', userOrgId)
       .single()
 
-    if (partnerOrgError || !partnerOrg) {
+    if (inviterOrgError || !inviterOrg) {
       return {
         success: false,
         error: 'Failed to retrieve organization information'
@@ -864,19 +865,19 @@ export async function resendInviteEmail(data: {
     // Send invitation email via Resend (use appropriate template based on context)
     try {
       if (userOrgType === 'agency') {
-        // Agency inviting client - use client invite template
+        // Agency inviting client - use client invite template, show agency name (inviter)
         const { sendClientInviteEmail } = await import('@/app/actions/sendClientInviteEmail')
         await sendClientInviteEmail({
           to: connection.invited_email,
-          agencyName: partnerOrg.name,
+          agencyName: inviterOrg.name,
           inviteUrl
         })
       } else {
-        // Client inviting agency - use agency invite template
+        // Client inviting agency - use agency invite template, show client name (inviter)
         const { sendAgencyInviteEmail } = await import('@/app/actions/sendAgencyInviteEmail')
         await sendAgencyInviteEmail({
           to: connection.invited_email,
-          clientName: partnerOrg.name,
+          clientName: inviterOrg.name,
           inviteUrl
         })
       }

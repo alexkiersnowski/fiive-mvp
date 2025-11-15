@@ -1,6 +1,6 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { getOrganizationMembers, getOrganizationInvitations } from '../../actions'
-import MembersTable from './MembersTable'
+import MembersContent from './MembersContent'
 
 // Cache for 30 seconds to improve performance while keeping data reasonably fresh
 export const revalidate = 30
@@ -47,6 +47,9 @@ export default async function UserManagementPage() {
   const members = membersResult.status === 'fulfilled' && membersResult.value.ok 
     ? membersResult.value.data || []
     : []
+  const membersHasNextPage = membersResult.status === 'fulfilled' && membersResult.value.ok
+    ? (membersResult.value.hasNextPage || false)
+    : false
   
   if (membersResult.status === 'rejected') {
     console.error('Error fetching members:', membersResult.reason)
@@ -58,12 +61,18 @@ export default async function UserManagementPage() {
   const invitations = invitationsResult.status === 'fulfilled' && invitationsResult.value.ok 
     ? invitationsResult.value.data || []
     : []
+  const invitationsHasNextPage = invitationsResult.status === 'fulfilled' && invitationsResult.value.ok
+    ? (invitationsResult.value.hasNextPage || false)
+    : false
   
   if (invitationsResult.status === 'rejected') {
     console.error('Error fetching invitations:', invitationsResult.reason)
   } else if (invitationsResult.status === 'fulfilled' && !invitationsResult.value.ok) {
     console.error('Error fetching invitations:', invitationsResult.value.message)
   }
+
+  // Calculate initialHasNextPage - true if either has more pages
+  const initialHasNextPage = membersHasNextPage || invitationsHasNextPage
 
 
   // If both fail, show error
@@ -88,26 +97,13 @@ export default async function UserManagementPage() {
   }
 
   return (
-    <div className="space-y-8">
-      {/* Page Header */}
-      <div>
-        <h1 className="display-9-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)', marginBottom: '0.75rem' }}>
-          User management
-        </h1>
-        <p className="text-sm" style={{ color: 'var(--color-base-text-secondary, rgba(3, 9, 26, 0.72))' }}>
-          {currentUserRole === 'owner' 
-            ? 'Manage your team and system owner'
-            : 'Your team and system owner'
-          }
-        </p>
-      </div>
-
-      <MembersTable
-        members={members}
-        invitations={invitations}
-        organizationId={organization.id}
-        currentUserRole={currentUserRole}
-      />
-    </div>
+    <MembersContent
+      members={members}
+      invitations={invitations}
+      organizationId={organization.id}
+      currentUserRole={currentUserRole}
+      unfilteredTotalCount={members.length + invitations.length}
+      initialHasNextPage={initialHasNextPage}
+    />
   )
 }

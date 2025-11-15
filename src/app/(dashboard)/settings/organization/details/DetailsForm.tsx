@@ -250,7 +250,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
   }
 
   return (
-    <div className="max-w-[552px] space-y-10">
+    <div className="max-w-[552px] space-y-6">
       {/* Section 1: Connection Code */}
       <div 
         className="rounded-lg border py-10 px-6"
@@ -286,7 +286,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
 
       {/* Section 2: Agency Details Form */}
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
           {/* Logo Upload */}
           <div>
             <label className="text-sm font-medium block mb-2" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
@@ -311,8 +311,9 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                 <FormControl>
                   <Input
                     {...field}
-                    placeholder="E.g. exa. studio"
+                    placeholder={isAgency ? "E.g. exa. studio" : "E.g. Acme Corp"}
                     className="h-10 px-4 py-2 text-sm"
+                    maxLength={255}
                     readOnly={!canManageDetails}
                     style={!canManageDetails ? {
                       backgroundColor: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
@@ -348,6 +349,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                     {...field}
                     placeholder={isAgency ? "Tell clients about your agency..." : "Tell agencies about your company…"}
                     className="h-[120px] resize-none"
+                    maxLength={500}
                     readOnly={!canManageDetails}
                     style={!canManageDetails ? {
                       backgroundColor: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
@@ -418,8 +420,9 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                   <Input
                     {...field}
                     value={field.value || ""}
-                    placeholder={isAgency ? "exastudio.com" : "fiive.co"}
+                    placeholder={isAgency ? "exastudio.com" : "example.com"}
                     className="h-10 px-4 py-2 text-sm"
+                    maxLength={255}
                     readOnly={!canManageDetails}
                     style={!canManageDetails ? {
                       backgroundColor: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
@@ -438,7 +441,7 @@ export default function DetailsForm({ initialValues, connectionCode, organizatio
                 </FormControl>
                 {canManageDetails && (
                   <p className="text-xs-regular" style={{ color: '#71757E' }}>
-                    We format websites for consistency (e.g. {isAgency ? 'exastudio.com' : 'fiive.co'})
+                    We format websites for consistency (e.g. {isAgency ? 'exastudio.com' : 'example.com'})
                   </p>
                 )}
                 <FormMessage />

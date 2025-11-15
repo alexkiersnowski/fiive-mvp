@@ -793,7 +793,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   function handleExpand() {
     // Navigate to full page
     if (selectedProject && selectedProject.projectId !== 'new') {
-      router.push(`/${baseRoute}/${connectionId}/projects/${selectedProject.projectId}`)
+      const url = `/${baseRoute}/${connectionId}/projects/${selectedProject.projectId}`
+      window.location.href = url
     }
   }
 

@@ -163,13 +163,17 @@ export const getConnectionSnapshot = cache(async (
   
   // Parallelize ALL independent fetches (major performance optimization)
   // Fetch agency org, client primary contact, agency primary contact, members, and new requests count in parallel
+  // For client view, also fetch live projects count, next delivery date, requests in review count, and tasks assigned count
   const [
     agencyOrgResult,
     clientPrimaryContactResult,
     agencyPrimaryContactResult,
     clientMembersResult,
     agencyMembersResult,
-    newRequestsCountResult
+    newRequestsCountResult,
+    liveProjectsResult,
+    requestsInReviewResult,
+    tasksAssignedResult
   ] = await Promise.all([
     // Agency organization (always needed)
     supabase
@@ -235,7 +239,34 @@ export const getConnectionSnapshot = cache(async (
           .eq('connection_id', connectionId)
           .eq('status', 'new')
           .is('deleted_at', null)
-      : Promise.resolve({ count: null, error: null })
+      : Promise.resolve({ count: null, error: null }),
+    // Live projects count and next delivery date (only for client view)
+    currentUserType === 'client'
+      ? supabase
+          .from('projects')
+          .select('end_date')
+          .eq('connection_id', connectionId)
+          .in('status', ['planned', 'active', 'on_hold'])
+          .is('deleted_at', null)
+      : Promise.resolve({ data: null, error: null }),
+    // Requests in review count (only for client view)
+    currentUserType === 'client'
+      ? supabase
+          .from('requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('connection_id', connectionId)
+          .eq('status', 'in_review')
+          .is('deleted_at', null)
+      : Promise.resolve({ count: null, error: null }),
+    // Tasks assigned to client members count (only for client view)
+    currentUserType === 'client'
+      ? supabase
+          .from('tasks')
+          .select('assignee_user_id', { count: 'exact', head: false })
+          .eq('connection_id', connectionId)
+          .is('deleted_at', null)
+          .not('assignee_user_id', 'is', null)
+      : Promise.resolve({ data: null, error: null })
   ]);
   
   const agencyOrg = agencyOrgResult.data;
@@ -303,6 +334,71 @@ export const getConnectionSnapshot = cache(async (
     }
   }
   
+  // Process client view metrics
+  let liveProjectsCount: number | undefined = undefined;
+  let nextDeliveryDate: string | null | undefined = undefined;
+  let requestsInReviewCount: number | undefined = undefined;
+  let tasksAssignedCount: number | undefined = undefined;
+  
+  if (currentUserType === 'client') {
+    // Process live projects count and next delivery date
+    if (!liveProjectsResult.error && liveProjectsResult.data) {
+      const liveProjects = liveProjectsResult.data;
+      liveProjectsCount = liveProjects.length;
+      
+      // Find earliest upcoming end_date (end_date >= today)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const upcomingEndDates = liveProjects
+        .map(project => project.end_date)
+        .filter((endDate): endDate is string => {
+          if (!endDate) return false;
+          const date = new Date(endDate);
+          date.setHours(0, 0, 0, 0);
+          return date >= today;
+        })
+        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      
+      if (upcomingEndDates.length > 0) {
+        // Format the date using the same pattern as contractEnd
+        nextDeliveryDate = new Date(upcomingEndDates[0]).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+      } else {
+        nextDeliveryDate = null;
+      }
+    } else {
+      liveProjectsCount = 0;
+      nextDeliveryDate = null;
+    }
+    
+    // Process requests in review count
+    if (!requestsInReviewResult.error && requestsInReviewResult.count !== null) {
+      requestsInReviewCount = requestsInReviewResult.count;
+    } else {
+      requestsInReviewCount = 0;
+    }
+    
+    // Process tasks assigned to client members count
+    if (!tasksAssignedResult.error && tasksAssignedResult.data) {
+      // Get set of client member user IDs for efficient lookup
+      const clientMemberIds = new Set(clientMembers.map(member => member.id));
+      
+      // Filter tasks to only those assigned to client members
+      const tasksAssignedToClientMembers = tasksAssignedResult.data.filter(
+        (task: { assignee_user_id: string | null }) =>
+          task.assignee_user_id && clientMemberIds.has(task.assignee_user_id)
+      );
+      
+      tasksAssignedCount = tasksAssignedToClientMembers.length;
+    } else {
+      tasksAssignedCount = 0;
+    }
+  }
+  
   // Format contract value for display
   let formattedContractValue: string | null = null;
   if (connection.contract_value) {
@@ -362,7 +458,11 @@ export const getConnectionSnapshot = cache(async (
     currentUserType,
     clientMembers,
     agencyMembers,
-    newRequestsCount
+    newRequestsCount,
+    liveProjectsCount,
+    nextDeliveryDate,
+    requestsInReviewCount,
+    tasksAssignedCount
   };
 });
 

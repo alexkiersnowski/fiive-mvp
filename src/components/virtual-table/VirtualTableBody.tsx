@@ -86,6 +86,10 @@ export function VirtualTableBody<T extends { id: string }>({
 
         {virtualItems.map((virtualRow) => {
           const item = items[virtualRow.index]
+          // Guard against undefined items (can happen if items array changes while virtualizer has stale indices)
+          if (!item) {
+            return null
+          }
           return (
             <TableRow
               key={item.id}
@@ -93,7 +97,7 @@ export function VirtualTableBody<T extends { id: string }>({
               data-index={virtualRow.index}
               style={{ height: `${VIRTUAL_ROW_HEIGHT}px` }}
               onClick={() => onRowClick?.(item)}
-              className={`hover:bg-[var(--color-interactive-surface-hover)] cursor-pointer transition-colors duration-75 ${rowClassName}`}
+              className={`${onRowClick ? 'hover:bg-[var(--color-interactive-surface-hover)] cursor-pointer' : ''} transition-colors duration-75 ${rowClassName}`}
             >
               {renderRow(item, virtualRow.index, virtualRow)}
             </TableRow>

@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { getRequestsForConnection, getAgencyMembersForConnection, getProjectsForConnection } from '../server';
+import { getRequestsForConnection, getAgencyMembersForConnection, getProjectsForConnection, getCommentsForRequests } from '../server';
 import RequestsPageClient from './RequestsPageClient';
 import { PAGE_SIZE } from '../constants';
 
@@ -16,6 +16,12 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
     getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
   ]);
 
+  // Fetch comments for initial requests in parallel (after requests are fetched)
+  const requestIds = requestsData.requests.map(r => r.id);
+  const initialComments = requestIds.length > 0
+    ? await getCommentsForRequests(requestIds)
+    : {};
+
   // Transform projects to the format expected by RequestDetailContent
   const projects = projectsData.projects.map(p => ({ id: p.id, name: p.title }));
 
@@ -29,6 +35,7 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
           initialNewCount={requestsData.newCount}
           agencyMembers={agencyMembers}
           projects={projects}
+          initialComments={initialComments}
         />
       </ErrorBoundary>
     </Card>

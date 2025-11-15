@@ -159,6 +159,7 @@ export default function ProfileForm({ initialValues, userId, context }: ProfileF
                     {...field}
                     placeholder="Enter your first name"
                     className="h-10 px-4 py-2 text-sm"
+                    maxLength={255}
                   />
                 </FormControl>
                 <FormMessage />
@@ -180,6 +181,7 @@ export default function ProfileForm({ initialValues, userId, context }: ProfileF
                     {...field}
                     placeholder="Enter your last name"
                     className="h-10 px-4 py-2 text-sm"
+                    maxLength={255}
                   />
                 </FormControl>
                 <FormMessage />
@@ -201,6 +203,7 @@ export default function ProfileForm({ initialValues, userId, context }: ProfileF
                     {...field}
                     placeholder="Enter your job title"
                     className="h-10 px-4 py-2 text-sm"
+                    maxLength={255}
                   />
                 </FormControl>
                 <FormMessage />
@@ -222,6 +225,7 @@ export default function ProfileForm({ initialValues, userId, context }: ProfileF
                     {...field}
                     readOnly
                     className="h-10 px-4 py-2 text-sm cursor-default [&:focus]:outline-none [&:focus]:ring-0 [&:focus]:border-[var(--color-neutral-5)]"
+                    maxLength={255}
                     style={{
                       background: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
                       color: 'var(--color-base-text-primary, #1C2024)',

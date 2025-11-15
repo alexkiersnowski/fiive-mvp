@@ -524,8 +524,9 @@ export default function OnboardingLayout({
                                     <Input
                                       {...field}
                                       value={field.value || ""}
-                                      placeholder={accountType === 'agency' ? "E.g. exa. studio" : "E.g. Fiive"}
+                                      placeholder={accountType === 'agency' ? "E.g. exa. studio" : "E.g. Acme Corp"}
                                       className="h-10 px-4 py-2 text-sm"
+                                      maxLength={255}
                                     />
                                   </FormControl>
                                   <FormMessage />
@@ -565,8 +566,9 @@ export default function OnboardingLayout({
                                         <Input
                                           {...field}
                                           value={field.value || ""}
-                                          placeholder="example.com"
+                                          placeholder="exastudio.com"
                                           className="h-10 px-4 py-2 text-sm"
+                                          maxLength={255}
                                         />
                                       </FormControl>
                                       <FormMessage />
@@ -585,6 +587,7 @@ export default function OnboardingLayout({
                                           value={field.value || ""}
                                           placeholder="Tell clients about your agency..."
                                           className="h-[120px] resize-none"
+                                          maxLength={500}
                                           style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
                                           onChange={(e) => {
                                             // Replace line breaks with spaces
@@ -638,6 +641,7 @@ export default function OnboardingLayout({
                                           value={field.value || ""}
                                           placeholder="example.com"
                                           className="h-10 px-4 py-2 text-sm"
+                                          maxLength={255}
                                         />
                                       </FormControl>
                                       <FormMessage />
@@ -656,6 +660,7 @@ export default function OnboardingLayout({
                                           value={field.value || ""}
                                           placeholder="Tell agencies about your company…"
                                           className="h-[120px] resize-none"
+                                          maxLength={500}
                                           style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
                                           onChange={(e) => {
                                             // Replace line breaks with spaces
@@ -692,6 +697,7 @@ export default function OnboardingLayout({
                                         value={field.value || ''}
                                         readOnly
                                         className="h-10 px-4 py-2 text-sm cursor-default [&:focus]:outline-none [&:focus]:ring-0 [&:focus]:border-[var(--color-neutral-5)]"
+                                        maxLength={255}
                                         style={{
                                           background: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
                                           color: 'var(--color-base-text-primary, #1C2024)',
@@ -717,6 +723,7 @@ export default function OnboardingLayout({
                                   autoComplete="given-name"
                                   placeholder="Enter your first name"
                                   className="h-10 px-4 py-2 text-sm"
+                                  maxLength={255}
                                 />
                                   </FormControl>
                                   <FormMessage />
@@ -736,6 +743,7 @@ export default function OnboardingLayout({
                                   autoComplete="family-name"
                                   placeholder="Enter your last name"
                                   className="h-10 px-4 py-2 text-sm"
+                                  maxLength={255}
                                 />
                                   </FormControl>
                                   <FormMessage />
@@ -755,6 +763,7 @@ export default function OnboardingLayout({
                                   autoComplete="organization-title"
                                   placeholder="E.g. Account Manager"
                                   className="h-10 px-4 py-2 text-sm"
+                                  maxLength={255}
                                 />
                                   </FormControl>
                                   <FormMessage />
@@ -776,6 +785,7 @@ export default function OnboardingLayout({
                                     autoComplete="email"
                                     placeholder={placeholder}
                                     className="h-10 px-4 py-2 text-sm"
+                                    maxLength={255}
                                   />
                                 </FormControl>
                                 <FormMessage />

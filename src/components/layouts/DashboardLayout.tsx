@@ -17,10 +17,11 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   const pathname = usePathname()
   // Primary nav selection should stick to top-level sections
   // e.g. /clients/[id]/requests should still select 'clients'
+  // For settings pages, extract the specific page identifier (e.g., 'profile', 'access', 'details', 'members', 'billing')
   const selectedItem =
     pathname.startsWith('/clients') ? 'clients' :
     pathname.startsWith('/agencies') ? 'agencies' :
-    pathname.startsWith('/settings') ? 'settings' :
+    pathname.startsWith('/settings') ? (pathname.split('/').pop() || 'settings') :
     pathname.startsWith('/home') ? 'home' :
     pathname.split('/')[1] || 'home'
   const [isCollapsed, setIsCollapsed] = useState(initialIsCollapsed)
@@ -30,6 +31,7 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   const isDetailPage = /^\/(clients|agencies)\/[^/]+\/(requests|projects|tasks)\/[^/]+$/.test(pathname)
   const isFullWidthPage = !isDetailPage && (['/home', '/clients', '/agencies'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/'))
   const isSettingsPage = pathname.startsWith('/settings')
+  const isMembersPage = pathname === '/settings/organization/members'
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
   
   // Track previous variant to detect context switches
@@ -119,8 +121,8 @@ export default function DashboardLayout({ data, context, children, initialIsColl
             borderRadius: isFullWidthPage ? '0' : 'var(--radius-6, 16px)',
             border: isFullWidthPage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
             background: isFullWidthPage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isFullWidthPage ? '0' : (isSettingsPage ? '40px 64px 40px 64px' : isDetailPage ? '24px 32px 0px 32px' : '24px 32px 0px 32px'),
-            overflow: isFullWidthPage ? 'visible' : 'hidden',
+            padding: isFullWidthPage ? '0' : (isSettingsPage ? (isMembersPage ? '0 64px 40px 64px' : '40px 64px 40px 64px') : isDetailPage ? '24px 32px 0px 32px' : '24px 32px 0px 32px'),
+            overflow: isFullWidthPage ? 'visible' : (isSettingsPage ? 'auto' : 'hidden'),
             display: isFullWidthPage ? 'block' : 'flex',
             flexDirection: 'column'
           }}

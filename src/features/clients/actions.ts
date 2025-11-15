@@ -293,6 +293,33 @@ export async function refreshClientsData(
 }
 
 /**
+ * Fetches more clients using cursor-based pagination
+ * Used for infinite scroll / load more functionality
+ */
+export async function fetchMoreClients(
+  context: EnhancedModeContext,
+  options: { cursor: string | null; search?: string; sort?: string; limit?: number }
+): Promise<ClientsSnapshot> {
+  if (!options.cursor) {
+    return {
+      clients: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+    };
+  }
+  
+  const snapshot = await getClientsSnapshot(context, {
+    search: options.search || '',
+    sort: options.sort || 'newest-first',
+    cursor: options.cursor,
+    limit: options.limit || 50
+  });
+  return snapshot;
+}
+
+/**
  * Validates a connection code without creating a connection
  * Used for client-side validation feedback (optional enhancement)
  */

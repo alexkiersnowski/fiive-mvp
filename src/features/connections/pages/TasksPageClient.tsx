@@ -8,7 +8,7 @@ import TasksTable from '../tasks/TasksTable';
 import { TaskDetailModal } from '../tasks/TaskDetailModal'
 import { NewTaskModal } from '../tasks/NewTaskModal'
 import type { Task, Comment } from '../server';
-import { fetchTasksForConnection, fetchTaskById, fetchCommentsForTask, fetchCommentsForTasks } from '../tasks/actions';
+import { fetchTasksForConnection, fetchTaskById, fetchCommentsForTasks } from '../tasks/actions';
 import { sortTasksWithPinnedFirst, type TaskSortMode } from '../tasks/taskSort';
 import { sortMembersWithActiveFirst, type MemberSummary } from '../utils/memberSorting';
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
@@ -260,35 +260,6 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     })
   }, [initialCommentsByTask])
 
-  // Fetch comments for initial tasks if any are missing
-  useEffect(() => {
-    const initialIds = initialTasks.map(r => r.id)
-    if (initialIds.length === 0) return
-
-    const missingIds = initialIds.filter(id => !commentsByTask[id])
-    if (missingIds.length === 0) return
-
-    fetchCommentsForTasks(initialIds)
-      .then(map => {
-        if (isMountedRef.current) {
-          setCommentsByTask(prev => {
-            const next = { ...prev }
-            let changed = false
-            for (const [taskId, comments] of Object.entries(map)) {
-              next[taskId] = comments
-              changed = true
-            }
-            return changed ? next : prev
-          })
-        }
-      })
-      .catch(error => {
-        if (isDev()) {
-          console.error('Error fetching initial comments:', error)
-        }
-      })
-  }, [commentsByTask, initialTasks])
-
   // Helper to merge arrays by id while preserving order and uniqueness
   function mergeUniqueTasks(base: Task[], incoming: Task[]): Task[] {
     const seen = new Set(base.map(i => i.id))
@@ -384,6 +355,22 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             setPrefetchedTasks([])
             setPrefetchedOffset(null)
           })
+          
+          // Prefetch comments for search results
+          const newIds = result.tasks.map(r => r.id)
+          if (newIds.length > 0) {
+            fetchCommentsForTasks(newIds)
+              .then(map => {
+                if (isMountedRef.current) {
+                  setCommentsByTask(prev => ({ ...prev, ...map }))
+                }
+              })
+              .catch(error => {
+                if (isDev()) {
+                  console.error('Error fetching comments for search results:', error)
+                }
+              })
+          }
         }
       } catch (error) {
         if (isDev()) {
@@ -904,25 +891,9 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     const task = getTaskById(taskId)
     if (task) {
       // Get comments from pre-fetched map (instant, no fetch)
+      // Comments are always prefetched server-side for initial tasks
+      // and client-side for search/pagination results
       const comments = commentsByTask[taskId] ?? []
-      
-      // Optional fallback: if comments not found in cache (edge case), lazy-load that one task
-      if (!(taskId in commentsByTask)) {
-        // Comments not in cache yet (edge case), fetch just this one
-        fetchCommentsForTask(taskId)
-          .then(fetchedComments => {
-            if (isMountedRef.current) {
-              setCommentsByTask(prev => ({ ...prev, [taskId]: fetchedComments }))
-              setSelectedTaskComments(fetchedComments)
-            }
-          })
-          .catch(() => {
-            // Keep empty array on error
-            if (isMountedRef.current) {
-              setSelectedTaskComments([])
-            }
-          })
-      }
       
       // Open modal immediately with task data and comments
       setSelectedTask({
@@ -988,7 +959,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   function handleExpand() {
     // Navigate to full page
     if (selectedTask && selectedTask.taskId !== 'new') {
-      router.push(`/${baseRoute}/${connectionId}/tasks/${selectedTask.taskId}`)
+      const url = `/${baseRoute}/${connectionId}/tasks/${selectedTask.taskId}`
+      window.location.href = url
     }
   }
 

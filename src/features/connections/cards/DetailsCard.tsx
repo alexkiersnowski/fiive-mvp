@@ -71,11 +71,11 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
         </Tooltip>
       </div>
 
-      <div className={`flex flex-col ${isAgency ? 'gap-2' : 'gap-3'}`}>
+      <div className={`flex flex-col ${isAgency ? 'gap-2' : 'gap-4'}`}>
         {/* Status Row */}
         <div className="flex items-center gap-4">
           <div className="w-2/5 min-w-0">
-            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Status' : 'Active projects'}</p>
+            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Status' : 'Live projects'}</p>
           </div>
           <div className="w-3/5 min-w-0">
             {isAgency ? (
@@ -115,7 +115,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                 className="h-[28px] truncate"
               />
             ) : (
-              <p className="text-sm-regular text-tertiary truncate">0</p>
+              <p className="text-sm-regular text-tertiary truncate">{snapshot.liveProjectsCount ?? 0}</p>
             )}
           </div>
         </div>
@@ -166,7 +166,9 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                 className="h-[28px] truncate"
               />
             ) : (
-              <p className="text-sm-regular text-tertiary truncate">No upcoming deliveries</p>
+              <p className="text-sm-regular text-tertiary truncate">
+                {snapshot.nextDeliveryDate ?? 'No upcoming deliveries'}
+              </p>
             )}
           </div>
         </div>
@@ -174,7 +176,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
         {/* Contract End Row */}
         <div className="flex items-center gap-4">
           <div className="w-2/5 min-w-0">
-            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Contract end' : 'Last update'}</p>
+            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Contract end' : 'Requests in review'}</p>
           </div>
           <div className="w-3/5 min-w-0">
             {isAgency ? (
@@ -214,7 +216,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                 className="h-[28px] cursor-pointer truncate"
               />
             ) : (
-              <p className="text-sm-regular text-tertiary truncate">No recent updates</p>
+              <p className="text-sm-regular text-tertiary truncate">{snapshot.requestsInReviewCount ?? 0}</p>
             )}
           </div>
         </div>
@@ -268,7 +270,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                 className="h-[28px] truncate"
               />
             ) : (
-              <p className="text-sm-regular text-tertiary truncate">0</p>
+              <p className="text-sm-regular text-tertiary truncate">{snapshot.tasksAssignedCount ?? 0}</p>
             )}
           </div>
         </div>

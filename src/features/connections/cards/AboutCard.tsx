@@ -456,7 +456,7 @@ export default function AboutCard() {
               href={website.startsWith('http') ? website : `https://${website}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm-regular cursor-pointer"
+              className="text-sm-regular cursor-pointer block"
               style={{ color: 'var(--color-base-text-primary)' }}
             >
               {displayWebsite(website)}

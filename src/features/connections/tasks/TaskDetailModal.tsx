@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { TaskDetailContent } from './TaskDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash } from '@phosphor-icons/react'
+import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { deleteTask } from './actions'
 
@@ -197,12 +197,6 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                {variant === 'agency' && (
-                  <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
-                    <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                    Convert to request
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={() => {
                   handleCopyLink()
                   setIsActionsDropdownOpen(false)
@@ -228,7 +222,11 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={onExpand}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onExpand()
+              }}
               className="h-10 w-10 cursor-pointer transition-all duration-75 rounded-md hover:bg-interactive-surface-hover"
             >
               <ArrowsOutSimple className="w-[18px] h-[18px]" />

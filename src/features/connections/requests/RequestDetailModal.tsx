@@ -244,7 +244,11 @@ export function RequestDetailModal({
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={onExpand}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onExpand()
+              }}
               className="h-10 w-10 cursor-pointer transition-all duration-75 rounded-md hover:bg-interactive-surface-hover"
             >
               <ArrowsOutSimple className="w-[18px] h-[18px]" />

@@ -9,7 +9,7 @@ import RequestsTable from '../requests/RequestsTable';
 import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
 import type { Request, Comment } from '../server';
-import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequest, fetchCommentsForRequests } from '../requests/actions';
+import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequests } from '../requests/actions';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
 import { convertRequestToTask } from '../tasks/actions'
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
@@ -31,6 +31,7 @@ interface RequestsPageClientProps {
     id: string
     name: string
   }>
+  initialComments?: Record<string, Comment[]>
 }
 
 type ModalRequest = {
@@ -70,7 +71,7 @@ type ModalRequest = {
 }
 
 // Client component wrapper that handles all client-side interactivity
-export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, initialNewCount, agencyMembers, projects }: RequestsPageClientProps) {
+export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, initialNewCount, agencyMembers, projects, initialComments = {} }: RequestsPageClientProps) {
   const { snapshot, context, setIsEmpty, setNewRequestsCount } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
@@ -136,7 +137,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   // no optimistic reconcile attempts (disabled)
   
   // Comments map keyed by requestId for instant lookup
-  const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>({})
+  // Initialize with server-fetched comments for instant availability
+  const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments)
   
   // Update isEmpty in context when unfilteredTotalCount changes
   // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
@@ -202,24 +204,6 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       // Clear all prefetch timeouts
       prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
       prefetchTimeouts.current.clear()
-    }
-  }, [])
-
-  // Fetch comments for initial requests on mount
-  useEffect(() => {
-    const initialIds = initialRequests.map(r => r.id)
-    if (initialIds.length > 0) {
-      fetchCommentsForRequests(initialIds)
-        .then(map => {
-          if (isMountedRef.current) {
-            setCommentsByRequest(map)
-          }
-        })
-        .catch(error => {
-          if (isDev()) {
-            console.error('Error fetching initial comments:', error)
-          }
-        })
     }
   }, [])
 
@@ -316,6 +300,22 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           })
           if (context.variant === 'agency') {
             setNewRequestsCount(result.newCount ?? 0)
+          }
+          
+          // Prefetch comments for search results
+          const newIds = result.requests.map(r => r.id)
+          if (newIds.length > 0) {
+            fetchCommentsForRequests(newIds)
+              .then(map => {
+                if (isMountedRef.current) {
+                  setCommentsByRequest(prev => ({ ...prev, ...map }))
+                }
+              })
+              .catch(error => {
+                if (isDev()) {
+                  console.error('Error fetching comments for search results:', error)
+                }
+              })
           }
         }
       } catch (error) {
@@ -765,25 +765,9 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     const request = getRequestById(requestId)
     if (request) {
       // Get comments from pre-fetched map (instant, no fetch)
+      // Comments are always prefetched server-side for initial requests
+      // and client-side for search/pagination results
       const comments = commentsByRequest[requestId] ?? []
-      
-      // Optional fallback: if comments not found in cache (edge case), lazy-load that one request
-      if (!(requestId in commentsByRequest)) {
-        // Comments not in cache yet (edge case), fetch just this one
-        fetchCommentsForRequest(requestId)
-          .then(fetchedComments => {
-            if (isMountedRef.current) {
-              setCommentsByRequest(prev => ({ ...prev, [requestId]: fetchedComments }))
-              setSelectedRequestComments(fetchedComments)
-            }
-          })
-          .catch(() => {
-            // Keep empty array on error
-            if (isMountedRef.current) {
-              setSelectedRequestComments([])
-            }
-          })
-      }
       
       // Open modal immediately with request data and comments
       setSelectedRequest({
@@ -889,7 +873,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   function handleExpand() {
     // Navigate to full page
     if (selectedRequest && selectedRequest.requestId !== 'new') {
-      router.push(`/${baseRoute}/${connectionId}/requests/${selectedRequest.requestId}`)
+      const url = `/${baseRoute}/${connectionId}/requests/${selectedRequest.requestId}`
+      window.location.href = url
     }
   }
 

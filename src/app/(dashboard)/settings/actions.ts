@@ -5,11 +5,11 @@ import { revalidatePath } from "next/cache"
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { uploadAvatar, uploadLogo } from '@/lib/supabase/storage'
 import { randomBytes, createHash } from 'crypto'
+import { escapeForILike } from '@/lib/utils'
 
 // Rate limiting configuration
 const RATE_LIMITS = {
   removeMember: { limit: 5, window: 60 * 1000 }, // 5 per minute
-  cancelInvitation: { limit: 10, window: 60 * 1000 }, // 10 per minute
   inviteMembers: { limit: 20, window: 60 * 1000 }, // 20 per minute
   resendInvitation: { limit: 1, window: 60 * 1000 }, // 1 per minute (60 second cooldown)
 } as const
@@ -456,11 +456,16 @@ export interface OrganizationInvitation {
 }
 
 // Get organization members
-export async function getOrganizationMembers(organizationId: string): Promise<{
+export async function getOrganizationMembers(
+  organizationId: string,
+  options: { limit?: number; offset?: number; searchQuery?: string } = {}
+): Promise<{
   ok: boolean
   data?: OrganizationMember[]
+  hasNextPage?: boolean
   message?: string
 }> {
+  const { limit = 100, offset = 0, searchQuery = '' } = options
   const supabase = await createClient()
 
   // Verify the user is authenticated
@@ -490,9 +495,100 @@ export async function getOrganizationMembers(organizationId: string): Promise<{
     }
   }
 
-  // Fetch members with their profiles and organization info
+  // When searching, first find matching profile IDs using trigram indexes (gold standard pattern)
+  // CRITICAL: Only search profiles that belong to members of THIS organization for performance
+  let matchingUserIds: string[] = []
+  if (searchQuery.trim()) {
+    // First, get all user_ids that belong to this organization's memberships
+    // This limits the search scope dramatically
+    const { data: orgMemberships, error: membershipsError } = await supabase
+      .from('memberships')
+      .select('user_id')
+      .eq('org_id', organizationId)
+    
+    if (membershipsError || !orgMemberships || orgMemberships.length === 0) {
+      // No memberships found - return empty result
+      matchingUserIds = []
+    } else {
+      const orgUserIds = orgMemberships.map(m => m.user_id).filter(Boolean) as string[]
+      
+      if (orgUserIds.length === 0) {
+        matchingUserIds = []
+      } else {
+        const trimmedQuery = searchQuery.trim()
+        const escaped = escapeForILike(trimmedQuery)
+        const searchPattern = `%${escaped}%`
+        const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0)
+        
+        // Query profiles table directly (uses trigram indexes for fast search)
+        // BUT only search profiles that belong to this organization's members
+        // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
+        // Also match if full search term appears in either first_name, last_name, or email
+        let profilesQuery = supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email')
+          .is('deleted_at', null)
+          .in('id', orgUserIds) // CRITICAL: Only search profiles in this organization
+    
+    if (searchTerms.length > 1) {
+      // Multi-word search: try to match first word in first_name AND second word in last_name
+      // OR vice versa, OR full term in any field
+      const firstTermEscaped = escapeForILike(searchTerms[0])
+      const secondTermEscaped = escapeForILike(searchTerms[1])
+      const firstPattern = `%${firstTermEscaped}%`
+      const secondPattern = `%${secondTermEscaped}%`
+      
+      // Match: (first_name contains first term AND last_name contains second term)
+      // OR (first_name contains second term AND last_name contains first term)
+      // OR (first_name contains full term) OR (last_name contains full term) OR (email contains full term)
+      profilesQuery = profilesQuery.or(
+        `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
+        `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
+        `first_name.ilike.${searchPattern},` +
+        `last_name.ilike.${searchPattern},` +
+        `email.ilike.${searchPattern}`
+      )
+    } else {
+      // Single word search: match in first_name, last_name, or email
+      profilesQuery = profilesQuery.or(
+        `first_name.ilike.${searchPattern},` +
+        `last_name.ilike.${searchPattern},` +
+        `email.ilike.${searchPattern}`
+      )
+    }
+    
+        const { data: matchingProfiles, error: profilesError } = await profilesQuery
+        
+        if (!profilesError && matchingProfiles) {
+          // For multi-word searches, also filter in memory to ensure all terms match
+          if (searchTerms.length > 1) {
+            matchingUserIds = matchingProfiles
+              .filter(profile => {
+                const firstName = (profile.first_name || '').toLowerCase()
+                const lastName = (profile.last_name || '').toLowerCase()
+                const email = (profile.email || '').toLowerCase()
+                const fullName = `${firstName} ${lastName}`.trim()
+                
+                // Check if all search terms appear somewhere in the name or email
+                return searchTerms.every(term => 
+                  firstName.includes(term) || 
+                  lastName.includes(term) || 
+                  fullName.includes(term) ||
+                  email.includes(term)
+                )
+              })
+              .map(p => p.id)
+          } else {
+            matchingUserIds = matchingProfiles.map(p => p.id)
+          }
+        }
+      }
+    }
+  }
+
+  // Build query for members with their profiles and organization info
   // Filter out soft-deleted profiles (deleted_at IS NULL)
-  const { data: members, error: membersError } = await supabase
+  let query = supabase
     .from("memberships")
     .select(`
       id,
@@ -516,7 +612,21 @@ export async function getOrganizationMembers(organizationId: string): Promise<{
     `)
     .eq("org_id", organizationId)
     .is("profiles.deleted_at", null)
+
+  // Apply search filter: filter memberships by matching user IDs
+  if (searchQuery.trim()) {
+    if (matchingUserIds.length > 0) {
+      query = query.in('user_id', matchingUserIds)
+    } else {
+      // No matches found - return empty result by using impossible UUID
+      query = query.eq('user_id', '00000000-0000-0000-0000-000000000000')
+    }
+  }
+
+  // Order and paginate
+  const { data: members, error: membersError } = await query
     .order("profiles(first_name)")
+    .range(offset, offset + limit - 1)
 
   if (membersError) {
     console.error('Error fetching organization members:', membersError)
@@ -553,9 +663,13 @@ export async function getOrganizationMembers(organizationId: string): Promise<{
     }
   }) || []
 
+  // Determine if there are more pages
+  const hasNextPage = transformedMembers.length === limit
+
   return { 
     ok: true, 
-    data: transformedMembers 
+    data: transformedMembers,
+    hasNextPage
   }
 }
 
@@ -879,12 +993,83 @@ export async function inviteMembers(data: {
     }
   }
 
+  // Batch size limit (prevent abuse)
+  const MAX_INVITES_PER_REQUEST = 50
+  if (data.emails.length > MAX_INVITES_PER_REQUEST) {
+    return {
+      ok: false,
+      message: `You can invite up to ${MAX_INVITES_PER_REQUEST} members at once`
+    }
+  }
+
+  // Email format validation and normalization
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const normalizedEmails = data.emails.map(email => email.toLowerCase().trim())
+  
+  // Validate email format
+  const invalidEmails = normalizedEmails.filter(email => !emailRegex.test(email))
+  if (invalidEmails.length > 0) {
+    return {
+      ok: false,
+      message: `Invalid email format: ${invalidEmails.join(', ')}`
+    }
+  }
+
+  // Prevent self-invitation (owner can't invite themselves)
+  const currentUserEmail = user.email?.toLowerCase().trim()
+  if (currentUserEmail && normalizedEmails.includes(currentUserEmail)) {
+    return {
+      ok: false,
+      message: "You cannot invite yourself"
+    }
+  }
+
+  // Check for existing members (server-side security check)
+  const { data: existingMembers, error: membersError } = await supabase
+    .from("memberships")
+    .select(`
+      profiles!inner(email)
+    `)
+    .eq("org_id", data.organizationId)
+    .in("profiles.email", normalizedEmails)
+
+  if (membersError) {
+    console.error('Error checking existing members:', membersError)
+    return { 
+      ok: false, 
+      message: "Failed to check existing members" 
+    }
+  }
+
+  // Extract existing member emails
+  const existingMemberEmails = new Set(
+    existingMembers?.map(m => {
+      const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles
+      return profile?.email?.toLowerCase().trim()
+    }).filter(Boolean) || []
+  )
+
+  // Filter out existing members
+  const emailsToProcess = normalizedEmails.filter(email => 
+    !existingMemberEmails.has(email)
+  )
+
+  if (emailsToProcess.length === 0) {
+    const duplicateCount = normalizedEmails.length - emailsToProcess.length
+    return {
+      ok: false,
+      message: duplicateCount === 1 
+        ? "This email is already a member"
+        : "All emails are already members"
+    }
+  }
+
   // Check for existing invitations and handle them appropriately
   const { data: existingInvitations, error: existingError } = await supabase
     .from("membership_invitations")
     .select("invited_email, status")
     .eq("org_id", data.organizationId)
-    .in("invited_email", data.emails)
+    .in("invited_email", emailsToProcess)
 
   if (existingError) {
     console.error('Error checking existing invitations:', existingError)
@@ -905,7 +1090,7 @@ export async function inviteMembers(data: {
   const acceptedEmails: string[] = []
   const newEmails: string[] = []
 
-  data.emails.forEach(email => {
+  emailsToProcess.forEach(email => {
     const status = existingEmailsMap.get(email)
     if (status === 'pending') {
       pendingEmails.push(email)
@@ -917,8 +1102,6 @@ export async function inviteMembers(data: {
       newEmails.push(email)
     }
   })
-
-  // Note: Client-side validation now handles checking for active members
 
   // Handle new emails - create new invitations
   const newInvitations = newEmails.map(email => {
@@ -1057,7 +1240,12 @@ export async function inviteMembers(data: {
 }
 
 // Get organization pending invitations
-export async function getOrganizationInvitations(organizationId: string): Promise<ActionResult<OrganizationInvitation[]>> {
+export async function getOrganizationInvitations(
+  organizationId: string,
+  options: { limit?: number; offset?: number; searchQuery?: string } = {}
+): Promise<ActionResult<OrganizationInvitation[]> & { hasNextPage?: boolean }> {
+  const { limit = 100, offset = 0, searchQuery = '' } = options
+  
   // Verify authentication
   const authResult = await verifyAuth()
   if (!authResult.ok) {
@@ -1072,8 +1260,8 @@ export async function getOrganizationInvitations(organizationId: string): Promis
 
   const supabase = await createClient()
 
-  // Fetch pending invitations
-  const { data: invitations, error: invitationsError } = await supabase
+  // Build query for pending invitations
+  let query = supabase
     .from("membership_invitations")
     .select(`
       id,
@@ -1085,7 +1273,20 @@ export async function getOrganizationInvitations(organizationId: string): Promis
     `)
     .eq("org_id", organizationId)
     .eq("status", "pending")
+
+  // Apply server-side search if searchQuery is provided
+  // Uses trigram index on lower(invited_email) for fast email search
+  if (searchQuery.trim()) {
+    const escapedSearch = escapeForILike(searchQuery.trim())
+    const searchTerm = `%${escapedSearch}%`
+    // Use ilike on invited_email - trigram index will be used automatically
+    query = query.ilike("invited_email", searchTerm)
+  }
+
+  // Order and paginate
+  const { data: invitations, error: invitationsError } = await query
     .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1)
 
   if (invitationsError) {
     console.error('Error fetching invitations:', invitationsError)
@@ -1095,9 +1296,13 @@ export async function getOrganizationInvitations(organizationId: string): Promis
     }
   }
 
+  // Determine if there are more pages
+  const hasNextPage = (invitations || []).length === limit
+
   return { 
     ok: true, 
-    data: invitations || [] 
+    data: invitations || [],
+    hasNextPage
   }
 }
 
@@ -1155,11 +1360,13 @@ export async function resendInvitation(data: {
 
   const orgName = organization?.name || 'our organization'
 
-  // Resend the invitation email through Supabase Auth (this will trigger built-in rate limiting)
+  // For resending invitations, try inviteUserByEmail
+  // If it fails because user already exists, that's expected and we'll treat it as success
+  // The email was already sent when the user was first invited
   const { error: inviteError } = await adminSupabase.auth.admin.inviteUserByEmail(
     invitation.invited_email,
     {
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/member-invite-test`,
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/member-invite/profile`,
       data: {
         organization_name: orgName,
         organization_id: data.organizationId,
@@ -1168,13 +1375,34 @@ export async function resendInvitation(data: {
     }
   )
 
+  // If inviteUserByEmail fails because user already exists, that's expected for resends
+  // We'll treat this as success since the email was already sent when the user was first invited
   if (inviteError) {
-    console.error('Error resending invitation email:', inviteError)
-    return { 
-      ok: false, 
-      message: inviteError.message // This will include Supabase's rate limiting message
+    const errorMessage = inviteError.message.toLowerCase()
+    const isAlreadyRegistered = 
+      errorMessage.includes('already been invited') ||
+      errorMessage.includes('already registered') ||
+      errorMessage.includes('user already exists') ||
+      errorMessage.includes('already exists') ||
+      errorMessage.includes('duplicate') ||
+      errorMessage.includes('email address has already been registered')
+
+    if (isAlreadyRegistered) {
+      // This is expected for resends - the user was already invited
+      // The email was already sent when the user was first invited
+      // We'll continue to update the timestamp and return success
+      console.log('User already registered - treating as successful resend')
+    } else {
+      // This is a different error, not the expected "already exists" error
+      console.error('Error resending invitation email:', inviteError)
+      return { 
+        ok: false, 
+        message: inviteError.message
+      }
     }
   }
+  // If we get here, either inviteUserByEmail succeeded (new user) or it failed with "already exists" (expected for resend)
+  // In both cases, we'll update the timestamp to track the resend attempt
 
   // Update the invitation row with new timestamp
   const now = new Date().toISOString()
@@ -1201,7 +1429,7 @@ export async function resendInvitation(data: {
   }
 }
 
-// Cancel invitation (set status to expired)
+// Cancel invitation (hard delete)
 export async function cancelInvitation(data: {
   invitationId: string
   organizationId: string
@@ -1212,15 +1440,6 @@ export async function cancelInvitation(data: {
     return authResult
   }
 
-  // Check rate limit
-  const rateLimit = checkRateLimit(authResult.data.id, 'cancelInvitation')
-  if (!rateLimit.allowed) {
-    return {
-      ok: false,
-      message: `Rate limit exceeded. You can cancel ${RATE_LIMITS.cancelInvitation.limit} invitations per minute. Try again in ${rateLimit.retryAfter} seconds.`
-    }
-  }
-
   // Verify organization ownership
   const orgResult = await verifyOrganizationOwnership(data.organizationId, authResult.data.id)
   if (!orgResult.ok) {
@@ -1229,7 +1448,6 @@ export async function cancelInvitation(data: {
 
   const supabase = await createClient()
   const adminSupabase = createAdminClient()
-  const now = new Date().toISOString()
 
   try {
     // First, get the invitation details
@@ -1261,45 +1479,51 @@ export async function cancelInvitation(data: {
       }
     }
 
-    // Find auth user by email and delete if no active memberships
+    // Clean up auth user and profile created by inviteUserByEmail
+    // MVP: 1 user = 1 org, so safe to delete everything when canceling invitation
     const invitationEmail = invitation.invited_email
-    const { data: authUsers, error: authUsersError } = await adminSupabase.auth.admin.listUsers()
     
-    if (!authUsersError) {
-      const targetAuthUser = authUsers.users.find(user => 
-        user.email === invitationEmail
-      )
+    try {
+      const { data: authUsers, error: authUsersError } = await adminSupabase.auth.admin.listUsers()
       
-      if (targetAuthUser) {
-        // Check for active memberships
-        const { data: memberships } = await adminSupabase
-          .from("memberships")
-          .select("id, role, org_id, deleted_at")
-          .eq("user_id", targetAuthUser.id)
+      if (!authUsersError && authUsers) {
+        const targetAuthUser = authUsers.users.find(user => 
+          user.email?.toLowerCase() === invitationEmail.toLowerCase()
+        )
         
-        // Filter for active memberships (not deleted)
-        const activeMemberships = memberships?.filter(m => !m.deleted_at) || []
-        
-        if (activeMemberships.length === 0) {
+        if (targetAuthUser) {
           // Delete profile first (foreign key constraint)
-          await adminSupabase
+          const { error: profileError } = await adminSupabase
             .from("profiles")
             .delete()
             .eq("id", targetAuthUser.id)
           
+          if (profileError) {
+            console.error('Error deleting profile:', profileError)
+            // Continue with auth user deletion even if profile deletion fails
+          }
+          
           // Delete auth user
-          await adminSupabase.auth.admin.deleteUser(targetAuthUser.id)
+          const { error: authDeleteError } = await adminSupabase.auth.admin.deleteUser(targetAuthUser.id)
+          
+          if (authDeleteError) {
+            console.error('Error deleting auth user:', authDeleteError)
+            // Don't fail the whole operation - invitation deletion is more important
+          }
         }
+      } else if (authUsersError) {
+        console.error('Error listing auth users:', authUsersError)
+        // Continue with invitation deletion even if we can't check auth users
       }
+    } catch (error) {
+      console.error('Error during auth user cleanup:', error)
+      // Continue with invitation deletion even if cleanup fails
     }
 
-    // Update the invitation status to expired
+    // Hard delete the invitation
     const { error } = await supabase
       .from("membership_invitations")
-      .update({
-        status: 'expired',
-        updated_at: now
-      })
+      .delete()
       .eq("id", data.invitationId)
       .eq("org_id", data.organizationId)
 

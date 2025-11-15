@@ -12,7 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import { ClientsTable } from '@/features/clients/ClientsTable';
 import { ClientsHeader } from '@/features/clients/ClientsHeader';
-import { createNewClient, connectToExistingClient, refreshClientsData } from '@/features/clients/actions';
+import { createNewClient, connectToExistingClient, refreshClientsData, fetchMoreClients } from '@/features/clients/actions';
 import { 
   accountTypeSchema, 
   addNewClientSchema, 
@@ -110,14 +110,6 @@ export function ClientsContent({
   const displayedClients = clients;
   const displayedTotal = totalCount;
 
-  // Locate the dashboard main scroll container
-  useEffect(() => {
-    if (!rootRef.current) return;
-    const scrollElement = rootRef.current.closest('main');
-    if (scrollElement instanceof HTMLElement) {
-      parentRef.current = scrollElement as HTMLDivElement;
-    }
-  }, []);
 
   // Track header height for sticky table offset
   useEffect(() => {
@@ -170,10 +162,36 @@ export function ClientsContent({
   };
 
   const loadMore = useCallback(async () => {
-    // TODO: Implement pagination with server actions
-    // For now, pagination is handled server-side via cursor
-    console.log('Pagination handled server-side via cursor');
-  }, []);
+    if (!hasNextPage || isLoading || !cursor) return;
+    
+    setIsLoading(true);
+    try {
+      const snapshot = await fetchMoreClients(context, {
+        cursor,
+        search: debouncedSearchValue,
+        sort: sortValue,
+        limit: 50
+      });
+      
+      startTransition(() => {
+        // Merge new clients with existing ones
+        setClients(prev => {
+          const existingIds = new Set(prev.map(c => c.id));
+          const newClients = snapshot.clients.filter(c => !existingIds.has(c.id));
+          return [...prev, ...newClients];
+        });
+        setTotalCount(snapshot.total);
+        setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
+        setCursor(snapshot.cursor || null);
+        setHasNextPage(snapshot.hasNextPage);
+      });
+    } catch (error) {
+      console.error('Error loading more clients:', error);
+      setHasNextPage(false);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [hasNextPage, isLoading, cursor, context, debouncedSearchValue, sortValue, startTransition]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchValue(value);
@@ -353,20 +371,21 @@ export function ClientsContent({
         />
       </div>
 
-      <ClientsTable
-        clients={displayedClients}
-        searchValue={searchValue}
-        sortValue={sortValue}
-        isLoading={isLoading}
-        isBootstrapping={isFetchingServerResults && displayedClients.length === 0}
-        isSearching={searchValue.trim() !== debouncedSearchValue.trim()}
-        hasNextPage={hasNextPage}
-        unfilteredTotalCount={unfilteredTotalCount}
-        onLoadMore={loadMore}
-        onAddClient={handleAddClientClick}
-        parentRef={parentRef}
-        headerOffset={headerOffset}
-        context={context}
+      <div ref={parentRef}>
+        <ClientsTable
+          clients={displayedClients}
+          searchValue={searchValue}
+          sortValue={sortValue}
+          isLoading={isLoading}
+          isBootstrapping={isFetchingServerResults && displayedClients.length === 0}
+          isSearching={searchValue.trim() !== debouncedSearchValue.trim()}
+          hasNextPage={hasNextPage}
+          unfilteredTotalCount={unfilteredTotalCount}
+          onLoadMore={loadMore}
+          onAddClient={handleAddClientClick}
+          parentRef={parentRef}
+          headerOffset={headerOffset}
+          context={context}
         onClientDeleteOptimistic={(clientId) => {
           // Optimistically remove client from UI immediately (synchronous for instant feedback)
           setClients(prev => prev.filter(client => client.clientId !== clientId));
@@ -390,6 +409,7 @@ export function ClientsContent({
           });
         }}
       />
+      </div>
 
       {/* Add Client Dialog */}
       <Dialog open={isAddClientDialogOpen} onOpenChange={setIsAddClientDialogOpen}>

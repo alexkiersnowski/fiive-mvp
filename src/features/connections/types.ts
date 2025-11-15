@@ -102,6 +102,11 @@ export type ConnectionSnapshot = {
     jobTitle?: string;
   }>;
   newRequestsCount?: number;
+  // Client view metrics
+  liveProjectsCount?: number;
+  nextDeliveryDate?: string | null;
+  requestsInReviewCount?: number;
+  tasksAssignedCount?: number;
 };
 
 // Card configuration type (following home pattern)

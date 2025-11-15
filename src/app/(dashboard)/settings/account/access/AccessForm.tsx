@@ -184,6 +184,7 @@ export default function AccessForm({ userId, currentEmail }: Props) {
                         {...field}
                         placeholder="Enter your email address"
                         className="h-10 px-4 py-2 text-sm"
+                        maxLength={255}
                         disabled={isUpdating}
                       />
                     </FormControl>
@@ -284,6 +285,7 @@ export default function AccessForm({ userId, currentEmail }: Props) {
                 value={deleteConfirmation}
                 onChange={(e) => setDeleteConfirmation(e.target.value)}
                 className="h-10 px-4 py-2 text-sm"
+                maxLength={255}
               />
             </div>
             <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>

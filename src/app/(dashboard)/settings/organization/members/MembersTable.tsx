@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useMemo, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -12,10 +12,13 @@ import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { SearchInput } from '@/components/ui/search-input'
-import { DotsThree, UserMinus, EnvelopeSimple, XCircle } from '@phosphor-icons/react'
+import { DotsThree, UserMinus, EnvelopeSimple, XCircle, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateMemberRole, removeMember, inviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
+import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+
+const PAGE_SIZE = 100
 
 const roleOptions: ComboboxOption[] = [
   { value: "member", label: "Member" },
@@ -120,54 +123,116 @@ function InvitationActionsDropdown({
   )
 }
 
+type UnifiedMemberItem = 
+  | ({ type: 'member' } & OrganizationMember & { id: string })
+  | ({ type: 'invitation' } & OrganizationInvitation & { id: string })
+
 interface MembersTableProps {
   members: OrganizationMember[]
   invitations: OrganizationInvitation[]
   organizationId: string
   currentUserRole: 'owner' | 'member'
+  parentRef?: React.RefObject<HTMLDivElement | null>
+  unfilteredTotalCount?: number
+  isBootstrapping?: boolean
+  onLoadMore?: (virtualRows: any[]) => void
+  hasNextPage?: boolean
+  isLoading?: boolean
+  headerOffset?: number
+  searchQuery?: string
+  onSearchChange?: (query: string) => void
+  onInviteClick?: () => void
 }
 
-export default function MembersTable({ members, invitations, organizationId, currentUserRole }: MembersTableProps) {
-  const [searchQuery, setSearchQuery] = useState('')
+const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTableProps>(function MembersTable({ 
+  members, 
+  invitations, 
+  organizationId, 
+  currentUserRole,
+  parentRef,
+  unfilteredTotalCount = 0,
+  isBootstrapping = false,
+  onLoadMore,
+  hasNextPage = false,
+  isLoading = false,
+  headerOffset = 0,
+  searchQuery: externalSearchQuery = '',
+  onSearchChange,
+  onInviteClick: externalOnInviteClick
+}, ref) {
+  const [internalSearchQuery, setInternalSearchQuery] = useState('')
+  const searchQuery = externalSearchQuery || internalSearchQuery
+  const setSearchQuery = onSearchChange || setInternalSearchQuery
   const [localMembers, setLocalMembers] = useState(members)
   const [localInvitations, setLocalInvitations] = useState(invitations)
   
-  // Filter and sort members based on search query
-  const filteredAndSortedMembers = localMembers
-    .filter(member => {
-      if (!searchQuery) return true
-      const query = searchQuery.toLowerCase()
-      const fullName = `${member.first_name} ${member.last_name}`.toLowerCase()
-      return (
-        fullName.includes(query) ||
-        member.email.toLowerCase().includes(query) ||
-        member.effective_role.toLowerCase().includes(query)
-      )
-    })
-    .sort((a, b) => {
-      // Sort by name
-      const nameA = `${a.first_name} ${a.last_name}`.toLowerCase()
-      const nameB = `${b.first_name} ${b.last_name}`.toLowerCase()
-      return nameA.localeCompare(nameB)
-    })
-
-  // Filter invitations based on search query
-  const filteredInvitations = localInvitations
-    .filter(invitation => {
-      if (!searchQuery) return true
-      const query = searchQuery.toLowerCase()
-      return (
-        invitation.invited_email.toLowerCase().includes(query) ||
-        invitation.role.toLowerCase().includes(query) ||
-        'invited'.includes(query)
-      )
-    })
-    .sort((a, b) => {
-      // Sort by email
-      return a.invited_email.toLowerCase().localeCompare(b.invited_email.toLowerCase())
-    })
+  // Sync local state when props change (e.g., when new members/invitations are added)
+  useEffect(() => {
+    setLocalMembers(members)
+  }, [members])
   
-  const memberCount = filteredAndSortedMembers.length + filteredInvitations.length
+  useEffect(() => {
+    setLocalInvitations(invitations)
+  }, [invitations])
+  
+  // Server-side search is now handled by the API
+  // Combine members and invitations into unified array
+  // Members first (sorted alphabetically by name), then invitations (sorted alphabetically by email)
+  // Prefix IDs to ensure uniqueness and prevent collisions
+  const unifiedItems = useMemo<UnifiedMemberItem[]>(() => {
+    // Sort members alphabetically by first_name + last_name
+    const memberItems: UnifiedMemberItem[] = localMembers
+      .map(member => ({
+        type: 'member' as const,
+        ...member,
+        id: `member-${member.membership_id}` // Prefix to ensure uniqueness
+      }))
+      .sort((a, b) => {
+        const nameA = `${a.first_name} ${a.last_name}`.toLowerCase()
+        const nameB = `${b.first_name} ${b.last_name}`.toLowerCase()
+        return nameA.localeCompare(nameB)
+      })
+    
+    // Sort invitations alphabetically by email
+    const invitationItems: UnifiedMemberItem[] = localInvitations
+      .map(invitation => ({
+        type: 'invitation' as const,
+        ...invitation,
+        id: `invitation-${invitation.id}` // Prefix to ensure uniqueness
+      }))
+      .sort((a, b) => {
+        return a.invited_email.toLowerCase().localeCompare(b.invited_email.toLowerCase())
+      })
+    
+    // Members first, then invitations at the bottom
+    return [...memberItems, ...invitationItems]
+  }, [localMembers, localInvitations])
+  
+  const memberCount = unifiedItems.length
+  
+  // Determine if current user can manage roles (only owners can)
+  const canManageRoles = currentUserRole === 'owner'
+  
+  // Guarded load more callback
+  const guardedLoadMore = useCallback(
+    (virtualRows: any[]) => {
+      if (!hasNextPage || isLoading) return
+      onLoadMore?.(virtualRows)
+    },
+    [hasNextPage, isLoading, onLoadMore],
+  )
+  
+  // Virtual scroll setup using shared hook
+  const { containerRef, rowVirtualizer, virtualItems } = useVirtualTable({
+    items: unifiedItems,
+    onLoadMore: guardedLoadMore,
+    scrollRestoreDeps: [searchQuery],
+    parentRef
+  })
+  
+  // Empty state logic: ONLY show empty state when no members exist at all
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0
+  
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
   const [pendingTransfer, setPendingTransfer] = useState<{membershipId: string, memberName: string} | null>(null)
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
@@ -180,8 +245,16 @@ export default function MembersTable({ members, invitations, organizationId, cur
   const [isInviting, setIsInviting] = useState(false)
   const [emailValidationError, setEmailValidationError] = useState<string>('')
 
-  // Determine if current user can manage roles (only owners can)
-  const canManageRoles = currentUserRole === 'owner'
+  const handleInviteClick = () => {
+    setInviteDialogOpen(true)
+  }
+
+  // Expose method to open invite dialog via ref
+  useImperativeHandle(ref, () => ({
+    openInviteDialog: () => {
+      setInviteDialogOpen(true)
+    }
+  }))
 
   // Validate emails against existing invitations and active members
   const validateEmails = (emails: string[]) => {
@@ -305,7 +378,11 @@ export default function MembersTable({ members, invitations, organizationId, cur
     setPendingTransfer(null)
   }
 
-  const handleRemoveMember = (membershipId: string) => {
+  const handleRemoveMember = (prefixedId: string) => {
+    // Extract membership_id from prefixed ID
+    const membershipId = prefixedId.startsWith('member-') 
+      ? prefixedId.replace('member-', '')
+      : prefixedId
     const member = localMembers.find(m => m.membership_id === membershipId)
     if (member) {
       setPendingRemove({ membershipId, memberName: `${member.first_name} ${member.last_name}` })
@@ -325,7 +402,7 @@ export default function MembersTable({ members, invitations, organizationId, cur
         if (result.ok) {
           // Refresh members data from server to get updated list
           try {
-            const membersResult = await getOrganizationMembers(organizationId)
+            const membersResult = await getOrganizationMembers(organizationId, { limit: PAGE_SIZE, offset: 0 })
             if (membersResult.ok) {
               setLocalMembers(membersResult.data || [])
             }
@@ -349,12 +426,11 @@ export default function MembersTable({ members, invitations, organizationId, cur
     setPendingRemove(null)
   }
 
-
-  const handleInviteClick = () => {
-    setInviteDialogOpen(true)
-  }
-
-  const handleResendInvite = async (invitationId: string) => {
+  const handleResendInvite = async (prefixedId: string) => {
+    // Extract invitation.id from prefixed ID
+    const invitationId = prefixedId.startsWith('invitation-')
+      ? prefixedId.replace('invitation-', '')
+      : prefixedId
     try {
       const result = await resendInvitation({
         invitationId,
@@ -380,7 +456,18 @@ export default function MembersTable({ members, invitations, organizationId, cur
     }
   }
 
-  const handleCancelInvite = async (invitationId: string) => {
+  const handleCancelInvite = async (prefixedId: string) => {
+    // Extract invitation.id from prefixed ID
+    const invitationId = prefixedId.startsWith('invitation-')
+      ? prefixedId.replace('invitation-', '')
+      : prefixedId
+    
+    // Find the invitation to restore if the request fails
+    const invitationToRestore = localInvitations.find(inv => inv.id === invitationId)
+    
+    // Optimistically remove the invitation from local state
+    setLocalInvitations(prev => prev.filter(invitation => invitation.id !== invitationId))
+    
     try {
       const result = await cancelInvitation({
         invitationId,
@@ -389,12 +476,22 @@ export default function MembersTable({ members, invitations, organizationId, cur
 
       if (result.ok) {
         toast.success('Invitation canceled successfully')
-        // Remove the invitation from the local state since it's now expired
-        setLocalInvitations(prev => prev.filter(invitation => invitation.id !== invitationId))
       } else {
+        // Rollback: restore the invitation if the request failed
+        if (invitationToRestore) {
+          setLocalInvitations(prev => [...prev, invitationToRestore].sort((a, b) => 
+            a.invited_email.toLowerCase().localeCompare(b.invited_email.toLowerCase())
+          ))
+        }
         toast.error(result.message || 'Failed to cancel invitation')
       }
     } catch (error) {
+      // Rollback: restore the invitation if the request failed
+      if (invitationToRestore) {
+        setLocalInvitations(prev => [...prev, invitationToRestore].sort((a, b) => 
+          a.invited_email.toLowerCase().localeCompare(b.invited_email.toLowerCase())
+        ))
+      }
       console.error('Error canceling invitation:', error)
       toast.error('Failed to cancel invitation')
     }
@@ -430,7 +527,7 @@ export default function MembersTable({ members, invitations, organizationId, cur
         setEmailValidationError('')
         // Refresh invitations data from server
         try {
-          const invitationsResult = await getOrganizationInvitations(organizationId)
+          const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
           if (invitationsResult.ok) {
             setLocalInvitations(invitationsResult.data || [])
           }
@@ -448,159 +545,218 @@ export default function MembersTable({ members, invitations, organizationId, cur
     }
   }
 
-  return (
-    <div className="w-full">
-      {/* Search section */}
-      <div style={{ marginTop: '40px' }}>
-        <div className="flex items-center justify-between w-full">
-          <SearchInput
-            placeholder="Search members"
-            value={searchQuery}
-            onChange={setSearchQuery}
-            count={memberCount}
-            countLabel={memberCount === 1 ? 'member' : 'members'}
-          />
+  // Render function for virtual table rows
+  const renderRow = (item: UnifiedMemberItem) => {
+    if (item.type === 'member') {
+      const member = item
+      const fullName = `${member.first_name} ${member.last_name}`
+      const isOwner = member.effective_role === 'owner'
+      
+      return (
+        <>
+          <TableCell className="w-[33.33%] py-0 pointer-events-auto">
+            <ListRow
+              avatar={true}
+              avatarUrl={member.avatar_url}
+              text={fullName}
+              actions={false}
+              variant="stacked"
+              onClick={() => handleMemberClick(member)}
+            />
+          </TableCell>
+          <TableCell className="w-[33.33%] py-0">
+            <div className="flex items-center">
+              <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                {member.email}
+              </span>
+            </div>
+          </TableCell>
+          <TableCell className="w-[33.33%] py-0 pointer-events-auto">
+            <Combobox
+              options={isOwner ? [{ value: "owner", label: "Owner" }] : roleOptions}
+              value={member.effective_role}
+              onValueChange={(value) => handleRoleChange(member.membership_id, value)}
+              placeholder="Select role..."
+              searchPlaceholder=""
+              emptyText="No role found."
+              readOnly={isOwner || isUpdating || !canManageRoles}
+              className="w-full"
+              style={{ 
+                height: '32px',
+                width: '100%',
+                minWidth: '100%',
+                maxWidth: '100%'
+              }}
+            />
+          </TableCell>
           {canManageRoles && (
-            <Button
-              variant="default"
-              size="lg"
-              className="cursor-pointer text-sm"
+            <TableCell className="w-[44px] p-0 pointer-events-auto">
+              <MemberActionsDropdown 
+                member={member}
+                isOwner={isOwner}
+                isUpdating={isUpdating}
+                onRemoveMember={() => handleRemoveMember(item.id)}
+              />
+            </TableCell>
+          )}
+        </>
+      )
+    } else {
+      // Invitation
+      const invitation = item
+      return (
+        <>
+          <TableCell className="w-[33.33%] py-0">
+            <ListRow
+              avatar={true}
+              text="—"
+              actions={false}
+              variant="stacked"
+              className="pointer-events-none hover:bg-transparent cursor-default"
+            />
+          </TableCell>
+          <TableCell className="w-[33.33%] py-0">
+            <div className="flex items-center gap-3">
+              <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                {invitation.invited_email}
+              </span>
+              <Badge 
+                variant="outline" 
+                className="text-xs border-0"
+                style={{
+                  borderRadius: 'var(--radius-1-max)',
+                  backgroundColor: 'var(--color-semantic-info-3)',
+                  color: 'var(--color-semantic-info-11)'
+                }}
+              >
+                Invited
+              </Badge>
+            </div>
+          </TableCell>
+          <TableCell className="w-[33.33%] py-0 pointer-events-auto">
+            <Combobox
+              options={[{ value: "member", label: "Member" }]}
+              value={invitation.role}
+              onValueChange={() => {}} // Disabled for invitations
+              placeholder="Select role..."
+              searchPlaceholder=""
+              emptyText="No role found."
+              readOnly={true}
+              className="w-full"
+              style={{ 
+                height: '32px',
+                width: '100%',
+                minWidth: '100%',
+                maxWidth: '100%'
+              }}
+            />
+          </TableCell>
+          {canManageRoles && (
+            <TableCell className="w-[44px] p-0 pointer-events-auto">
+              <InvitationActionsDropdown 
+                invitation={invitation}
+                onResendInvite={() => handleResendInvite(item.id)}
+                onCancelInvite={() => handleCancelInvite(item.id)}
+              />
+            </TableCell>
+          )}
+        </>
+      )
+    }
+  }
+
+  // Empty state component matching other tables
+  const emptyState = isEmptyState ? (
+    <TableRow 
+      className="hover:bg-transparent"
+      style={{ 
+        backgroundColor: 'var(--color-base-surface-page-background)', 
+        borderBottomColor: 'var(--color-neutral-5)',
+        height: '100%'
+      }}
+    >
+      <TableCell 
+        colSpan={canManageRoles ? 4 : 3} 
+        className="text-left" 
+        style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px' }}
+      >
+        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+          <div className="flex flex-col items-start gap-2">
+            <h2 className="display-8-medium">Your team starts here</h2>
+            <span className="text-sm-regular text-neutral-11">
+              Invite team members to collaborate and manage your organization together.
+            </span>
+          </div>
+          {canManageRoles && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
               onClick={handleInviteClick}
             >
-              Invite
+              <Plus size={16} weight="regular" />
+              Invite members
             </Button>
           )}
         </div>
-      </div>
+      </TableCell>
+    </TableRow>
+  ) : null
 
-      {/* Table section */}
-      <div style={{ marginTop: '16px' }}>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33.33%' }}>Name</TableHead>
-              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33.33%' }}>Email</TableHead>
-              <TableHead className="text-xs-medium" style={{ color: 'var(--color-base-text-tertiary)', width: '33.33%' }}>Role</TableHead>
-              {canManageRoles && <TableHead style={{ width: 'auto' }}></TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredAndSortedMembers.map((member) => {
-              const fullName = `${member.first_name} ${member.last_name}`
-              const isOwner = member.effective_role === 'owner'
-              
-              return (
-                <TableRow key={member.membership_id} style={{ height: '44px' }} className="[&>*]:h-[44px] hover:bg-transparent">
-                  <TableCell className="py-0" style={{ width: '33.33%' }}>
-                    <ListRow
-                      avatar={true}
-                      avatarUrl={member.avatar_url}
-                      text={fullName}
-                      actions={false}
-                      variant="stacked"
-                      onClick={() => handleMemberClick(member)}
-                    />
-                  </TableCell>
-                  <TableCell className="py-0" style={{ width: '33.33%' }}>
-                    <div className="flex items-center">
-                      <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-                        {member.email}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-0" style={{ width: '33.33%' }}>
-                    <Combobox
-                      options={isOwner ? [{ value: "owner", label: "Owner" }] : roleOptions}
-                      value={member.effective_role}
-                      onValueChange={(value) => handleRoleChange(member.membership_id, value)}
-                      placeholder="Select role..."
-                      searchPlaceholder=""
-                      emptyText="No role found."
-                      readOnly={isOwner || isUpdating || !canManageRoles}
-                      className="w-full"
-                      style={{ 
-                        height: '32px',
-                        width: '100%',
-                        minWidth: '100%',
-                        maxWidth: '100%'
-                      }}
-                    />
-                  </TableCell>
-                  {canManageRoles && (
-                    <TableCell className="py-0" style={{ width: 'auto' }}>
-                      <MemberActionsDropdown 
-                        member={member}
-                        isOwner={isOwner}
-                        isUpdating={isUpdating}
-                        onRemoveMember={handleRemoveMember}
-                      />
-                    </TableCell>
-                  )}
-                </TableRow>
-              )
-            })}
-            
-            {/* Invited members */}
-            {filteredInvitations.map((invitation) => (
-              <TableRow key={`invitation-${invitation.id}`} style={{ height: '44px' }} className="[&>*]:h-[44px] hover:bg-transparent">
-                <TableCell className="py-0" style={{ width: '33.33%' }}>
-                  <ListRow
-                    avatar={true}
-                    text="—"
-                    actions={false}
-                    variant="stacked"
-                    className="pointer-events-none hover:bg-transparent cursor-default"
-                  />
-                </TableCell>
-                <TableCell className="py-0" style={{ width: '33.33%' }}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-                      {invitation.invited_email}
-                    </span>
-                    <Badge 
-                      variant="outline" 
-                      className="text-xs border-0"
-                      style={{
-                        borderRadius: 'var(--radius-1-max)',
-                        backgroundColor: 'var(--color-semantic-info-3)',
-                        color: 'var(--color-semantic-info-11)'
-                      }}
-                    >
-                      Invited
-                    </Badge>
-                  </div>
-                </TableCell>
-                <TableCell className="py-0" style={{ width: '33.33%' }}>
-                  <Combobox
-                    options={[{ value: "member", label: "Member" }]}
-                    value={invitation.role}
-                    onValueChange={() => {}} // Disabled for invitations
-                    placeholder="Select role..."
-                    searchPlaceholder=""
-                    emptyText="No role found."
-                    readOnly={true}
-                    className="w-full"
-                    style={{ 
-                      height: '32px',
-                      width: '100%',
-                      minWidth: '100%',
-                      maxWidth: '100%'
-                    }}
-                  />
-                </TableCell>
+  // Column layout matching header for proper alignment
+  const columnLayout = useMemo(() => (
+    <colgroup>
+      <col className="w-[33.33%]" />
+      <col className="w-[33.33%]" />
+      <col className="w-[33.33%]" />
+      {canManageRoles && <col className="w-[44px]" />}
+    </colgroup>
+  ), [canManageRoles])
+
+  return (
+    <div className="w-full min-w-0">
+      {/* Table Header - Sticky */}
+      {(unfilteredTotalCount > 0 || searchQuery.trim().length > 0) && (
+        <div 
+          className="sticky z-10 bg-[var(--color-base-surface-page-background)]"
+          style={{ top: headerOffset }}
+        >
+          <Table className="table-fixed w-full border-collapse">
+            {columnLayout}
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-[33.33%] text-xs-medium text-[var(--color-base-text-tertiary)]">Name</TableHead>
+                <TableHead className="w-[33.33%] text-xs-medium text-[var(--color-base-text-tertiary)]">Email</TableHead>
+                <TableHead className="w-[33.33%] text-xs-medium text-[var(--color-base-text-tertiary)]">Role</TableHead>
                 {canManageRoles && (
-                  <TableCell className="py-0" style={{ width: 'auto' }}>
-                    <InvitationActionsDropdown 
-                      invitation={invitation}
-                      onResendInvite={handleResendInvite}
-                      onCancelInvite={handleCancelInvite}
-                    />
-                  </TableCell>
+                  <TableHead className="w-[44px] p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 )}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+          </Table>
+        </div>
+      )}
+
+      {/* Table Body - Virtualized Scrollable */}
+      <div className="w-full overflow-x-auto" ref={containerRef}>
+        {/* During initial bootstrap, suppress empty-state flash with skeleton block */}
+        {isBootstrapping && unifiedItems.length === 0 ? (
+          <div className="px-5 py-2">
+            <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+          </div>
+        ) : (
+          <VirtualTableBody
+            items={unifiedItems}
+            virtualItems={virtualItems}
+            rowVirtualizer={rowVirtualizer}
+            emptyState={emptyState}
+            renderRow={renderRow}
+            rowClassName="hover:bg-transparent pointer-events-none"
+            colGroup={columnLayout}
+          />
+        )}
       </div>
 
       {/* Ownership Transfer Dialog */}
@@ -751,4 +907,6 @@ export default function MembersTable({ members, invitations, organizationId, cur
       )}
     </div>
   )
-}
+})
+
+export default MembersTable

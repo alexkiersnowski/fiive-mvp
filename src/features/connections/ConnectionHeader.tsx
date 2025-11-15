@@ -362,7 +362,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
                     disabled={isResending}
                   >
                     <PaperPlaneTilt size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                    {isResending ? 'Resending...' : 'Resend email'}
+                    Resend email
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
