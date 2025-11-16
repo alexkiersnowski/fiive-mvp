@@ -3,24 +3,28 @@
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { uploadAvatar, uploadLogo } from '@/lib/supabase/storage'
+import { uploadAvatar, uploadLogo, deleteAvatarFolder } from '@/lib/supabase/storage'
 import { randomBytes, createHash } from 'crypto'
 import { escapeForILike } from '@/lib/utils'
 
 // Rate limiting configuration
 const RATE_LIMITS = {
   removeMember: { limit: 5, window: 60 * 1000 }, // 5 per minute
-  inviteMembers: { limit: 20, window: 60 * 1000 }, // 20 per minute
-  resendInvitation: { limit: 1, window: 60 * 1000 }, // 1 per minute (60 second cooldown)
+  inviteMembers: { limit: 20, window: 60 * 1000 }, // 20 per minute per org
+  // Note: resendInvitation rate limiting is handled per-email via database timestamp check (5 minutes)
+  resendInvitation: { limit: 1, window: 60 * 1000 }, // Not used - kept for compatibility
 } as const
 
 // In-memory rate limiting store (upgrade to Redis in production)
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>()
 
 // Rate limiting helper function
-function checkRateLimit(userId: string, action: keyof typeof RATE_LIMITS): { allowed: boolean; retryAfter?: number } {
+function checkRateLimit(userId: string, action: keyof typeof RATE_LIMITS, orgId?: string): { allowed: boolean; retryAfter?: number } {
   const now = Date.now()
-  const key = `${userId}:${action}`
+  // For inviteMembers, use orgId instead of userId for per-org rate limiting
+  const key = action === 'inviteMembers' && orgId 
+    ? `${orgId}:${action}` 
+    : `${userId}:${action}`
   const limit = RATE_LIMITS[action]
   
   // Clean up expired entries to prevent memory leaks
@@ -413,6 +417,151 @@ export async function signOut() {
   return { ok: true }
 }
 
+// Delete own account - allows members (not owners) to delete their own account:
+// 1. Soft delete profile (deleted_at) - using regular client (user can update own profile)
+// 2. Hard delete all memberships - using admin client
+// 3. Hard delete all invitations - using admin client
+// 4. Hard delete auth.user - using admin client
+export async function deleteOwnAccount(data: { email: string }) {
+  const supabase = await createClient()
+
+  // Verify the user is authenticated
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  // Verify provided email matches user's auth email
+  if (data.email !== user.email) {
+    return { 
+      ok: false, 
+      message: "Email does not match your account email" 
+    }
+  }
+
+  // Verify user is NOT an owner (owners cannot delete their own account)
+  // Check if user is owner of any organization
+  const { data: organizations, error: orgError } = await supabase
+    .from("organizations")
+    .select("id, owner_id")
+    .eq("owner_id", user.id)
+    .limit(1)
+
+  if (!orgError && organizations && organizations.length > 0) {
+    return { 
+      ok: false, 
+      message: "Organization owners cannot delete their accounts. Please transfer ownership first or delete the workspace from Billing & Subscription." 
+    }
+  }
+
+  try {
+    // Get user's email from profile (needed for invitation cleanup)
+    const { data: profileEmailData } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", user.id)
+      .single()
+
+    // Step 0.5: Delete avatar folder from storage FIRST (before profile is soft-deleted)
+    // This is necessary so RLS policy can verify the profile exists and user has permission
+    // Storage deletion is best-effort - if it fails, we still proceed with DB deletion
+    const avatarStorageResult = await deleteAvatarFolder(user.id)
+    if (!avatarStorageResult.success) {
+      // Log the error but don't fail the deletion - storage cleanup is best-effort
+      console.warn('Failed to delete avatar folder for deleted account:', {
+        userId: user.id,
+        error: avatarStorageResult.error,
+      })
+    }
+
+    // Step 1: Soft delete profile using regular client (user can update their own profile via RLS)
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ 
+        deleted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", user.id)
+
+    if (profileError) {
+      console.error('Error soft-deleting profile:', profileError)
+      return { 
+        ok: false, 
+        message: "Failed to delete profile" 
+      }
+    }
+
+    // Create admin client for operations that need to bypass RLS
+    const adminSupabase = createAdminClient()
+
+    // Step 2: Hard delete all memberships for this user using admin client
+    const { error: membershipError } = await adminSupabase
+      .from("memberships")
+      .delete()
+      .eq("user_id", user.id)
+
+    if (membershipError) {
+      console.error('Error deleting memberships:', membershipError)
+      // Attempt to rollback profile soft-deletion
+      await supabase
+        .from("profiles")
+        .update({ 
+          deleted_at: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", user.id)
+      
+      return { 
+        ok: false, 
+        message: "Failed to delete memberships" 
+      }
+    }
+
+    // Step 3: Hard delete all invitations for this email across all orgs using admin client
+    if (profileEmailData?.email) {
+      const { error: invitationError } = await adminSupabase
+        .from("membership_invitations")
+        .delete()
+        .eq("invited_email", profileEmailData.email)
+      
+      if (invitationError) {
+        console.error('Error deleting invitations:', invitationError)
+        // Log but don't fail - invitations cleanup is best-effort
+      }
+    }
+
+    // Step 4: Hard delete auth.user using admin client (requires admin privileges)
+    const { error: authError } = await adminSupabase.auth.admin.deleteUser(user.id)
+
+    if (authError) {
+      console.error('Error deleting auth user:', authError)
+      // Note: Profile is soft-deleted and memberships are removed
+      // The user won't be able to sign in, which is acceptable
+      // We still proceed to sign out
+    }
+
+    // Step 5: Sign out the user after successful deletion
+    const { error: signOutError } = await supabase.auth.signOut()
+    
+    if (signOutError) {
+      console.error('Error signing out:', signOutError)
+      // Account is deleted, but sign out failed - this is acceptable
+    }
+    
+    return { ok: true }
+
+  } catch (error) {
+    console.error('Unexpected error during account deletion:', error)
+    return { 
+      ok: false, 
+      message: "An unexpected error occurred while deleting your account" 
+    }
+  }
+}
+
 // Member Management Types
 export interface OrganizationMember {
   id: string
@@ -775,7 +924,11 @@ export async function updateMemberRole(data: {
   return { ok: true }
 }
 
-// Remove member (consistent soft-delete approach for both active members and pending invitations)
+// Remove member - performs full user deletion:
+// 1. Hard delete auth.users
+// 2. Soft delete profiles (deleted_at)
+// 3. Hard delete memberships
+// 4. Hard delete membership_invitations
 export async function removeMember(data: {
   membershipId: string
   organizationId: string
@@ -861,13 +1014,24 @@ export async function removeMember(data: {
       .eq("id", targetUserId)
       .single()
 
-    // Step 1: Soft-delete the profile (clear email for reuse, keep other data for historical attribution)
+    // Step 0.5: Delete avatar folder from storage FIRST (before profile is soft-deleted)
+    // This is necessary so RLS policy can verify the profile exists and user has permission
+    // Storage deletion is best-effort - if it fails, we still proceed with DB deletion
+    const avatarStorageResult = await deleteAvatarFolder(targetUserId)
+    if (!avatarStorageResult.success) {
+      // Log the error but don't fail the deletion - storage cleanup is best-effort
+      console.warn('Failed to delete avatar folder for removed member:', {
+        userId: targetUserId,
+        error: avatarStorageResult.error,
+      })
+    }
+
+    // Step 1: Soft-delete the profile (keep email for audit trail)
     const { error: profileError, data: profileUpdateData } = await adminSupabase
       .from("profiles")
       .update({ 
         deleted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        email: null  // Only clear email to allow reuse
+        updated_at: new Date().toISOString()
       })
       .eq("id", targetUserId)
       .select()
@@ -920,22 +1084,17 @@ export async function removeMember(data: {
       // The user just won't be able to sign in, which is what we want
     }
 
-    // Step 4: Clean up any invitations for this email (pending or accepted)
+    // Step 4: Hard delete any invitations for this email & org
     if (profileEmailData?.email) {
-      // Cancel any invitations for this email (both pending and accepted)
       const { error: invitationError } = await adminSupabase
         .from("membership_invitations")
-        .update({ 
-          status: 'expired',
-          updated_at: new Date().toISOString()
-        })
+        .delete()
         .eq("org_id", data.organizationId)
         .eq("invited_email", profileEmailData.email)
-        .in("status", ["pending", "accepted"])
       
       if (invitationError) {
-        console.error('Error cleaning up invitations:', invitationError)
-      } else {
+        console.error('Error deleting invitations:', invitationError)
+        // Log but don't fail - invitations cleanup is best-effort
       }
     }
 
@@ -954,13 +1113,12 @@ export async function removeMember(data: {
   }
 }
 
-// Invite members
-export async function inviteMembers(data: {
+// Validate and invite members (MVP - single action)
+export async function validateAndInviteMembers(data: {
   organizationId: string
   emails: string[]
-}): Promise<ActionResult> {
+}): Promise<ActionResult & { errors?: Record<string, string> }> {
   try {
-    
     // Verify authentication
     const authResult = await verifyAuth()
     if (!authResult.ok) {
@@ -968,12 +1126,13 @@ export async function inviteMembers(data: {
     }
     const user = authResult.data
 
-    // Check rate limit
-    const rateLimit = checkRateLimit(user.id, 'inviteMembers')
+    // Check rate limit (per org)
+    const rateLimit = checkRateLimit(user.id, 'inviteMembers', data.organizationId)
     if (!rateLimit.allowed) {
+      const minutesRemaining = Math.ceil((rateLimit.retryAfter || 0) / 60)
       return {
         ok: false,
-        message: `Rate limit exceeded. You can send ${RATE_LIMITS.inviteMembers.limit} invitations per minute. Try again in ${rateLimit.retryAfter} seconds.`
+        message: `Rate limit exceeded. You can send ${RATE_LIMITS.inviteMembers.limit} invitations per minute per organization. Please wait ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''} before sending more invitations.`
       }
     }
 
@@ -985,127 +1144,197 @@ export async function inviteMembers(data: {
 
     const supabase = await createClient()
 
-  // Validate emails
-  if (!data.emails || data.emails.length === 0) {
-    return {
-      ok: false,
-      message: "Please enter at least one email address"
+    // Validate emails exist
+    if (!data.emails || data.emails.length === 0) {
+      return {
+        ok: false,
+        message: "Please enter at least one email address"
+      }
     }
-  }
 
-  // Batch size limit (prevent abuse)
-  const MAX_INVITES_PER_REQUEST = 50
-  if (data.emails.length > MAX_INVITES_PER_REQUEST) {
-    return {
-      ok: false,
-      message: `You can invite up to ${MAX_INVITES_PER_REQUEST} members at once`
+    // Batch size limit (prevent abuse) - enforce 20 limit
+    const MAX_INVITES_PER_REQUEST = 20
+    if (data.emails.length > MAX_INVITES_PER_REQUEST) {
+      return {
+        ok: false,
+        message: `You can invite up to ${MAX_INVITES_PER_REQUEST} members at once`
+      }
     }
-  }
 
-  // Email format validation and normalization
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  const normalizedEmails = data.emails.map(email => email.toLowerCase().trim())
-  
-  // Validate email format
-  const invalidEmails = normalizedEmails.filter(email => !emailRegex.test(email))
-  if (invalidEmails.length > 0) {
-    return {
-      ok: false,
-      message: `Invalid email format: ${invalidEmails.join(', ')}`
+    // Email format validation and normalization
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    const normalizedEmails = data.emails.map(email => email.toLowerCase().trim())
+    const currentUserEmail = user.email?.toLowerCase().trim()
+    const now = new Date().toISOString()
+
+    // Per-email validation - build error map
+    const errors: Record<string, string> = {}
+    const seenEmails = new Set<string>()
+
+    // First pass: check format, duplicates, self-invite
+    for (const email of normalizedEmails) {
+      if (!emailRegex.test(email)) {
+        errors[email] = "invalid email format"
+        continue
+      }
+
+      if (seenEmails.has(email)) {
+        errors[email] = "duplicate email"
+        continue
+      }
+      seenEmails.add(email)
+
+      if (currentUserEmail && email === currentUserEmail) {
+        errors[email] = "cannot invite yourself"
+        continue
+      }
     }
-  }
 
-  // Prevent self-invitation (owner can't invite themselves)
-  const currentUserEmail = user.email?.toLowerCase().trim()
-  if (currentUserEmail && normalizedEmails.includes(currentUserEmail)) {
-    return {
-      ok: false,
-      message: "You cannot invite yourself"
+    // Get valid emails (no format/duplicate/self-invite errors)
+    const validEmails = normalizedEmails.filter(email => !errors[email])
+
+    if (validEmails.length === 0) {
+      return {
+        ok: false,
+        errors
+      }
     }
-  }
 
-  // Check for existing members (server-side security check)
-  const { data: existingMembers, error: membersError } = await supabase
-    .from("memberships")
-    .select(`
-      profiles!inner(email)
-    `)
-    .eq("org_id", data.organizationId)
-    .in("profiles.email", normalizedEmails)
+    // Check for existing members
+    const { data: existingMembers, error: membersError } = await supabase
+      .from("memberships")
+      .select(`
+        profiles!inner(email)
+      `)
+      .eq("org_id", data.organizationId)
+      .in("profiles.email", validEmails)
 
-  if (membersError) {
-    console.error('Error checking existing members:', membersError)
-    return { 
-      ok: false, 
-      message: "Failed to check existing members" 
+    if (!membersError && existingMembers) {
+      const existingMemberEmails = new Set(
+        existingMembers.map(m => {
+          const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles
+          return profile?.email?.toLowerCase().trim()
+        }).filter(Boolean) as string[]
+      )
+
+      validEmails.forEach(email => {
+        if (existingMemberEmails.has(email)) {
+          errors[email] = "already a member"
+        }
+      })
     }
-  }
 
-  // Extract existing member emails
-  const existingMemberEmails = new Set(
-    existingMembers?.map(m => {
-      const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles
-      return profile?.email?.toLowerCase().trim()
-    }).filter(Boolean) || []
-  )
+    // Check for pending unexpired invitations
+    const { data: existingPendingInvitations, error: invitationsError } = await supabase
+      .from("membership_invitations")
+      .select("invited_email, status, expires_at")
+      .eq("org_id", data.organizationId)
+      .in("invited_email", validEmails)
 
-  // Filter out existing members
-  const emailsToProcess = normalizedEmails.filter(email => 
-    !existingMemberEmails.has(email)
-  )
-
-  if (emailsToProcess.length === 0) {
-    const duplicateCount = normalizedEmails.length - emailsToProcess.length
-    return {
-      ok: false,
-      message: duplicateCount === 1 
-        ? "This email is already a member"
-        : "All emails are already members"
+    if (!invitationsError && existingPendingInvitations) {
+      existingPendingInvitations.forEach((inv: { invited_email: string; status: string; expires_at?: string }) => {
+        const email = inv.invited_email.toLowerCase().trim()
+        // Only block if pending and not expired
+        if (inv.status === 'pending' && inv.expires_at && new Date(inv.expires_at) > new Date(now)) {
+          if (!errors[email]) {
+            errors[email] = "already invited"
+          }
+        }
+      })
     }
-  }
 
-  // Check for existing invitations and handle them appropriately
-  const { data: existingInvitations, error: existingError } = await supabase
-    .from("membership_invitations")
-    .select("invited_email, status")
-    .eq("org_id", data.organizationId)
-    .in("invited_email", emailsToProcess)
-
-  if (existingError) {
-    console.error('Error checking existing invitations:', existingError)
-    return { 
-      ok: false, 
-      message: "Failed to check existing invitations" 
+    // Check for existing auth users (also check profiles table as fallback)
+    const emailsToCheckAuth = validEmails.filter(email => !errors[email])
+    
+    if (emailsToCheckAuth.length > 0) {
+      // Check profiles table directly (more reliable than RPC)
+      const { data: existingProfiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("email")
+        .in("email", emailsToCheckAuth)
+        .is("deleted_at", null) // Only check non-deleted profiles
+      
+      if (!profilesError && existingProfiles) {
+        const existingProfileEmails = new Set(
+          existingProfiles.map(p => p.email?.toLowerCase().trim()).filter(Boolean) as string[]
+        )
+        
+        emailsToCheckAuth.forEach(email => {
+          if (existingProfileEmails.has(email)) {
+            errors[email] = "This person already has an account in Fiive."
+          }
+        })
+      }
+      
+      // Also check auth.users via RPC for any emails not already flagged
+      const emailsStillToCheck = emailsToCheckAuth.filter(email => !errors[email])
+      for (const email of emailsStillToCheck) {
+        try {
+          const { data: exists, error: rpcError } = await supabase.rpc('check_user_email_exists', {
+            p_email: email
+          })
+          
+          if (!rpcError && exists === true) {
+            errors[email] = "This person already has an account in Fiive."
+          }
+        } catch (error) {
+          console.error(`Error checking auth user for ${email}:`, error)
+          // If RPC fails, we already checked profiles, so continue
+        }
+      }
     }
-  }
 
-  // Separate emails by status
-  const existingEmailsMap = new Map<string, string>()
-  existingInvitations?.forEach((inv: { invited_email: string; status: string }) => {
-    existingEmailsMap.set(inv.invited_email, inv.status)
-  })
-
-  const pendingEmails: string[] = []
-  const expiredEmails: string[] = []
-  const acceptedEmails: string[] = []
-  const newEmails: string[] = []
-
-  emailsToProcess.forEach(email => {
-    const status = existingEmailsMap.get(email)
-    if (status === 'pending') {
-      pendingEmails.push(email)
-    } else if (status === 'expired') {
-      expiredEmails.push(email)
-    } else if (status === 'accepted') {
-      acceptedEmails.push(email)
-    } else {
-      newEmails.push(email)
+    // If any errors, return them
+    if (Object.keys(errors).length > 0) {
+      return {
+        ok: false,
+        errors
+      }
     }
-  })
+
+    // All emails are valid - proceed with invites
+    // Get existing invitations to handle expired ones
+    const { data: existingInvitations, error: existingError } = await supabase
+      .from("membership_invitations")
+      .select("invited_email, status, expires_at")
+      .eq("org_id", data.organizationId)
+      .in("invited_email", validEmails)
+
+    const existingEmailsMap = new Map<string, { status: string; expires_at?: string }>()
+    existingInvitations?.forEach((inv: { invited_email: string; status: string; expires_at?: string }) => {
+      existingEmailsMap.set(inv.invited_email.toLowerCase().trim(), { status: inv.status, expires_at: inv.expires_at })
+    })
+
+    const pendingEmails: string[] = []
+    const expiredEmails: string[] = []
+    const newEmails: string[] = []
+
+    validEmails.forEach(email => {
+      const invitation = existingEmailsMap.get(email)
+      if (!invitation) {
+        newEmails.push(email)
+      } else if (invitation.status === 'pending') {
+        // Check if invitation is still valid (not expired)
+        if (invitation.expires_at && new Date(invitation.expires_at) > new Date(now)) {
+          pendingEmails.push(email)
+        } else {
+          // Pending but expired - treat as expired
+          expiredEmails.push(email)
+        }
+      } else if (invitation.status === 'expired') {
+        expiredEmails.push(email)
+      } else {
+        newEmails.push(email)
+      }
+    })
 
   // Handle new emails - create new invitations
+  // Store raw tokens for email links (keyed by email)
+  const rawTokensMap = new Map<string, string>()
+  
   const newInvitations = newEmails.map(email => {
-    const { tokenHash, expiresAt } = generateInvitationToken()
+    const { rawToken, tokenHash, expiresAt } = generateInvitationToken()
+    rawTokensMap.set(email.toLowerCase().trim(), rawToken)
     const now = new Date().toISOString()
 
     return {
@@ -1123,7 +1352,27 @@ export async function inviteMembers(data: {
 
   // Handle expired emails - reactivate existing invitations
   const expiredInvitations = expiredEmails.map(email => {
-    const { tokenHash, expiresAt } = generateInvitationToken()
+    const { rawToken, tokenHash, expiresAt } = generateInvitationToken()
+    rawTokensMap.set(email.toLowerCase().trim(), rawToken)
+    const now = new Date().toISOString()
+
+    return {
+      org_id: data.organizationId,
+      invited_by_user: user.id,
+      invited_email: email.toLowerCase().trim(),
+      role: 'member' as const,
+      token_hash: tokenHash,
+      status: 'pending' as const,
+      expires_at: expiresAt,
+      created_at: now,
+      updated_at: now
+    }
+  })
+
+  // Handle pending emails - resend with new token (allow re-invites)
+  const pendingInvitationsToUpdate = pendingEmails.map(email => {
+    const { rawToken, tokenHash, expiresAt } = generateInvitationToken()
+    rawTokensMap.set(email.toLowerCase().trim(), rawToken)
     const now = new Date().toISOString()
 
     return {
@@ -1177,6 +1426,28 @@ export async function inviteMembers(data: {
     }
   }
 
+  // Update pending invitations with new tokens (resend)
+  for (const pendingInvitation of pendingInvitationsToUpdate) {
+    const { error: updateError } = await supabase
+      .from("membership_invitations")
+      .update({
+        token_hash: pendingInvitation.token_hash,
+        expires_at: pendingInvitation.expires_at,
+        updated_at: pendingInvitation.updated_at
+      })
+      .eq("org_id", data.organizationId)
+      .eq("invited_email", pendingInvitation.invited_email)
+      .eq("status", "pending")
+
+    if (updateError) {
+      console.error('Error updating pending invitation:', updateError)
+      return { 
+        ok: false, 
+        message: "Failed to update pending invitations" 
+      }
+    }
+  }
+
   // Fetch organization name for email template
   const { data: organization, error: orgError } = await supabase
     .from('organizations')
@@ -1186,32 +1457,28 @@ export async function inviteMembers(data: {
 
   const orgName = organization?.name || 'our organization'
 
-  // Send Supabase invite emails for all processed emails
-  const allProcessedEmails = [...newEmails, ...expiredEmails]
+  // Send Resend invite emails for all processed emails
+  const allProcessedEmails = [...newEmails, ...expiredEmails, ...pendingEmails]
   
-  
-  // Create admin client for invite operations
-  const adminSupabase = createAdminClient()
+  // Import email sending function
+  const { sendMemberInviteEmail } = await import('@/app/actions/sendMemberInviteEmail')
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
   
   for (const email of allProcessedEmails) {
     try {
-      
-      const { error: inviteError, data: inviteData } = await adminSupabase.auth.admin.inviteUserByEmail(
-        email,
-        {
-          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/member-invite/profile`,
-          data: {
-            organization_name: orgName,
-            organization_id: data.organizationId
-          }
-        }
-      )
-      
-      if (inviteError) {
-        console.error(`Failed to send invite email to ${email}:`, inviteError)
-        // Continue with other emails even if one fails
-      } else {
+      const rawToken = rawTokensMap.get(email.toLowerCase().trim())
+      if (!rawToken) {
+        console.error(`No raw token found for ${email}`)
+        continue
       }
+
+      const inviteUrl = `${baseUrl}/member-invite/claim?token=${rawToken}`
+      
+      await sendMemberInviteEmail({
+        to: email,
+        organizationName: orgName,
+        inviteUrl
+      })
     } catch (error) {
       console.error(`Error sending invite email to ${email}:`, error)
       // Continue with other emails even if one fails
@@ -1221,7 +1488,7 @@ export async function inviteMembers(data: {
   // Revalidate the members page
   revalidatePath("/settings/organization/members")
   
-  const totalProcessed = newEmails.length + expiredEmails.length
+  const totalProcessed = newEmails.length + expiredEmails.length + pendingEmails.length
   const message = totalProcessed === 1 
     ? 'Invitation sent successfully' 
     : `${totalProcessed} invitations sent successfully`
@@ -1318,15 +1585,6 @@ export async function resendInvitation(data: {
   }
   const user = authResult.data
 
-  // Check rate limit (60 second cooldown)
-  const rateLimit = checkRateLimit(user.id, 'resendInvitation')
-  if (!rateLimit.allowed) {
-    return {
-      ok: false,
-      message: `For security purposes, you can only request this after ${rateLimit.retryAfter} seconds.`
-    }
-  }
-
   // Verify organization ownership
   const orgResult = await verifyOrganizationOwnership(data.organizationId, user.id)
   if (!orgResult.ok) {
@@ -1336,10 +1594,10 @@ export async function resendInvitation(data: {
   const supabase = await createClient()
   const adminSupabase = createAdminClient()
 
-  // Get the invitation details first
+  // Get the invitation details first (including updated_at for rate limiting)
   const { data: invitation, error: invitationError } = await supabase
     .from("membership_invitations")
-    .select("invited_email, org_id")
+    .select("invited_email, org_id, updated_at")
     .eq("id", data.invitationId)
     .eq("org_id", data.organizationId)
     .single()
@@ -1348,6 +1606,24 @@ export async function resendInvitation(data: {
     return {
       ok: false,
       message: "Invitation not found"
+    }
+  }
+
+  // Rate limiting: Check if last resend was less than 5 minutes ago (per email)
+  const fiveMinutesAgo = new Date()
+  fiveMinutesAgo.setMinutes(fiveMinutesAgo.getMinutes() - 5)
+  
+  if (invitation.updated_at) {
+    const lastResendDate = new Date(invitation.updated_at)
+    if (lastResendDate > fiveMinutesAgo) {
+      // Calculate time remaining
+      const timeRemainingMs = lastResendDate.getTime() + (5 * 60 * 1000) - Date.now()
+      const minutesRemaining = Math.ceil(timeRemainingMs / (60 * 1000))
+      
+      return {
+        ok: false,
+        message: `Please wait ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''} before resending the invitation`
+      }
     }
   }
 
@@ -1360,56 +1636,17 @@ export async function resendInvitation(data: {
 
   const orgName = organization?.name || 'our organization'
 
-  // For resending invitations, try inviteUserByEmail
-  // If it fails because user already exists, that's expected and we'll treat it as success
-  // The email was already sent when the user was first invited
-  const { error: inviteError } = await adminSupabase.auth.admin.inviteUserByEmail(
-    invitation.invited_email,
-    {
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/member-invite/profile`,
-      data: {
-        organization_name: orgName,
-        organization_id: data.organizationId,
-        invitation_id: data.invitationId
-      }
-    }
-  )
-
-  // If inviteUserByEmail fails because user already exists, that's expected for resends
-  // We'll treat this as success since the email was already sent when the user was first invited
-  if (inviteError) {
-    const errorMessage = inviteError.message.toLowerCase()
-    const isAlreadyRegistered = 
-      errorMessage.includes('already been invited') ||
-      errorMessage.includes('already registered') ||
-      errorMessage.includes('user already exists') ||
-      errorMessage.includes('already exists') ||
-      errorMessage.includes('duplicate') ||
-      errorMessage.includes('email address has already been registered')
-
-    if (isAlreadyRegistered) {
-      // This is expected for resends - the user was already invited
-      // The email was already sent when the user was first invited
-      // We'll continue to update the timestamp and return success
-      console.log('User already registered - treating as successful resend')
-    } else {
-      // This is a different error, not the expected "already exists" error
-      console.error('Error resending invitation email:', inviteError)
-      return { 
-        ok: false, 
-        message: inviteError.message
-      }
-    }
-  }
-  // If we get here, either inviteUserByEmail succeeded (new user) or it failed with "already exists" (expected for resend)
-  // In both cases, we'll update the timestamp to track the resend attempt
-
-  // Update the invitation row with new timestamp
+  // Generate new token for resend
+  const { rawToken, tokenHash, expiresAt } = generateInvitationToken()
   const now = new Date().toISOString()
+
+  // Update the invitation row with new token, expiry, and timestamp
   const { error: updateError } = await supabase
     .from("membership_invitations")
     .update({
+      token_hash: tokenHash,
       status: 'pending', // Reactivate if it was expired
+      expires_at: expiresAt,
       updated_at: now
     })
     .eq("id", data.invitationId)
@@ -1417,7 +1654,29 @@ export async function resendInvitation(data: {
 
   if (updateError) {
     console.error('Error updating invitation:', updateError)
-    // Don't fail the whole operation if database update fails
+    return { 
+      ok: false, 
+      message: "Failed to update invitation"
+    }
+  }
+
+  // Send email via Resend
+  try {
+    const { sendMemberInviteEmail } = await import('@/app/actions/sendMemberInviteEmail')
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+    const inviteUrl = `${baseUrl}/member-invite/claim?token=${rawToken}`
+    
+    await sendMemberInviteEmail({
+      to: invitation.invited_email,
+      organizationName: orgName,
+      inviteUrl
+    })
+  } catch (emailError) {
+    console.error('Error sending resend invitation email:', emailError)
+    return { 
+      ok: false, 
+      message: emailError instanceof Error ? emailError.message : 'Failed to send invitation email'
+    }
   }
 
   // Revalidate the members page

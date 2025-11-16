@@ -4,11 +4,12 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { toast } from 'sonner'
-import { requestEmailChange } from '../../actions'
+import { requestEmailChange, deleteOwnAccount } from '../../actions'
 import {
   Form,
   FormControl,
@@ -22,6 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 type Props = {
   userId: string
   currentEmail: string // from auth.getUser() on server
+  isOwner: boolean
 }
 
 const TTL_MINUTES = 60
@@ -35,7 +37,8 @@ const emailSchema = z.object({
 
 type EmailFormData = z.infer<typeof emailSchema>
 
-export default function AccessForm({ userId, currentEmail }: Props) {
+export default function AccessForm({ userId, currentEmail, isOwner }: Props) {
+  const router = useRouter()
   const [pendingEmail, setPendingEmail] = React.useState<string | null>(null)
   const [isUpdating, setIsUpdating] = React.useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
@@ -129,22 +132,28 @@ export default function AccessForm({ userId, currentEmail }: Props) {
   }
 
   const handleDeleteAccount = async () => {
+    if (!isDeleteConfirmed) {
+      return
+    }
+
     setIsDeleting(true)
     
     try {
-      // Simulate API call to delete account
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const result = await deleteOwnAccount({ email: deleteConfirmation })
       
-      // Close dialog and reset form
-      setDeleteDialogOpen(false)
-      setDeleteConfirmation('')
-      
-      // In a real app, this would:
-      // 1. Delete the account from the backend
-      // 2. Clear any local storage/session data
-      // 3. Redirect to signup/login page
-      console.log('Account deleted successfully - user would be logged out and redirected')
-      
+      if (result.ok) {
+        // Close dialog and reset form
+        setDeleteDialogOpen(false)
+        setDeleteConfirmation('')
+        
+        // Show success message
+        toast.success("Your account has been deleted successfully")
+        
+        // Redirect to signin page
+        router.push('/signin')
+      } else {
+        toast.error(result.message || "Failed to delete account. Please try again.")
+      }
     } catch (error) {
       console.error('Error deleting account:', error)
       toast.error("Failed to delete account. Please try again.")
@@ -166,7 +175,7 @@ export default function AccessForm({ userId, currentEmail }: Props) {
       </div>
 
       {/* Form Content */}
-      <div className="max-w-[552px] flex flex-col justify-between" style={{ minHeight: 'calc(100vh - 290px)' }}>
+      <div className="max-w-[552px] flex flex-col justify-between" style={{ minHeight: 'calc(100vh - 296px)' }}>
         <div>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
@@ -237,28 +246,33 @@ export default function AccessForm({ userId, currentEmail }: Props) {
               Delete account
             </p>
             <p className="text-xs-regular" style={{ color: 'var(--color-base-text-tertiary, rgba(3, 9, 26, 0.56))' }}>
-              Permanently remove your personal account and access to Fiive. This cannot be undone.
+              {isOwner
+                ? "You are the owner of this workspace. To delete your workspace and account, go to Billing & Subscription, or transfer ownership to another member."
+                : "Permanently remove your personal account and access to Fiive. This cannot be undone."
+              }
             </p>
           </div>
-          <Button
-            variant="outline"
-            className="text-sm cursor-pointer"
-            style={{
-              borderColor: 'var(--color-semantic-destructive-border, #EF4444)',
-              color: 'var(--color-semantic-destructive-text, #EF4444)',
-              backgroundColor: 'transparent',
-              height: '40px'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--color-semantic-destructive-surface-hover, #FEF2F2)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent'
-            }}
-            onClick={() => setDeleteDialogOpen(true)}
-          >
-            Delete account
-          </Button>
+          {!isOwner && (
+            <Button
+              variant="outline"
+              className="text-sm cursor-pointer"
+              style={{
+                borderColor: 'var(--color-semantic-destructive-border, #EF4444)',
+                color: 'var(--color-semantic-destructive-text, #EF4444)',
+                backgroundColor: 'transparent',
+                height: '40px'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'var(--color-semantic-destructive-surface-hover, #FEF2F2)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+              }}
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              Delete account
+            </Button>
+          )}
         </div>
 
         {/* Delete Account Dialog */}
