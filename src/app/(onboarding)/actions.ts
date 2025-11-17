@@ -32,18 +32,15 @@ function sanitizeDescription(input: string): string {
 }
 
 // Profile actions
-export async function handleProfileCreation(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string; avatarFile?: File } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
+export async function handleProfileCreation(data: { email?: string; firstName: string; lastName: string; jobTitle?: string; avatarFile?: File } | { email: string } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
   // Type guard to ensure we have profile data
-  if ('email' in data) {
-    throw new Error('This function only handles profile data, not auth data')
-  }
-  
-  // Add this type guard for profile data
+  // Note: email may be present in data (read-only field), but we ignore it
   if (!('firstName' in data)) {
     throw new Error('This function only handles profile data')
   }
   
-  const { firstName, lastName, jobTitle, avatarFile } = data
+  // Extract profile fields, ignoring email if present (it's read-only)
+  const { firstName, lastName, jobTitle, avatarFile } = data as { firstName: string; lastName: string; jobTitle?: string; avatarFile?: File; email?: string }
   
   // Sanitize inputs
   const sanitizedFirstName = sanitizeInput(firstName)
@@ -133,8 +130,15 @@ export async function handleProfileCreation(data: { email: string } | { firstNam
 }
 
 // Member invite completion action
-export async function handleMemberInviteCompletion(data: { firstName: string; lastName: string; jobTitle?: string }) {
-  const { firstName, lastName, jobTitle } = data
+export async function handleMemberInviteCompletion(data: { email?: string; firstName: string; lastName: string; jobTitle?: string; avatarFile?: File } | { email: string } | { name: string; agencyType?: string; industry?: string } | { accountType: string }) {
+  // Type guard to ensure we have profile data
+  // Note: email may be present in data (read-only field), but we ignore it
+  if (!('firstName' in data)) {
+    throw new Error('This function only handles profile data')
+  }
+  
+  // Extract profile fields, ignoring email if present (it's read-only)
+  const { firstName, lastName, jobTitle } = data as { firstName: string; lastName: string; jobTitle?: string; email?: string }
   
   // Sanitize inputs
   const sanitizedFirstName = sanitizeInput(firstName)
@@ -161,17 +165,25 @@ export async function handleMemberInviteCompletion(data: { firstName: string; la
     throw new Error('You must be logged in to complete the invitation')
   }
   
-  // Get organization info from user metadata (set by Supabase invite)
-  const organizationId = user.user_metadata?.organization_id
   const userEmail = user.email
-  
-  if (!organizationId) {
-    throw new Error('Invalid invitation: organization information missing')
-  }
   
   if (!userEmail) {
     throw new Error('Invalid user: email information missing')
   }
+  
+  // Get organization ID from membership (user is already a member from claim flow)
+  const { data: membership, error: membershipError } = await supabase
+    .from('memberships')
+    .select('org_id')
+    .eq('user_id', user.id)
+    .single()
+  
+  if (membershipError || !membership) {
+    console.error('Membership lookup error:', membershipError)
+    throw new Error('You must be a member of an organization to complete the invitation')
+  }
+  
+  const organizationId = membership.org_id
   
   console.log('[handleMemberInviteCompletion] Processing invitation for:', {
     userId: user.id,
@@ -215,7 +227,9 @@ export async function handleMemberInviteCompletion(data: { firstName: string; la
   
   console.log('[handleMemberInviteCompletion] Profile updated successfully')
   
-  // Step 2: Create admin client and verify invitation exists and is valid
+  // Step 2: Verify invitation exists and update status if needed
+  // Note: In the new flow, membership and invitation status are already handled in the claim flow
+  // But we check here to ensure consistency and handle edge cases
   const adminSupabase = createAdminClient()
   
   const { data: validInvitation, error: invitationError } = await adminSupabase
@@ -223,80 +237,36 @@ export async function handleMemberInviteCompletion(data: { firstName: string; la
     .select('id, org_id, invited_email, status, expires_at')
     .eq('org_id', organizationId)
     .eq('invited_email', userEmail)
-    .eq('status', 'pending')
+    .in('status', ['pending', 'accepted'])
     .single()
   
-  if (invitationError || !validInvitation) {
-    console.error('Invalid or expired invitation:', invitationError)
-    throw new Error('Invalid or expired invitation')
-  }
-  
-  // Check if invitation has expired
-  const now = new Date()
-  const expiresAt = new Date(validInvitation.expires_at)
-  if (now > expiresAt) {
-    throw new Error('Invitation has expired')
-  }
-  
-  console.log('[handleMemberInviteCompletion] Valid invitation confirmed:', validInvitation.id)
-  
-  // Step 3: Create memberships table row using admin client (bypasses RLS)
-  const membershipData = {
-    org_id: organizationId,
-    user_id: user.id,
-    role: 'member',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  }
-  
-  const membershipResult = await withTimeout(
-    adminSupabase
-      .from('memberships')
-      .insert(membershipData)
-      .select(),
-    3000
-  )
-  
-  const { data: membershipInsertData, error: membershipError } = membershipResult as { data: unknown; error: unknown }
-  
-  if (membershipError) {
-    console.error('Membership creation error details:', {
-      error: membershipError,
-      membershipData
-    })
-    throw new Error(`Failed to create membership: ${JSON.stringify(membershipError)}`)
-  }
-  
-  console.log('[handleMemberInviteCompletion] Membership created successfully')
-  
-  // Step 4: Update membership_invitations status from 'pending' to 'accepted' using admin client
-  const invitationUpdateResult = await withTimeout(
-    adminSupabase
-      .from('membership_invitations')
-      .update({ 
-        status: 'accepted',
-        accepted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('org_id', organizationId)
-      .eq('invited_email', userEmail)
-      .eq('status', 'pending')
-      .select(),
-    3000
-  )
-  
-  const { data: invitationUpdateData, error: invitationUpdateError } = invitationUpdateResult as { data: unknown; error: unknown }
-  
-  if (invitationUpdateError) {
-    console.error('Invitation status update error details:', {
-      error: invitationUpdateError,
-      organizationId,
-      userEmail
-    })
-    // Don't throw error here - membership was created successfully, invitation status is secondary
-    console.warn('[handleMemberInviteCompletion] Warning: Failed to update invitation status, but membership was created')
+  if (!invitationError && validInvitation) {
+    // If invitation is still pending, update it to accepted (shouldn't happen in normal flow, but handle it)
+    if (validInvitation.status === 'pending') {
+      const invitationUpdateResult = await withTimeout(
+        adminSupabase
+          .from('membership_invitations')
+          .update({ 
+            status: 'accepted',
+            accepted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', validInvitation.id)
+          .select(),
+        3000
+      )
+      
+      const { error: invitationUpdateError } = invitationUpdateResult as { data: unknown; error: unknown }
+      
+      if (invitationUpdateError) {
+        console.warn('[handleMemberInviteCompletion] Warning: Failed to update invitation status, but profile was updated')
+      } else {
+        console.log('[handleMemberInviteCompletion] Invitation status updated to accepted')
+      }
+    }
   } else {
-    console.log('[handleMemberInviteCompletion] Invitation status updated to accepted successfully')
+    // Invitation not found - this is okay, user might have been added directly or invitation was already cleaned up
+    console.warn('[handleMemberInviteCompletion] Warning: No invitation found, but continuing with profile update')
   }
   
   console.log('[handleMemberInviteCompletion] Member invite completion successful, redirecting to dashboard')
@@ -324,18 +294,43 @@ export async function handleAccountTypeSelection(data: { email: string } | { fir
 }
 
 // Organization actions
-export async function handleOrganizationDetails(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { name: string; agencyType?: string; industry?: string; logoUrl?: string | File } | { accountType: string }) {
+export async function handleOrganizationDetails(data: { email: string } | { firstName: string; lastName: string; jobTitle?: string } | { name: string; agencyType?: string; industry?: string; website?: string; logoUrl?: string | File } | { accountType: string }) {
   // Type guard to ensure we have organization data
   if (!('name' in data)) {
     throw new Error('This function only handles organization data')
   }
   
-  const { name, agencyType, industry, logoUrl } = data
+  const { name, agencyType, industry, website, logoUrl } = data as { name: string; agencyType?: string; industry?: string; website?: string; logoUrl?: string | File }
   
   // Sanitize inputs
   const sanitizedName = sanitizeInput(name)
   const sanitizedAgencyType = agencyType ? sanitizeInput(agencyType) : null
   const sanitizedIndustry = industry ? sanitizeInput(industry) : null
+  
+  // Normalize website URL for storage (adds https://, removes www.)
+  const normalizeWebsiteForStorage = (url: string | undefined): string | undefined => {
+    if (!url || url.trim() === '') return undefined
+    
+    const trimmed = url.trim()
+    let cleanDomain = trimmed
+    
+    // Remove protocol if present
+    if (cleanDomain.startsWith('http://')) {
+      cleanDomain = cleanDomain.replace('http://', '')
+    } else if (cleanDomain.startsWith('https://')) {
+      cleanDomain = cleanDomain.replace('https://', '')
+    }
+    
+    // Remove www. if present
+    if (cleanDomain.startsWith('www.')) {
+      cleanDomain = cleanDomain.replace('www.', '')
+    }
+    
+    // Return standardized format: https://domain.com
+    return `https://${cleanDomain}`
+  }
+  
+  const normalizedWebsite = website ? normalizeWebsiteForStorage(website) : undefined
   
   // Basic validation
   if (!sanitizedName) {
@@ -392,30 +387,21 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
   }
   
   
-  // Step 2: If logo is provided, upload it using the organization ID
+  // Step 2: Prepare update data for website and logo
+  const updateData: { logo_url?: string; website?: string } = {}
+  
+  // Add website if provided
+  if (normalizedWebsite !== undefined) {
+    updateData.website = normalizedWebsite
+  }
+  
+  // Step 3: If logo is provided, upload it using the organization ID
   if (logoUrl && logoUrl instanceof File) {
     try {
       
       const { uploadLogo } = await import('@/lib/supabase/storage')
       const logoUrlString = await uploadLogo(logoUrl, organizationId)
-      
-      
-      // Step 3: Update organization with logo URL
-      const updateResult = await withTimeout(
-        supabase
-          .from('organizations')
-          .update({ logo_url: logoUrlString })
-          .eq('id', organizationId),
-        3000 // 3 second timeout for organization updates
-      )
-      
-      const { error: updateError } = updateResult as { error: unknown }
-      
-      if (updateError) {
-        console.error('Failed to update organization with logo URL:', updateError)
-        throw new Error(`Failed to update organization with logo: ${updateError instanceof Error ? updateError.message : String(updateError)}`)
-      }
-      
+      updateData.logo_url = logoUrlString
       
     } catch (logoError) {
       console.error('Failed to upload logo:', logoError)
@@ -423,12 +409,16 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
       throw new Error(`Failed to upload logo: ${errorMessage}`)
     }
   } else if (logoUrl && typeof logoUrl === 'string') {
-    // logoUrl is already a URL string (existing logo), just update the organization
-    
+    // logoUrl is already a URL string (existing logo)
+    updateData.logo_url = logoUrl
+  }
+  
+  // Step 4: Update organization with logo URL and/or website if any updates are needed
+  if (Object.keys(updateData).length > 0) {
     const updateResult = await withTimeout(
       supabase
         .from('organizations')
-        .update({ logo_url: logoUrl })
+        .update(updateData)
         .eq('id', organizationId),
       3000 // 3 second timeout for organization updates
     )
@@ -436,10 +426,9 @@ export async function handleOrganizationDetails(data: { email: string } | { firs
     const { error: updateError } = updateResult as { error: unknown }
     
     if (updateError) {
-      console.error('Failed to update organization with existing logo URL:', updateError)
-      throw new Error(`Failed to update organization with logo: ${updateError instanceof Error ? updateError.message : String(updateError)}`)
+      console.error('Failed to update organization:', updateError)
+      throw new Error(`Failed to update organization: ${updateError instanceof Error ? updateError.message : String(updateError)}`)
     }
-    
   }
   
   // Redirect to next step (dashboard home)
@@ -700,3 +689,4 @@ export async function handleClaimOrganizationUpdate(data: { email: string } | { 
   // Redirect to dashboard home
   redirect('/home')
 }
+

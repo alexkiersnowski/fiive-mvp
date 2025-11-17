@@ -48,11 +48,20 @@ function ClientCallbackContent() {
 
       // Get the next destination from query params
       const next = searchParams.get('next') || ''
+      const token = searchParams.get('token') // Preserve member-invite token
       const safeNext = next && next.startsWith('/') ? next : '/home'
+
+      // Preserve token if present (for member-invite flow)
+      let redirectUrl = safeNext
+      if (token && safeNext.startsWith('/member-invite/')) {
+        const url = new URL(safeNext, window.location.origin)
+        url.searchParams.set('token', token)
+        redirectUrl = url.pathname + url.search
+      }
 
       // Clear hash fragment and redirect
       window.history.replaceState(null, '', window.location.pathname + window.location.search)
-      router.push(safeNext)
+      router.push(redirectUrl)
     }
 
     handleCallback()

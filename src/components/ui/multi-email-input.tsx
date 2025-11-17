@@ -15,13 +15,15 @@ interface MultiEmailInputProps {
   className?: string
   style?: React.CSSProperties
   onChange?: (emails: string[]) => void
+  maxEmails?: number
 }
 
 export function MultiEmailInput({ 
   placeholder = "Enter email addresses...", 
   className = "",
   style,
-  onChange 
+  onChange,
+  maxEmails
 }: MultiEmailInputProps) {
   const [chips, setChips] = useState<EmailChip[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -36,6 +38,11 @@ export function MultiEmailInput({
   })
 
   const addChip = (email: string) => {
+    // Check max emails limit
+    if (maxEmails && chips.length >= maxEmails) {
+      return // Don't add if at max limit
+    }
+    
     if (emailRegex.test(email) && !chips.some(chip => chip.email === email)) {
       const newChip = createChip(email)
       const newChips = [...chips, newChip]
@@ -109,10 +116,11 @@ export function MultiEmailInput({
       .filter(email => email.length > 0 && emailRegex.test(email))
     
     if (emails.length > 0) {
-      // Add all valid emails as chips
+      // Add all valid emails as chips, respecting max limit
       const newChips = [...chips]
+      
       emails.forEach(email => {
-        if (!newChips.some(chip => chip.email === email)) {
+        if (newChips.length < (maxEmails || Infinity) && !newChips.some(chip => chip.email === email)) {
           newChips.push(createChip(email))
         }
       })

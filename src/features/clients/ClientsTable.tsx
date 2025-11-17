@@ -487,7 +487,7 @@ export function ClientsTable({
       <TableCell
         colSpan={7}
         className="text-left"
-        style={{ height: 'calc(100vh - 200px)', minHeight: '400px', paddingLeft: '120px' }}
+        style={{ height: 'calc(100vh - 264px)', minHeight: '400px', paddingLeft: '120px' }}
       >
         <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
           <div className="flex flex-col items-start gap-2">

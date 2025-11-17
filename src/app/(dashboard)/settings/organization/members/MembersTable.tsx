@@ -12,9 +12,9 @@ import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { SearchInput } from '@/components/ui/search-input'
-import { DotsThree, UserMinus, EnvelopeSimple, XCircle, Plus } from '@phosphor-icons/react'
+import { DotsThree, UserMinus, PaperPlaneTilt, XCircle, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateMemberRole, removeMember, inviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
+import { updateMemberRole, removeMember, validateAndInviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 
@@ -105,7 +105,7 @@ function InvitationActionsDropdown({
         <DropdownMenuItem
           onClick={() => onResendInvite(invitation.id)}
         >
-          <EnvelopeSimple size={16} />
+          <PaperPlaneTilt size={16} style={{ color: 'var(--color-base-text-primary)' }} />
           Resend invite
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -243,7 +243,8 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   const [selectedMember, setSelectedMember] = useState<OrganizationMember | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
   const [isInviting, setIsInviting] = useState(false)
-  const [emailValidationError, setEmailValidationError] = useState<string>('')
+  const [emailErrors, setEmailErrors] = useState<Record<string, string>>({})
+  const [generalError, setGeneralError] = useState<string>('')
 
   const handleInviteClick = () => {
     setInviteDialogOpen(true)
@@ -256,38 +257,21 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
     }
   }))
 
-  // Validate emails against existing invitations and active members
-  const validateEmails = (emails: string[]) => {
-    const existingInvitationEmails = localInvitations.map(inv => inv.invited_email.toLowerCase())
-    const existingMemberEmails = localMembers.map(member => member.email.toLowerCase())
-    
-    const duplicateInvitations = emails.filter(email => 
-      existingInvitationEmails.includes(email.toLowerCase())
-    )
-    
-    const duplicateMembers = emails.filter(email => 
-      existingMemberEmails.includes(email.toLowerCase())
-    )
-    
-    if (duplicateInvitations.length > 0) {
-      setEmailValidationError(`Already invited: ${duplicateInvitations.join(', ')}`)
-      return false
+  // Reset dialog state when it closes
+  useEffect(() => {
+    if (!inviteDialogOpen) {
+      setInviteEmails([])
+      setEmailErrors({})
+      setGeneralError('')
     }
-    
-    if (duplicateMembers.length > 0) {
-      setEmailValidationError(`Already a member: ${duplicateMembers.join(', ')}`)
-      return false
-    }
-    
-    setEmailValidationError('')
-    return true
-  }
+  }, [inviteDialogOpen])
 
-  // Handle email changes (no real-time validation)
+  // Handle email changes
   const handleEmailChange = (emails: string[]) => {
     setInviteEmails(emails)
-    // Clear any existing validation errors when user changes input
-    setEmailValidationError('')
+    // Clear errors when user changes input
+    setEmailErrors({})
+    setGeneralError('')
   }
 
   const handleRoleChange = async (membershipId: string, newRole: string) => {
@@ -508,14 +492,12 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
       return
     }
 
-    // Validate emails before sending
-    if (!validateEmails(inviteEmails)) {
-      return
-    }
-
     setIsInviting(true)
+    setEmailErrors({})
+    setGeneralError('')
+
     try {
-      const result = await inviteMembers({
+      const result = await validateAndInviteMembers({
         organizationId,
         emails: inviteEmails
       })
@@ -524,7 +506,8 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
         toast.success(result.message || 'Invitations sent successfully')
         setInviteDialogOpen(false)
         setInviteEmails([])
-        setEmailValidationError('')
+        setEmailErrors({})
+        setGeneralError('')
         // Refresh invitations data from server
         try {
           const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
@@ -535,7 +518,16 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
           console.error('Failed to refresh invitations:', error)
         }
       } else {
-        toast.error(result.message || 'Failed to send invitations')
+        // Keep dialog open and show errors
+        if (result.errors) {
+          // Per-email errors
+          setEmailErrors(result.errors)
+        } else if (result.message) {
+          // General error (like rate limit) - show inline in dialog
+          setGeneralError(result.message)
+        } else {
+          toast.error('Failed to send invitations')
+        }
       }
     } catch (error) {
       console.error('Error sending invitations:', error)
@@ -857,11 +849,21 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
             <MultiEmailInput
               placeholder="Enter email addresses..."
               onChange={handleEmailChange}
+              maxEmails={20}
             />
-            {emailValidationError && (
-              <p className="text-sm text-red-600 mt-2">
-                {emailValidationError}
+            {generalError && (
+              <p className="text-sm mt-2" style={{ color: 'var(--color-semantic-error-11)' }}>
+                {generalError}
               </p>
+            )}
+            {Object.keys(emailErrors).length > 0 && (
+              <div className="mt-2 space-y-1">
+                {Object.entries(emailErrors).map(([email, error]) => (
+                  <p key={email} className="text-sm" style={{ color: 'var(--color-semantic-error-11)' }}>
+                    {email}: {error}
+                  </p>
+                ))}
+              </div>
             )}
           </div>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
@@ -869,11 +871,13 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
               variant="ghost" 
               onClick={() => {
                 setInviteDialogOpen(false)
-                setEmailValidationError('')
+                setEmailErrors({})
+                setGeneralError('')
                 setInviteEmails([])
               }}
               style={{ height: '40px' }}
               className="cursor-pointer"
+              disabled={isInviting}
             >
               Cancel
             </Button>

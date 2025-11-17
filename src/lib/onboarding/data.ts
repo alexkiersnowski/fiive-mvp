@@ -17,6 +17,7 @@ export interface OrganizationData {
   name: string | null
   type: string | null
   industry: string | null
+  website: string | null
   logo_url: string | null
   connection_code: string | null
 }
@@ -55,6 +56,7 @@ export async function getOrganizationData(userId: string): Promise<OrganizationD
       name, 
       type, 
       industry, 
+      website,
       logo_url, 
       connection_code
     `)

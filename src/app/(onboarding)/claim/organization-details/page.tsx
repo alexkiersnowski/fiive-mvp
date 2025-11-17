@@ -4,17 +4,46 @@ import { ImageUpload } from '@/components/ui/image-upload'
 import { handleClaimOrganizationUpdate } from '../../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { createClient } from '@/lib/supabase/server'
+import { verifyInviteToken } from '@/lib/tokens/verifyInviteToken'
 
 // Force fresh data on every request to ensure updated user data is shown immediately
 export const revalidate = 0
 
-export default async function ClaimOrganizationDetailsPage() {
+interface ClaimOrganizationDetailsPageProps {
+  searchParams: Promise<{ token?: string }>
+}
+
+export default async function ClaimOrganizationDetailsPage({ searchParams }: ClaimOrganizationDetailsPageProps) {
+  const resolvedSearchParams = await searchParams
+  const token = resolvedSearchParams.token
+
   // Get authenticated user - account already created via claim flow
   const user = await getAuthenticatedUser()
 
   // Load organization via owner_id (ownership is tracked in organizations.owner_id, not memberships.role)
   // Claimed organizations set owner_id to the claiming user's ID
   const supabase = await createClient()
+
+  // Protect claim flow - require valid token OR user must own a claimed org
+  if (token) {
+    // Verify token if provided
+    const tokenResult = await verifyInviteToken(token)
+    if (!tokenResult.success) {
+      redirect('/home') // Invalid/expired token = not allowed
+    }
+  } else {
+    // No token - check if user owns a claimed org (continuing flow after auth)
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('id, claimed_at')
+      .eq('owner_id', user.id)
+      .is('is_draft', false)
+      .maybeSingle()
+    
+    if (!org || !org.claimed_at) {
+      redirect('/home') // No token and doesn't own claimed org = not allowed
+    }
+  }
   const { data: organization, error: orgError } = await supabase
     .from('organizations')
     .select('id, name, type, industry, website, description, logo_url, currency_code')

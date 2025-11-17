@@ -34,7 +34,7 @@ const profileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   jobTitle: z.string().optional(),
-  email: z.string().email().optional()
+  email: z.union([z.string().email(), z.literal("")]).optional()
 })
 
 const organizationSchema = z.object({
@@ -575,36 +575,38 @@ export default function OnboardingLayout({
                                     </FormItem>
                                   )}
                                 />
-                                <FormField
-                                  control={form.control}
-                                  name="description"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel className="text-sm font-medium">About</FormLabel>
-                                      <FormControl>
-                                        <Textarea
-                                          {...field}
-                                          value={field.value || ""}
-                                          placeholder="Tell clients about your agency..."
-                                          className="h-[120px] resize-none"
-                                          maxLength={500}
-                                          style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
-                                          onChange={(e) => {
-                                            // Replace line breaks with spaces
-                                            const normalizedValue = e.target.value.replace(/\r?\n/g, ' ')
-                                            field.onChange(normalizedValue)
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              e.preventDefault()
-                                            }
-                                          }}
-                                        />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
+                                {isClaimFlow && (
+                                  <FormField
+                                    control={form.control}
+                                    name="description"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel className="text-sm font-medium">About</FormLabel>
+                                        <FormControl>
+                                          <Textarea
+                                            {...field}
+                                            value={field.value || ""}
+                                            placeholder="Tell clients about your agency..."
+                                            className="h-[120px] resize-none"
+                                            maxLength={500}
+                                            style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
+                                            onChange={(e) => {
+                                              // Replace line breaks with spaces
+                                              const normalizedValue = e.target.value.replace(/\r?\n/g, ' ')
+                                              field.onChange(normalizedValue)
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                              }
+                                            }}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                )}
                               </>
                             ) : (
                               <>
@@ -648,36 +650,38 @@ export default function OnboardingLayout({
                                     </FormItem>
                                   )}
                                 />
-                                <FormField
-                                  control={form.control}
-                                  name="description"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel className="text-sm font-medium">About</FormLabel>
-                                      <FormControl>
-                                        <Textarea
-                                          {...field}
-                                          value={field.value || ""}
-                                          placeholder="Tell agencies about your company…"
-                                          className="h-[120px] resize-none"
-                                          maxLength={500}
-                                          style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
-                                          onChange={(e) => {
-                                            // Replace line breaks with spaces
-                                            const normalizedValue = e.target.value.replace(/\r?\n/g, ' ')
-                                            field.onChange(normalizedValue)
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              e.preventDefault()
-                                            }
-                                          }}
-                                        />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
+                                {isClaimFlow && (
+                                  <FormField
+                                    control={form.control}
+                                    name="description"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel className="text-sm font-medium">About</FormLabel>
+                                        <FormControl>
+                                          <Textarea
+                                            {...field}
+                                            value={field.value || ""}
+                                            placeholder="Tell agencies about your company…"
+                                            className="h-[120px] resize-none"
+                                            maxLength={500}
+                                            style={{ backgroundColor: 'var(--color-base-surface-page-background)' }}
+                                            onChange={(e) => {
+                                              // Replace line breaks with spaces
+                                              const normalizedValue = e.target.value.replace(/\r?\n/g, ' ')
+                                              field.onChange(normalizedValue)
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                              }
+                                            }}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                )}
                               </>
                             )}
                           </>

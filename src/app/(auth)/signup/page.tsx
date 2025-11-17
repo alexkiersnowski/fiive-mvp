@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import AuthLayout from '@/components/layouts/AuthLayout'
 import { createClient, isUserVerified } from '@/lib/supabase/server'
+import { SignupHashHandler } from './SignupHashHandler'
 
 async function handleSignUp(data: { email: string }) {
   'use server'
@@ -99,15 +100,18 @@ async function handleSignUp(data: { email: string }) {
 
 export default function SignUpPage() {
   return (
-    <AuthLayout
-      title="Create your account"
-      subtitle="Enter your work email. It's free to get started."
-      linkText="Already have an account?"
-      linkHref="/signin"
-      linkLabel="Sign in"
-      buttonText="Continue"
-      onSubmit={handleSignUp}
-      formKey="signup-form"
-    />
+    <>
+      <SignupHashHandler />
+      <AuthLayout
+        title="Create your account"
+        subtitle="Enter your work email. It's free to get started."
+        linkText="Already have an account?"
+        linkHref="/signin"
+        linkLabel="Sign in"
+        buttonText="Continue"
+        onSubmit={handleSignUp}
+        formKey="signup-form"
+      />
+    </>
   )
 }

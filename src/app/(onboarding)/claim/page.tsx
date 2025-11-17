@@ -38,8 +38,8 @@ export default async function ClaimPage({ searchParams }: ClaimPageProps) {
     .single()
 
   if (!orgError && org && org.claimed_at) {
-    // Already claimed - redirect to signin with error (user not authenticated yet)
-    redirect('/signin?error=already_claimed')
+    // Already claimed - redirect to home (they already claimed it)
+    redirect('/home')
   }
 
   // 4. Validate user doesn't exist (MVP: only new users can claim)
