@@ -29,7 +29,7 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   // Check if we're on a detail page (should use card variant, not full-width)
   // Matches detail pages: requests/projects/tasks under clients/agencies
   const isDetailPage = /^\/(clients|agencies)\/[^/]+\/(requests|projects|tasks)\/[^/]+$/.test(pathname)
-  const isFullWidthPage = !isDetailPage && (['/home', '/clients', '/agencies'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/'))
+  const isFullWidthPage = !isDetailPage && (['/home', '/clients', '/agencies', '/requests'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/') || pathname.startsWith('/requests/'))
   const isSettingsPage = pathname.startsWith('/settings')
   const isMembersPage = pathname === '/settings/organization/members'
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'

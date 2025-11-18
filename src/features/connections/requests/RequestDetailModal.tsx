@@ -8,7 +8,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
-import { deleteRequest } from './actions'
 
 interface RequestDetailModalProps {
   requestData: {
@@ -133,6 +132,23 @@ export function RequestDetailModal({
     }
   }
   
+  // Handle copy link
+  const handleCopyLink = () => {
+    if (!requestData?.requestId || !connectionId) return
+    
+    // Determine baseRoute based on variant
+    // Agencies view clients, clients view agencies
+    const baseRoute = variant === 'agency' ? 'clients' : 'agencies'
+    const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestData.requestId}`
+    
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      toast.success('Link copied to clipboard')
+      setIsActionsDropdownOpen(false)
+    }).catch(() => {
+      toast.error('Failed to copy link')
+    })
+  }
+  
   // Handle delete request (optimistic)
   const handleDeleteRequest = async () => {
     if (!requestData?.requestId) return
@@ -143,14 +159,9 @@ export function RequestDetailModal({
     // Show success toast immediately
     toast.success('Request deleted')
     
-    // Update table optimistically
+    // Notify parent - parent handles optimistic update and API call
+    // Parent will handle error recovery if API call fails
     onRequestDeleted?.(requestData.requestId)
-    
-    // Delete in background
-    deleteRequest(requestData.requestId).catch((error) => {
-      console.error('Error deleting request:', error)
-      toast.error('Failed to delete request')
-    })
   }
   
   return (
@@ -220,7 +231,7 @@ export function RequestDetailModal({
                     Convert to task
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                <DropdownMenuItem onClick={handleCopyLink}>
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>

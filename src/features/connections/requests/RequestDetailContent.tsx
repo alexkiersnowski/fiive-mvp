@@ -8,7 +8,7 @@ import { StatusButton } from '@/components/ui/status-button'
 import { ListRow } from '@/components/ui/list-row'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
-import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
+import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple, ArrowSquareOut } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -136,6 +136,9 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   
   // Determine base route for navigation
   const baseRoute = pathname?.startsWith('/agencies/') ? 'agencies' : 'clients'
+  
+  // Determine if we're in global requests view (not connection-specific)
+  const isGlobalView = pathname?.startsWith('/requests')
   
   // Determine if the request is locked for editing based on view context and organization type
   // Agency view: locked if created by client
@@ -1011,12 +1014,22 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 {variant === 'agency' ? 'Client' : 'Agency'}
               </p>
             </div>
-            <div className="w-3/5 min-w-0">
+            <div className="w-3/5 min-w-0 group">
               <ListRow 
                 avatar={true}
                 avatarUrl={variant === 'agency' ? (client?.logoUrl || null) : (agency?.logoUrl || null)}
                 text={variant === 'agency' ? (client?.name || 'Unknown Client') : (agency?.name || 'Unknown Agency')}
-                nonInteractive={true}
+                nonInteractive={!(isGlobalView && variant === 'agency' && connectionId)}
+                onClick={isGlobalView && variant === 'agency' && connectionId ? () => {
+                  router.push(`/clients/${connectionId}/overview`)
+                } : undefined}
+                iconEnd={isGlobalView && variant === 'agency' && connectionId ? (
+                  <ArrowSquareOut 
+                    size={16} 
+                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-75"
+                    style={{ color: 'var(--color-base-text-tertiary)' }}
+                  />
+                ) : undefined}
               />
             </div>
           </div>

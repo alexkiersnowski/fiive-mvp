@@ -332,7 +332,7 @@ const ListRow = React.forwardRef<HTMLDivElement & { triggerCombobox: () => void 
                   {comboboxOptions.map((option) => (
                     <CommandItem
                       key={option.value}
-                      value={option.value}
+                      value={option.label}
                       onSelect={() => {
                         onComboboxSelect?.(option.value);
                         setIsComboboxOpen(false);

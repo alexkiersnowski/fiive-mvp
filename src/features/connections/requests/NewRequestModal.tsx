@@ -5,16 +5,21 @@ import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { InlineEdit, InlineEditRef } from '@/components/ui/inline-edit'
 import { ListRow } from '@/components/ui/list-row'
-import { X } from '@phosphor-icons/react'
+import { X, Users } from '@phosphor-icons/react'
 import { createRequest, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
 
 interface NewRequestModalProps {
-  client: {
+  client?: {
     id: string
     name: string
     logoUrl?: string
   }
+  connections?: Array<{
+    id: string
+    name: string
+    logoUrl?: string
+  }> // For global mode - list of all connections
   agencyMembers?: Array<{
     id: string
     firstName: string
@@ -35,12 +40,28 @@ interface NewRequestModalProps {
     assigneeUserId: string | null
   }) => void
   onRequestCreated?: (payload: { requestId: string; tempId?: string }) => void
-  connectionId: string
+  connectionId?: string // Optional for global mode
   currentOrgId: string
   variant?: 'agency' | 'client'
+  isGlobal?: boolean // If true, show client dropdown instead of fixed client
+  onConnectionSelect?: (connectionId: string) => void // Callback when connection is selected in global mode
 }
 
-export function NewRequestModal({ client, agencyMembers = [], projects: providedProjects, isOpen, onClose, onRequestOptimistic, onRequestCreated, connectionId, currentOrgId, variant = 'agency' }: NewRequestModalProps) {
+export function NewRequestModal({ 
+  client, 
+  connections = [],
+  agencyMembers = [], 
+  projects: providedProjects, 
+  isOpen, 
+  onClose, 
+  onRequestOptimistic, 
+  onRequestCreated, 
+  connectionId, 
+  currentOrgId, 
+  variant = 'agency',
+  isGlobal = false,
+  onConnectionSelect
+}: NewRequestModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
@@ -48,48 +69,76 @@ export function NewRequestModal({ client, agencyMembers = [], projects: provided
   // Local state for form fields
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>('')
   const [projectId, setProjectId] = useState<string>('general')
   const [assigneeUserId, setAssigneeUserId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>(providedProjects || [])
   
-  // Fetch projects when modal opens only if not provided as prop (optimization: use pre-fetched projects)
+  // Reset form when modal closes
   useEffect(() => {
-    if (isOpen && !providedProjects) {
+    if (!isOpen) {
+      setTimeout(() => {
+        setTitle('')
+        setDescription('')
+        setSelectedConnectionId('')
+        setProjectId('general')
+        setAssigneeUserId(null)
+        setProjects([])
+      }, 300)
+    }
+  }, [isOpen])
+  
+  // Sync providedProjects prop to local state
+  useEffect(() => {
+    if (providedProjects && providedProjects.length > 0) {
+      setProjects(providedProjects)
+    }
+  }, [providedProjects])
+  
+  // Fetch projects when connection is selected in global mode
+  useEffect(() => {
+    if (isGlobal && selectedConnectionId) {
+      // Reset project selection when connection changes
+      setProjectId('general')
+      // Notify parent of connection selection
+      onConnectionSelect?.(selectedConnectionId)
+      // Fetch projects for the selected connection
+      fetchProjectsForConnection(selectedConnectionId)
+        .then(setProjects)
+        .catch(error => {
+          console.error('Error fetching projects:', error)
+          setProjects([])
+        })
+    } else if (!isGlobal && isOpen && connectionId) {
+      // Non-global mode: fetch projects for the fixed connection
       fetchProjectsForConnection(connectionId)
         .then(setProjects)
         .catch(error => {
           console.error('Error fetching projects:', error)
         })
-    } else if (providedProjects) {
-      // Use provided projects immediately (no fetch needed)
-      setProjects(providedProjects)
     }
-  }, [isOpen, connectionId, providedProjects])
+  }, [isGlobal, selectedConnectionId, isOpen, connectionId, onConnectionSelect])
   
-  // Auto-focus title when modal opens and reset form when it closes
+  // Auto-focus title when modal opens
   useEffect(() => {
     if (isOpen) {
       // Small delay to ensure modal is fully rendered
       setTimeout(() => {
         titleRef.current?.startEditing()
       }, 100)
-    } else {
-      // Delay clearing form data until after modal close animation completes
-      setTimeout(() => {
-        setTitle('')
-        setDescription('')
-        setProjectId('general')
-        setAssigneeUserId(null)
-      }, 300) // Match modal animation duration
     }
   }, [isOpen])
   
-  // Check if create button should be enabled (title is required)
-  const canCreate = title.trim().length > 0
+  // Check if create button should be enabled (title is required, and connection if global)
+  const canCreate = title.trim().length > 0 && (!isGlobal || selectedConnectionId.length > 0)
   
   // Handle create request
   const handleCreateRequest = useCallback(async () => {
     if (!canCreate) return
+    
+    // Determine the connection ID to use
+    const targetConnectionId = isGlobal ? selectedConnectionId : connectionId
+    if (!targetConnectionId) return
     
     // Close modal and show toast immediately for snappy UX
     onClose()
@@ -113,7 +162,7 @@ export function NewRequestModal({ client, agencyMembers = [], projects: provided
 
       // Await the server insert to obtain the new request id
       const created = await createRequest(
-        connectionId,
+        targetConnectionId,
         title,
         description,
         projectId === 'general' ? null : projectId,
@@ -127,7 +176,7 @@ export function NewRequestModal({ client, agencyMembers = [], projects: provided
       console.error('Error creating request:', error)
       toast.error('Failed to create request')
     }
-  }, [canCreate, connectionId, title, description, projectId, assigneeUserId, onRequestCreated, onRequestOptimistic, onClose])
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onRequestCreated, onRequestOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -151,6 +200,18 @@ export function NewRequestModal({ client, agencyMembers = [], projects: provided
   const selectedAssignee = assigneeUserId 
     ? agencyMembers.find(m => m.id === assigneeUserId) 
     : null
+  
+  // Get selected connection/client
+  const selectedConnection = isGlobal && selectedConnectionId
+    ? connections.find(c => c.id === selectedConnectionId)
+    : client
+  
+  // Connection options for global mode (for combobox)
+  const connectionComboboxOptions = connections.map(c => ({
+    value: c.id,
+    label: c.name,
+    avatar: c.logoUrl
+  }))
   
   // Project options: General request + actual projects
   const projectOptions = [
@@ -219,16 +280,40 @@ export function NewRequestModal({ client, agencyMembers = [], projects: provided
               />
             </div>
 
-            {/* Inline Fields: Client, Project, Assignee */}
+            {/* Inline Fields: Client/Connection, Project, Assignee */}
             <div className="flex items-center gap-4 px-10">
-              {/* Client */}
-              <ListRow
-                avatar={true}
-                avatarUrl={client.logoUrl}
-                text={client.name}
-                nonInteractive={true}
-                className="[&>*]:!rounded-[4px]"
-              />
+              {/* Client/Connection - Dropdown in global mode, fixed in connection mode */}
+              {isGlobal ? (
+                <ListRow
+                  avatar={true}
+                  avatarUrl={selectedConnectionId ? connections.find(c => c.id === selectedConnectionId)?.logoUrl : undefined}
+                  avatarFallback={!selectedConnectionId ? <Users weight="fill" className="text-white" /> : undefined}
+                  text={selectedConnectionId ? connections.find(c => c.id === selectedConnectionId)?.name || (variant === 'agency' ? 'Client' : 'Agency') : (variant === 'agency' ? 'Client' : 'Agency')}
+                  textColor={selectedConnectionId ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
+                  comboboxSelectedValue={selectedConnectionId || null}
+                  comboboxOptions={connectionComboboxOptions}
+                  onComboboxSelect={(value) => {
+                    setSelectedConnectionId(value)
+                    // Reset project when connection changes
+                    setProjectId('general')
+                  }}
+                  comboboxPlaceholder="Search connections…"
+                  comboboxWidth="240px"
+                  clearable={false}
+                  borderRadius="4px"
+                  className="[&>*]:!rounded-[4px]"
+                />
+              ) : (
+                client && (
+                  <ListRow
+                    avatar={true}
+                    avatarUrl={client.logoUrl}
+                    text={client.name}
+                    nonInteractive={true}
+                    className="[&>*]:!rounded-[4px]"
+                  />
+                )
+              )}
 
               {/* Project */}
               <InlineEdit
