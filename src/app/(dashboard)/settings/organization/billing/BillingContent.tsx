@@ -11,11 +11,12 @@
 
 import * as React from "react"
 import { Separator } from '@/components/ui/separator'
-import { Check } from '@phosphor-icons/react'
+import { Check, StarFour } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
+import { Badge } from '@/components/ui/badge'
 
 interface BillingContentProps {
   variant: 'agency' | 'client'
@@ -61,7 +62,7 @@ export default function BillingContent({ variant, canDeleteWorkspace, organizati
       </div>
 
       <div style={{ marginTop: 'var(--spacing-7, 40px)', marginBottom: '40px', display: 'flex', gap: 'var(--spacing-4, 16px)', alignItems: 'flex-start' }}>
-      {/* First card - Founding member */}
+      {/* First card - Agency premium */}
       <div
         style={{
           width: '100%',
@@ -72,18 +73,23 @@ export default function BillingContent({ variant, canDeleteWorkspace, organizati
           background: 'var(--color-base-surface-page-background, #ffffff)'
         }}
       >
-          <h3 className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-            Founding member
-          </h3>
-          <p 
-            className="text-sm-regular" 
-            style={{ 
-              color: 'var(--color-base-text-secondary)',
-              marginTop: 'var(--spacing-1, 4px)'
-            }}
-          >
-            Full access to Fiive with founding member benefits, forever.
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 className="display-5-medium" style={{ color: 'var(--color-base-text-primary)' }}>
+              Agency premium
+            </h3>
+            <Badge 
+              variant="secondary" 
+              className="flex items-center gap-1 bg-orange-3 font-medium text-xs tracking-wide"
+              style={{ color: 'var(--color-orange-11)' }}
+            >
+              <StarFour 
+                size={12} 
+                weight="fill"
+                style={{ fill: 'var(--color-orange-11)' }}
+              />
+              Founding member
+            </Badge>
+          </div>
           <div 
             style={{ 
               marginTop: 'var(--spacing-5, 24px)',
@@ -126,7 +132,13 @@ export default function BillingContent({ variant, canDeleteWorkspace, organizati
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
                 <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
                 <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-                  {isAgency ? 'Unlimited clients' : 'Unlimited agencies'}
+                  Unlimited clients
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
+                <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
+                <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+                  Unlimited live connections
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
@@ -138,31 +150,43 @@ export default function BillingContent({ variant, canDeleteWorkspace, organizati
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
                 <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
                 <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-                  All current and future features
+                  Full client & relationship visibility
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
                 <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
                 <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-                  Guided onboarding & setup
+                  Requests, projects & task management
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
                 <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
                 <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-                  Priority support
+                  Shared links & resources
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
                 <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
                 <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-                  Influence upcoming features
+                  All current & future features
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
                 <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
                 <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-                  Locked-in founding rate
+                  Priority onboarding & support
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
+                <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
+                <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+                  Directly influence the future of Fiive
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2, 8px)' }}>
+                <Check size={16} style={{ color: 'var(--color-base-text-secondary)' }} />
+                <span className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+                  Founding member rate locked for life
                 </span>
               </div>
             </div>
