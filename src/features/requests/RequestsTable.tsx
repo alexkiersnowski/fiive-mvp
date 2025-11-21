@@ -14,7 +14,7 @@ import { RequestBadge } from '@/components/ui/request-badge'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, CaretDown, Check } from '@phosphor-icons/react'
+import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, CaretDown, Check, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus } from '@/features/connections/requests/actions'
 import type { Request } from './types'
@@ -304,7 +304,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       <TableCell 
         colSpan={8} 
         className="text-left" 
-        style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px' }}
+        style={{ height: 'calc(100vh - 267px)', minHeight: '400px', paddingLeft: '120px' }}
       >
         <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
           <div className="flex flex-col items-start gap-2">
@@ -367,6 +367,34 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   count={requestCount}
                   countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
                 />
+                <Tooltip delayDuration={250}>
+                  <TooltipTrigger asChild>
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs border-0"
+                      style={{
+                        borderRadius: 'var(--radius-1-max, 3px)',
+                        backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                        border: 'none',
+                        cursor: 'default'
+                      }}
+                    >
+                      {isAgency ? (
+                        <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+                      ) : (
+                        <Users size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
+                      )}
+                      <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                        {isAgency ? 'Client visible' : 'Collaborate'}
+                      </span>
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    {isAgency 
+                      ? 'Visible in client portal'
+                      : 'Both you and your agency can manage this'}
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="flex items-center gap-3">
                 <Tooltip delayDuration={0}>
@@ -449,7 +477,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                       Status
                     </TableHead>
                     <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Client
+                      {isAgency ? 'Client' : 'Agency'}
                     </TableHead>
                     <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                       Submitted by
@@ -458,7 +486,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                       Project
                     </TableHead>
                     <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Assignee
+                      {isAgency ? 'Assignee' : 'Owner'}
                     </TableHead>
                     <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                       Created
@@ -541,21 +569,40 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   </TableCell>
                 )}
 
-                {/* Client/Connection column */}
+                {/* Client/Agencies column */}
                 <TableCell className="w-[15%] py-0">
                   <div className="flex items-center gap-2">
-                    <Avatar className="w-5 h-5">
-                      <AvatarImage src={request.client.logoUrl} alt={request.client.name} />
-                      <AvatarFallback 
-                        className="text-[10px] font-medium text-white"
-                        style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                      >
-                        {request.client.name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                      {request.client.name}
-                    </span>
+                    {isAgency ? (
+                      <>
+                        <Avatar className="w-5 h-5">
+                          <AvatarImage src={request.client.logoUrl} alt={request.client.name} />
+                          <AvatarFallback 
+                            className="text-[10px] font-medium text-white"
+                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
+                          >
+                            {request.client.name.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
+                          {request.client.name}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Avatar className="w-5 h-5">
+                          <AvatarImage src={request.agency?.logoUrl} alt={request.agency?.name || ''} />
+                          <AvatarFallback 
+                            className="text-[10px] font-medium text-white"
+                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
+                          >
+                            {request.agency?.name?.charAt(0).toUpperCase() || 'A'}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
+                          {request.agency?.name || 'Unknown'}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </TableCell>
 
@@ -602,28 +649,59 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
 
                 <TableCell 
                   className="w-[12%] py-0"
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                  onClick={isAgency ? (e: React.MouseEvent) => e.stopPropagation() : (request.assignee ? (e: React.MouseEvent) => e.stopPropagation() : undefined)}
                 >
-                  <ListRow
-                    ref={assigneeListRowRef}
-                    avatar={true}
-                    avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
-                    avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                    text={!request.assignee ? "Unassigned" : request.assignee.name}
-                    textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                    variant="stacked"
-                    className="min-w-0 min-h-[32px]"
-                  comboboxSelectedValue={request.assignee?.id ?? null}
-                    onClick={() => {
-                      // Assignee click handled by combobox
-                    }}
-                    comboboxOptions={comboboxOptions}
-                    onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
-                    comboboxPlaceholder="Search members..."
-                    comboboxWidth="240px"
-                    clearable={!!request.assignee}
-                    onClear={() => handleClearAssignee(request.id)}
-                  />
+                  {isAgency ? (
+                    <ListRow
+                      ref={assigneeListRowRef}
+                      avatar={true}
+                      avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
+                      avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
+                      text={!request.assignee ? "Unassigned" : request.assignee.name}
+                      textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
+                      variant="stacked"
+                      className="min-w-0 min-h-[32px]"
+                      comboboxSelectedValue={request.assignee?.id ?? null}
+                      onClick={() => {
+                        // Assignee click handled by combobox
+                      }}
+                      comboboxOptions={comboboxOptions}
+                      onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
+                      comboboxPlaceholder="Search members..."
+                      comboboxWidth="240px"
+                      clearable={!!request.assignee}
+                      onClear={() => handleClearAssignee(request.id)}
+                    />
+                  ) : (
+                    <ListRow
+                      avatar={true}
+                      avatarUrl={request.assignee ? request.assignee.avatarUrl : undefined}
+                      avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
+                      text={!request.assignee ? "Unassigned" : request.assignee.name}
+                      textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
+                      variant="stacked"
+                      className="min-w-0"
+                      comboboxSelectedValue={request.assignee?.id ?? null}
+                      nonInteractive={!request.assignee}
+                      onClick={request.assignee ? () => {
+                        const nameParts = request.assignee!.name.split(' ')
+                        const assigneeMember = agencyMembers.find(member => member.id === request.assignee!.id)
+                        handleContactClick({
+                          id: request.assignee!.id,
+                          first_name: nameParts[0] || '',
+                          last_name: nameParts.slice(1).join(' ') || '',
+                          email: request.assignee!.email,
+                          avatar_url: request.assignee!.avatarUrl || '',
+                          job_title: assigneeMember?.jobTitle,
+                          organization: {
+                            id: request.agency?.id || '',
+                            name: request.agency?.name || '',
+                            logo_url: request.agency?.logoUrl || ''
+                          }
+                        })
+                      } : undefined}
+                    />
+                  )}
                 </TableCell>
 
                 <TableCell className="w-[12%] py-0 truncate">

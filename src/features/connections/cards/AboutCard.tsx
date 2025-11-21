@@ -115,13 +115,15 @@ function IndustrySelector({
 }
 
 export default function AboutCard() {
-  const { snapshot } = useConnection();
+  const { snapshot, isDisconnected } = useConnection();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isTruncated, setIsTruncated] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
   
-  // Determine if fields should be editable (draft connection, agency user, client partner)
-  const isEditable = snapshot.connection.isDraft && 
+  // Determine if fields should be editable (internal connection, agency user, client partner)
+  // But not if connection is disconnected
+  const isEditable = !isDisconnected && 
+                     snapshot.connection.isInternal && 
                      snapshot.currentUserType === 'agency' && 
                      snapshot.partner.type === 'client';
   
@@ -331,7 +333,7 @@ export default function AboutCard() {
     };
     
     // Use requestAnimationFrame to ensure DOM has updated before checking truncation
-    // This is especially important when connection state changes (e.g., draft -> invited)
+    // This is especially important when connection state changes (e.g., internal -> invited)
     const rafId = requestAnimationFrame(() => {
       // Double RAF to ensure layout has completed
       requestAnimationFrame(() => {
@@ -375,7 +377,7 @@ export default function AboutCard() {
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
             {snapshot.currentUserType === 'agency' 
-              ? (snapshot.connection.isDraft 
+              ? (snapshot.connection.isInternal 
                   ? 'Only your client can edit this after invite' 
                   : 'Only your client can edit this')
               : 'Only your agency can edit this'}

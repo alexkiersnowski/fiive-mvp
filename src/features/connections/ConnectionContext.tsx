@@ -11,6 +11,7 @@ interface ConnectionContextValue {
   setIsEmpty: Dispatch<SetStateAction<boolean>>;
   newRequestsCount: number | undefined;
   setNewRequestsCount: Dispatch<SetStateAction<number | undefined>>;
+  isDisconnected: boolean;
 }
 
 const ConnectionContext = createContext<ConnectionContextValue | null>(null);
@@ -31,6 +32,9 @@ export function ConnectionProvider({
     }
   }, [snapshot.newRequestsCount]);
   
+  // Compute isDisconnected based on connection status
+  const isDisconnected = snapshot.connection.status === 'disconnected';
+  
   // Memoize context value to prevent unnecessary re-renders
   // Only recreate when snapshot, context, isEmpty, or newRequestsCount actually change
   const contextValue = useMemo(() => ({
@@ -40,7 +44,8 @@ export function ConnectionProvider({
     setIsEmpty,
     newRequestsCount,
     setNewRequestsCount,
-  }), [snapshot, context, isEmpty, newRequestsCount]);
+    isDisconnected,
+  }), [snapshot, context, isEmpty, newRequestsCount, isDisconnected]);
   
   return (
     <ConnectionContext.Provider value={contextValue}>

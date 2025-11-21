@@ -8,15 +8,17 @@ import { StatusBadge } from '@/components/ui/connection-badge';
 import { Eye, ArrowsClockwise, UserMinus, User, Users } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 import { handleContactSelect, handleUnassignContact, handleAgencyContactSelect, handleUnassignAgencyContact } from '../client-actions';
+import { useConnection } from '../ConnectionContext';
 import type { ConnectionSnapshot } from '../types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 export default function ContactsCard({ snapshot, context }: { snapshot: ConnectionSnapshot; context: EnhancedModeContext }) {
+  const { isDisconnected } = useConnection();
   const title = 'Contacts';
   const isAgency = context.variant === 'agency';
   
-  // Determine if this is a draft connection (agency user editing draft client)
-  const isDraft = snapshot.connection.isDraft && 
+  // Determine if this is an internal connection (agency user editing internal client)
+  const isInternal = snapshot.connection.isInternal && 
                   snapshot.currentUserType === 'agency' && 
                   snapshot.partner.type === 'client';
   
@@ -102,6 +104,8 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
   };
   
   const onContactSelect = async (memberId: string) => {
+    if (isDisconnected) return;
+    
     // Find the selected member from combobox options
     const selectedMember = snapshot.clientMembers.find(member => member.id === memberId);
     if (selectedMember) {
@@ -119,20 +123,22 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
     // Update database in background
     const result = await handleContactSelect(snapshot.connection.id, memberId);
     if (!result.success) {
-      toast.error('Failed to assign primary contact');
+      toast.error(result.error || 'Failed to assign primary contact');
     } else {
       toast.success('Primary contact assigned');
     }
   };
   
   const onUnassignContact = async () => {
+    if (isDisconnected) return;
+    
     // Optimistically clear UI immediately - this will show empty state
     setOptimisticPrimaryContact('unassigning');
     
     // Update database in background
     const result = await handleUnassignContact(snapshot.connection.id);
     if (!result.success) {
-      toast.error('Failed to unassign primary contact');
+      toast.error(result.error || 'Failed to unassign primary contact');
     } else {
       toast.success('Primary contact unassigned');
     }
@@ -147,6 +153,8 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
   };
   
   const onAgencyContactSelect = async (memberId: string) => {
+    if (isDisconnected) return;
+    
     // Find the selected member from combobox options
     const selectedMember = snapshot.agencyMembers.find(member => member.id === memberId);
     if (selectedMember) {
@@ -164,20 +172,22 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
     // Update database in background
     const result = await handleAgencyContactSelect(snapshot.connection.id, memberId);
     if (!result.success) {
-      toast.error('Failed to assign account manager');
+      toast.error(result.error || 'Failed to assign account manager');
     } else {
       toast.success('Account manager assigned');
     }
   };
   
   const onUnassignAgencyContact = async () => {
+    if (isDisconnected) return;
+    
     // Optimistically clear UI immediately - this will show empty state
     setOptimisticAgencyContact('unassigning');
     
     // Update database in background
     const result = await handleUnassignAgencyContact(snapshot.connection.id);
     if (!result.success) {
-      toast.error('Failed to unassign account manager');
+      toast.error(result.error || 'Failed to unassign account manager');
     } else {
       toast.success('Account manager unassigned');
     }
@@ -229,9 +239,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
             {isAgency 
-              ? (isDraft
-                  ? 'Visible after invite'
-                  : 'Both you and your client can see this')
+              ? 'Visible in client portal'
               : 'Both you and your agency can manage this'}
           </TooltipContent>
         </Tooltip>
@@ -255,7 +263,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     avatarUrl={currentPrimaryContact!.avatarUrl}
                     text={`${currentPrimaryContact!.firstName} ${currentPrimaryContact!.lastName}`}
                     secondaryText={currentPrimaryContact!.jobTitle || 'No job title'}
-                    iconButtonEnd={true}
+                    iconButtonEnd={!isDisconnected}
                     onClick={() => handleContactClick({ 
                       id: currentPrimaryContact!.id,
                       first_name: currentPrimaryContact!.firstName, 
@@ -269,14 +277,15 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                         logo_url: snapshot.partner.logo
                       }
                     })}
-                    dropdownItems={[
+                    dropdownItems={isDisconnected ? undefined : [
                       { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerReassignCombobox },
                       { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignContact }
                     ]}
-                    comboboxOptions={comboboxOptions}
+                    comboboxOptions={isDisconnected ? undefined : comboboxOptions}
                     comboboxSelectedValue={currentPrimaryContact ? currentPrimaryContact.id : null}
-                    onComboboxSelect={onContactSelect}
-                    comboboxPlaceholder="Search contacts..."
+                    onComboboxSelect={isDisconnected ? undefined : onContactSelect}
+                    comboboxPlaceholder={isDisconnected ? undefined : "Search contacts..."}
+                    nonInteractive={false}
                     className="min-h-[44px]"
                   />
                 ) : isInvited && snapshot.connection.invitedEmail ? (
@@ -311,14 +320,14 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isDraft ? "To be invited" : "Assign contact"}
+                    text={isInternal ? "To be invited" : "Assign contact"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
-                    nonInteractive={isDraft}
-                    comboboxOptions={isDraft ? undefined : comboboxOptions}
-                    onComboboxSelect={isDraft ? undefined : onContactSelect}
-                    comboboxPlaceholder={isDraft ? undefined : "Search contacts..."}
+                    nonInteractive={isInternal || isDisconnected}
+                    comboboxOptions={(isInternal || isDisconnected) ? undefined : comboboxOptions}
+                    onComboboxSelect={(isInternal || isDisconnected) ? undefined : onContactSelect}
+                    comboboxPlaceholder={(isInternal || isDisconnected) ? undefined : "Search contacts..."}
                     className="min-h-[44px]"
                   />
                 )}
@@ -338,7 +347,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     avatarUrl={currentAgencyContact!.avatarUrl}
                     text={`${currentAgencyContact!.firstName} ${currentAgencyContact!.lastName}`}
                     secondaryText={currentAgencyContact!.jobTitle || 'No job title'}
-                    iconButtonEnd={true}
+                    iconButtonEnd={!isDisconnected}
                     onClick={() => handleContactClick({ 
                       id: currentAgencyContact!.id,
                       first_name: currentAgencyContact!.firstName, 
@@ -352,14 +361,15 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                         logo_url: snapshot.agency.logo
                       }
                     })}
-                    dropdownItems={[
+                    dropdownItems={isDisconnected ? undefined : [
                       { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerAgencyReassignCombobox },
                       { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignAgencyContact }
                     ]}
-                    comboboxOptions={agencyComboboxOptions}
+                    comboboxOptions={isDisconnected ? undefined : agencyComboboxOptions}
                     comboboxSelectedValue={currentAgencyContact ? currentAgencyContact.id : null}
-                    onComboboxSelect={onAgencyContactSelect}
-                    comboboxPlaceholder="Search contacts..."
+                    onComboboxSelect={isDisconnected ? undefined : onAgencyContactSelect}
+                    comboboxPlaceholder={isDisconnected ? undefined : "Search contacts..."}
+                    nonInteractive={false}
                     className="min-h-[44px]"
                   />
                 ) : (
@@ -370,9 +380,10 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
-                    comboboxOptions={agencyComboboxOptions}
-                    onComboboxSelect={onAgencyContactSelect}
-                    comboboxPlaceholder="Search contacts..."
+                    comboboxOptions={isDisconnected ? undefined : agencyComboboxOptions}
+                    onComboboxSelect={isDisconnected ? undefined : onAgencyContactSelect}
+                    comboboxPlaceholder={isDisconnected ? undefined : "Search contacts..."}
+                    nonInteractive={isDisconnected}
                     className="min-h-[44px]"
                   />
                 )}
@@ -395,7 +406,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     avatarUrl={currentAgencyContact!.avatarUrl}
                     text={`${currentAgencyContact!.firstName} ${currentAgencyContact!.lastName}`}
                     secondaryText={currentAgencyContact!.jobTitle || 'No job title'}
-                    iconButtonEnd={false}
+                    iconButtonEnd={!isDisconnected}
                     onClick={() => handleContactClick({ 
                       id: currentAgencyContact!.id,
                       first_name: currentAgencyContact!.firstName, 
@@ -439,7 +450,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     avatarUrl={currentPrimaryContact!.avatarUrl}
                     text={`${currentPrimaryContact!.firstName} ${currentPrimaryContact!.lastName}`}
                     secondaryText={currentPrimaryContact!.jobTitle || 'No job title'}
-                    iconButtonEnd={true}
+                    iconButtonEnd={!isDisconnected}
                     onClick={() => handleContactClick({ 
                       id: currentPrimaryContact!.id,
                       first_name: currentPrimaryContact!.firstName, 
@@ -453,14 +464,15 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                         logo_url: context.organization.logoUrl
                       }
                     })}
-                    dropdownItems={[
+                    dropdownItems={isDisconnected ? undefined : [
                       { label: 'Reassign', icon: <ArrowsClockwise size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: triggerReassignCombobox },
                       { label: 'Unassign', icon: <UserMinus size={16} style={{ color: 'var(--color-base-text-primary)' }} />, onClick: onUnassignContact }
                     ]}
-                    comboboxOptions={comboboxOptions}
+                    comboboxOptions={isDisconnected ? undefined : comboboxOptions}
                     comboboxSelectedValue={currentPrimaryContact ? currentPrimaryContact.id : null}
-                    onComboboxSelect={onContactSelect}
-                    comboboxPlaceholder="Search contacts..."
+                    onComboboxSelect={isDisconnected ? undefined : onContactSelect}
+                    comboboxPlaceholder={isDisconnected ? undefined : "Search contacts..."}
+                    nonInteractive={false}
                     className="min-h-[44px]"
                   />
                 ) : (
@@ -471,9 +483,10 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
-                    comboboxOptions={comboboxOptions}
-                    onComboboxSelect={onContactSelect}
-                    comboboxPlaceholder="Search contacts..."
+                    comboboxOptions={isDisconnected ? undefined : comboboxOptions}
+                    onComboboxSelect={isDisconnected ? undefined : onContactSelect}
+                    comboboxPlaceholder={isDisconnected ? undefined : "Search contacts..."}
+                    nonInteractive={isDisconnected}
                     className="min-h-[44px]"
                   />
                 )}

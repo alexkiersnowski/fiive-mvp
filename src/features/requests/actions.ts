@@ -40,9 +40,16 @@ export async function refreshRequestsData(
  */
 export async function fetchRequestByIdGlobal(
   requestId: string,
-  context: EnhancedModeContext
+  context: EnhancedModeContext,
+  connectionId?: string,
+  skipCache?: boolean
 ) {
-  return await getRequestByIdGlobal(requestId, context);
+  if (skipCache) {
+    // Import the uncached version directly for immediate fetches after insert
+    const { getRequestByIdGlobalUncached } = await import('./server');
+    return await getRequestByIdGlobalUncached(requestId, context, connectionId);
+  }
+  return await getRequestByIdGlobal(requestId, context, connectionId);
 }
 
 /**

@@ -7,9 +7,10 @@ import { Plus } from '@phosphor-icons/react/ssr'
 interface RequestsHeaderProps {
   onNewRequest: () => void
   newRequestsCount?: number
+  isAgency?: boolean
 }
 
-export function RequestsHeader({ onNewRequest, newRequestsCount }: RequestsHeaderProps) {
+export function RequestsHeader({ onNewRequest, newRequestsCount, isAgency = false }: RequestsHeaderProps) {
   return (
     <div className="flex flex-col gap-5 pb-5" style={{ marginTop: '24px' }}>
       <div className="flex items-center justify-between">
@@ -17,7 +18,7 @@ export function RequestsHeader({ onNewRequest, newRequestsCount }: RequestsHeade
           <h1 className="display-9-medium" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
             Requests
           </h1>
-          {typeof newRequestsCount === 'number' && newRequestsCount > 0 && (
+          {isAgency && typeof newRequestsCount === 'number' && newRequestsCount > 0 && (
             <Badge variant="neutral" className="text-xs mt-2">
               {newRequestsCount} new
             </Badge>
@@ -30,7 +31,7 @@ export function RequestsHeader({ onNewRequest, newRequestsCount }: RequestsHeade
           onClick={onNewRequest}
         >
           <Plus size={16} />
-          New request
+          {isAgency ? 'New request' : 'Submit request'}
         </Button>
       </div>
     </div>

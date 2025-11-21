@@ -42,7 +42,7 @@ export type ConnectionSnapshot = {
   connection: {
     id: string;
     status: string;
-    isDraft: boolean;
+    isInternal: boolean;
     engagementStatus?: string | null;
     health?: string;
     contractEnd?: string;
@@ -76,6 +76,7 @@ export type ConnectionSnapshot = {
     description?: string;
     website?: string;
     industry?: string;
+    connectionCode?: string;
     type: 'agency' | 'client';
   };
   agency: {

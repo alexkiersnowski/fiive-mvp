@@ -41,7 +41,7 @@ function generateMockData(): Client[] {
       id: `${clientId}`,
       name: `Client ${String(clientId).padStart(3, '0')}`, // Client 001, Client 002, etc.
       logo: undefined,
-      status: (["draft", "onboarding", "active", "offboarded"] as const)[clientId % 4],
+      status: (["internal", "onboarding", "active", "offboarded"] as const)[clientId % 4],
       accountManager: { 
         id: `manager-${i}`,
         name: `Manager ${String(Math.floor(i / 10) + 1).padStart(2, '0')}`,
@@ -271,8 +271,8 @@ export const getClientsSnapshot = cache(async (
     // If org is null but we have a client_id, it might be a draft org blocked by RLS
     // In that case, we can infer it's a draft from the connection_status
     // Note: 'invited' connections are not considered drafts (they can't be deleted)
-    // Only mark as draft if BOTH the org is a draft AND the connection status is 'draft'
-    const isDraft = (org?.is_draft ?? false) && (conn.connection_status === 'draft');
+    // Only mark as draft if BOTH the org is a draft AND the connection status is 'internal'
+    const isDraft = (org?.is_draft ?? false) && (conn.connection_status === 'internal');
     
     // Build account manager data from joined profile
     const accountManager = conn.agency_primary_contact_id && profile
@@ -311,7 +311,7 @@ export const getClientsSnapshot = cache(async (
       createdAt: conn.created_at || undefined,
       name: org?.name || 'Unknown Client',
       logo: org?.logo_url,
-      status: (conn.connection_status as "draft" | "invited" | "onboarding" | "active" | "offboarded") || 'draft', // Used for connection badge color
+      status: (conn.connection_status as "internal" | "invited" | "onboarding" | "active" | "offboarded") || 'internal', // Used for connection badge color
       is_draft: isDraft, // Indicates if this is a draft client organization
       accountManager,
       contractEnd: conn.contract_end_on 

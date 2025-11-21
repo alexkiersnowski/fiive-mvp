@@ -10,7 +10,7 @@ import { ListRow } from '@/components/ui/list-row'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
-import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, Eye, EyeSlash, ChatCentered } from '@phosphor-icons/react'
+import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, Eye, EyeSlash, ChatCentered, ArrowSquareOut } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
@@ -119,14 +119,19 @@ interface TaskDetailContentProps {
       logo_url: string
     }
   }) => void
+  isGlobalView?: boolean
 }
 
-export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick }: TaskDetailContentProps) {
+export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick, isGlobalView: propIsGlobalView }: TaskDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
   // Determine base route for navigation
   const baseRoute = pathname?.startsWith('/agencies/') ? 'agencies' : 'clients'
+  
+  // Determine if we're in global tasks view (not connection-specific)
+  // Use prop if provided, otherwise check pathname
+  const isGlobalView = propIsGlobalView ?? pathname?.startsWith('/tasks')
   
   // All fields are editable (no restrictions)
   
@@ -195,6 +200,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
 
   const [comments, setComments] = useState<Comment[]>(normalizeComments(initialComments))
   const optimisticCommentMetadataRef = useRef<Record<string, { text: string; createdAt: number; userId: string }>>({})
+  const prevTaskIdRef = useRef<string>(taskId)
   const mergeComments = useCallback((current: Comment[], incoming: Comment[]) => {
     if (current.length === 0) {
       return incoming
@@ -312,8 +318,14 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
   }, [fetchCommentsForTask, mergeComments, normalizeComments, onCommentsUpdate, taskId])
 
   useEffect(() => {
-    optimisticCommentMetadataRef.current = {}
-    setComments(normalizeComments(initialComments))
+    // Only reset comments and clear optimistic metadata when taskId actually changes
+    // This prevents flicker when comments are updated for the same task
+    if (prevTaskIdRef.current !== taskId) {
+      prevTaskIdRef.current = taskId
+      optimisticCommentMetadataRef.current = {}
+      setComments(normalizeComments(initialComments))
+    }
+    // When taskId is the same, preserve optimistic comments - don't reset
   }, [initialComments, mode, normalizeComments, taskId])
 
   useEffect(() => {
@@ -626,13 +638,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     
     try {
       await updateTaskStatus(taskId, typedStatus)
-      const statusLabels = {
-        to_do: 'To do',
-        in_progress: 'In progress',
-        on_hold: 'On hold',
-        done: 'Done'
-      } as const
-      toast.success(`Status updated to ${statusLabels[typedStatus]}`)
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update status:', error)
@@ -658,12 +663,18 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         avatarUrl: selectedMember.avatarUrl
       }
       
+      // Get current task visibility state
+      const currentVisibility = clientVisibleValue;
+      
       // Optimistic update
       const previousAssignee = assigneeValue
       setAssigneeValue(newAssignee)
-      if (isClientMember) {
+      
+      // Only change visibility to true if assigning to client member AND visibility is currently false
+      if (isClientMember && !currentVisibility) {
         setClientVisibleValue(true)
       }
+      // If assigning to agency member, keep visibility as-is
       
       // Update parent (table) optimistically
       if (onTaskUpdate) {
@@ -676,7 +687,10 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         }
 
         if (isClientMember) {
-          updatePayload.clientVisible = true
+          // Only change visibility to true if it's currently false
+          if (!currentVisibility) {
+            updatePayload.clientVisible = true;
+          }
           updatePayload.clientVisibilityLocked = true
         } else {
           updatePayload.clientVisibilityLocked = false
@@ -687,7 +701,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       
       try {
         await updateTaskAssignee(taskId, memberId)
-        toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
         // Real-time subscription will handle UI updates
       } catch (error) {
         console.error('Failed to update assignee:', error)
@@ -715,7 +728,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     
     try {
       await updateTaskAssignee(taskId, null)
-      toast.success('Assignee removed')
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to clear assignee:', error)
@@ -772,7 +784,13 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
   }
 
   const handleClientVisibleChange = async (checked: boolean) => {
-    if (clientVisibilityLocked) {
+    // Check if assignee is a client member - if so, prevent changes
+    const assigneeIsClientMember = assigneeValue 
+      ? agencyMembers.find(member => member.id === assigneeValue.id)?.orgType === 'client'
+      : false;
+    
+    // Don't allow changes if assigned to client member (must stay visible)
+    if (assigneeIsClientMember) {
       return
     }
 
@@ -786,7 +804,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
 
     try {
       await updateTaskClientVisible(taskId, checked)
-      toast.success(checked ? 'Task visible to client' : 'Task not visible to client')
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update client visibility:', error)
@@ -1080,12 +1097,28 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                 {variant === 'agency' ? 'Client' : 'Agency'}
               </p>
             </div>
-            <div className="w-3/5 min-w-0">
+            <div className="w-3/5 min-w-0 group">
               <ListRow 
                 avatar={true}
                 avatarUrl={variant === 'agency' ? (client?.logoUrl || null) : (agency?.logoUrl || null)}
                 text={variant === 'agency' ? (client?.name || 'Unknown Client') : (agency?.name || 'Unknown Agency')}
-                nonInteractive={true}
+                nonInteractive={!(
+                  isGlobalView && 
+                  connectionId && 
+                  ((variant === 'agency') || (variant === 'client'))
+                )}
+                onClick={isGlobalView && connectionId ? (
+                  variant === 'agency' 
+                    ? () => { window.location.href = `/clients/${connectionId}/overview`; }
+                    : () => { window.location.href = `/agencies/${connectionId}/overview`; }
+                ) : undefined}
+                iconEnd={isGlobalView && connectionId ? (
+                  <ArrowSquareOut 
+                    size={16} 
+                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-75"
+                    style={{ color: 'var(--color-base-text-tertiary)' }}
+                  />
+                ) : undefined}
               />
             </div>
           </div>
@@ -1215,32 +1248,57 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                   <p className="text-sm-regular text-secondary truncate">Client visible</p>
                 </div>
                 <div className="w-3/5 min-w-0 flex items-center gap-2">
-                  <Switch
-                    checked={clientVisibleValue}
-                    disabled={clientVisibilityLocked}
-                    onCheckedChange={handleClientVisibleChange}
-                    className={clientVisibilityLocked ? '!cursor-default' : 'cursor-pointer'}
-                  />
-                  {clientVisibleValue ? (
-                    <>
-                      <Eye
-                        size={16}
-                        weight="fill"
-                        style={{ color: clientVisibilityLocked ? 'var(--color-base-text-tertiary)' : 'var(--color-neutral-11)' }}
+                  {(() => {
+                    // Check if assignee is a client member
+                    const assigneeIsClientMember = assigneeValue 
+                      ? agencyMembers.find(member => member.id === assigneeValue.id)?.orgType === 'client'
+                      : false;
+                    
+                    // Only disable if assigned to client member
+                    const isToggleDisabled = assigneeIsClientMember;
+                    // Force to true if disabled (assigned to client member)
+                    const toggleValue = isToggleDisabled ? true : clientVisibleValue;
+                    
+                    return (
+                      <Switch
+                        checked={toggleValue}
+                        disabled={isToggleDisabled}
+                        onCheckedChange={handleClientVisibleChange}
+                        className={isToggleDisabled ? '!cursor-default' : 'cursor-pointer'}
                       />
-                      <span
-                        className="text-sm-regular"
-                        style={{ color: clientVisibilityLocked ? 'var(--color-base-text-tertiary)' : 'var(--color-base-text-primary)' }}
-                      >
-                        Yes
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeSlash size={16} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} />
-                      <span className="text-sm-regular" style={{ color: 'var(--color-base-text-tertiary)' }}>No</span>
-                    </>
-                  )}
+                    );
+                  })()}
+                  {(() => {
+                    // Check if assignee is a client member
+                    const assigneeIsClientMember = assigneeValue 
+                      ? agencyMembers.find(member => member.id === assigneeValue.id)?.orgType === 'client'
+                      : false;
+                    
+                    // Force to true if assigned to client member
+                    const displayValue = assigneeIsClientMember ? true : clientVisibleValue;
+                    const isDisabled = assigneeIsClientMember;
+                    
+                    return displayValue ? (
+                      <>
+                        <Eye
+                          size={16}
+                          weight="fill"
+                          style={{ color: isDisabled ? 'var(--color-base-text-tertiary)' : 'var(--color-neutral-11)' }}
+                        />
+                        <span
+                          className="text-sm-regular"
+                          style={{ color: isDisabled ? 'var(--color-base-text-tertiary)' : 'var(--color-base-text-primary)' }}
+                        >
+                          Yes
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeSlash size={16} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} />
+                        <span className="text-sm-regular" style={{ color: 'var(--color-base-text-tertiary)' }}>No</span>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

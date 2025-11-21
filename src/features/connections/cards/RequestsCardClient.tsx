@@ -448,9 +448,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
             {isAgency
-              ? (snapshot.connection.isDraft
-                  ? 'Visible after invite'
-                  : 'Both you and your client can see this')
+              ? 'Visible in client portal'
               : 'Both you and your agency can manage this'}
           </TooltipContent>
         </Tooltip>

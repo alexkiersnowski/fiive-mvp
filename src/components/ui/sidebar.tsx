@@ -4,7 +4,7 @@ import NavItem from './nav-item'
 import { Button } from './button'
 import { Alert, AlertDescription } from './alert'
 import { Badge } from './badge'
-import { SquaresFour, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, CreditCard, BuildingOffice, UsersThree, User, Shield } from '@phosphor-icons/react'
+import { SquaresFour, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, CreditCard, BuildingOffice, UsersThree, User, Shield, Link } from '@phosphor-icons/react'
 import { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 import { useRouter } from 'next/navigation'
@@ -152,15 +152,48 @@ const SidebarComponent = memo(function SidebarComponent({
     return baseItems
   }, [selectedItem, currentUserRole, capabilities?.canSeeClients])
 
+  // Connection settings navigation items
+  const connectionSettingsNavItems = useMemo(() => [
+    { href: pathname, label: 'Connection settings', icon: <Link size={18} className="fill-base-icons-primary" />, isSelected: true }
+  ], [pathname])
+
   // Determine which secondary nav items to show based on current path
   const secondaryNavItems = useMemo(() => {
+    // Check if we're on a connection settings page
+    const connectionSettingsMatch = pathname.match(/^\/(clients|agencies)\/([^/]+)\/settings$/)
+    if (connectionSettingsMatch) {
+      return connectionSettingsNavItems
+    }
     if (pathname.startsWith('/settings/account')) return accountNavItems
     if (pathname.startsWith('/settings/organization')) return organizationNavItems
     return organizationNavItems // Default fallback
-  }, [pathname, accountNavItems, organizationNavItems])
+  }, [pathname, accountNavItems, organizationNavItems, connectionSettingsNavItems])
+
+  // Check if we're on a connection settings page
+  const isConnectionSettingsPage = useMemo(() => {
+    return /^\/(clients|agencies)\/([^/]+)\/settings$/.test(pathname)
+  }, [pathname])
+
+  // Determine connection settings context
+  const connectionSettingsContext = useMemo(() => {
+    if (!isConnectionSettingsPage) return null
+    const match = pathname.match(/^\/(clients|agencies)\/([^/]+)\/settings$/)
+    if (!match) return null
+    const baseRoute = match[1] // 'clients' or 'agencies'
+    const connectionId = match[2]
+    return {
+      baseRoute,
+      connectionId,
+      // If baseRoute is 'clients', we're in agency context viewing client
+      // If baseRoute is 'agencies', we're in client context viewing agency
+      title: baseRoute === 'clients' ? 'Client settings' : 'Agency settings',
+      backHref: `/${baseRoute}/${connectionId}/overview`,
+      backLabel: 'Back'
+    }
+  }, [pathname, isConnectionSettingsPage])
 
   const currentNavItems = navItems || (variant === 'secondary' ? secondaryNavItems : defaultNavItems)
-  const isSecondary = variant === 'secondary'
+  const isSecondary = variant === 'secondary' || isConnectionSettingsPage
 
   // Memoize the founding member alert component
   const foundingMemberAlert = useMemo(() => (
@@ -202,25 +235,25 @@ const SidebarComponent = memo(function SidebarComponent({
         aria-label={isSecondary ? 'Settings navigation' : 'Main navigation'}
       >
         {/* Back button for secondary variant */}
-        {isSecondary && showBackButton && (
+        {isSecondary && (showBackButton || isConnectionSettingsPage) && (
           <div className="mb-5">
             <Button
               variant="ghost"
               size="sm"
               className="h-auto p-2 text-xs-bold cursor-pointer back-button hover:bg-interactive-surface-hover transition-all duration-75"
-              onClick={() => router.push(backHref)}
+              onClick={() => router.push(isConnectionSettingsPage && connectionSettingsContext ? connectionSettingsContext.backHref : backHref)}
             >
               <ArrowLeft size={16} weight="regular" />
-              <span className="ml-1">{backLabel}</span>
+              <span className="ml-1">{isConnectionSettingsPage && connectionSettingsContext ? connectionSettingsContext.backLabel : backLabel}</span>
             </Button>
           </div>
         )}
 
         {/* Title for secondary variant */}
-        {isSecondary && showTitle && title && (
+        {isSecondary && (showTitle || isConnectionSettingsPage) && (
           <div className="mb-5 px-2">
             <h2 className="text-md-medium" style={{ color: 'var(--color-base-text-primary)' }}>
-              {title}
+              {isConnectionSettingsPage && connectionSettingsContext ? connectionSettingsContext.title : title}
             </h2>
           </div>
         )}

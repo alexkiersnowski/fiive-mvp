@@ -22,6 +22,7 @@ export type HomeSnapshot = {
   agencies: AgencyPreview[]; // Preview of up to 5 agencies for client view
   requests: {
     newCount: number;
+    inReviewCount: number;
     // Future: items: RequestItem[];
   };
   contracts: {
@@ -30,6 +31,7 @@ export type HomeSnapshot = {
   };
   tasks: {
     dueSoonCount: number;
+    assignedCount: number;
     // Future: items: TaskItem[];
   };
 };

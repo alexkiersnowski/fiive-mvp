@@ -28,6 +28,35 @@ export async function createTask(
   const supabase = await createClient();
   const now = new Date().toISOString();
 
+  // Determine client_visible based on assignee
+  // If assigned to a client member, MUST be true (cannot be false - paradoxical)
+  // If no assignee or assigned to agency member, defaults to false (for security)
+  let clientVisible = false;
+  
+  if (assigneeUserId) {
+    // Fetch connection to get client_id
+    const { data: connection } = await supabase
+      .from('connections')
+      .select('client_id')
+      .eq('id', connectionId)
+      .single();
+    
+    if (connection) {
+      // Check if assignee is a member of the client organization
+      const { data: clientMembership } = await supabase
+        .from('memberships')
+        .select('id')
+        .eq('user_id', assigneeUserId)
+        .eq('org_id', connection.client_id)
+        .single();
+      
+      // If assignee is a client member, task MUST be visible to client
+      if (clientMembership) {
+        clientVisible = true;
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .insert({
@@ -37,7 +66,7 @@ export async function createTask(
       project_id: projectId,
       assignee_user_id: assigneeUserId,
       status: 'to_do',
-      client_visible: false,
+      client_visible: clientVisible,
       created_by_user_id: context.user.id,
       created_at: now,
       updated_at: now
@@ -211,17 +240,42 @@ export async function updateTaskStatus(
 ) {
   const supabase = await createClient();
   const now = new Date().toISOString();
+  
+  // First, get the current status to determine if we're changing to/from 'done'
+  const { data: currentTask, error: fetchError } = await supabase
+    .from('tasks')
+    .select('status')
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .single();
+
+  if (fetchError) {
+    if (isDev()) {
+      console.error('Failed to fetch current task status:', fetchError);
+    }
+    throw new Error('Failed to update task status');
+  }
+
   const updates: Record<string, any> = {
     status,
     updated_at: now
   };
+
+  // Set completed_at when status changes to 'done'
+  if (status === 'done') {
+    updates.completed_at = now;
+  } 
+  // Clear completed_at when status changes away from 'done'
+  else if (currentTask?.status === 'done') {
+    updates.completed_at = null;
+  }
 
   const { data, error } = await supabase
     .from('tasks')
     .update(updates)
     .eq('id', taskId)
     .is('deleted_at', null)
-    .select('id, status, updated_at')
+    .select('id, status, updated_at, completed_at')
     .single();
 
   if (error) {

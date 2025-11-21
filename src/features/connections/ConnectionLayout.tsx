@@ -9,7 +9,7 @@ import { ConnectionTabs } from './ConnectionTabs';
 import { ConnectionProvider, useConnection } from './ConnectionContext';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Users, X } from '@phosphor-icons/react';
+import { Users, X, PencilSimpleSlash } from '@phosphor-icons/react';
 
 interface ConnectionLayoutProps {
   snapshot: ConnectionSnapshot | null;
@@ -33,23 +33,26 @@ function ConnectionLayoutContent({
   const currentUserType = context.variant;
   const { isEmpty, newRequestsCount } = useConnection();
   
-  // Determine if alert should be shown (draft connection, agency user, client partner, and on overview tab only)
+  // Determine if alert should be shown (internal connection, agency user, client partner, and on overview tab only)
   const isOnOverviewTab = pathname.endsWith('/overview') || pathname === `/${baseRoute}/${snapshot.connection.id}`;
-  const shouldShowAlert = snapshot.connection.isDraft && 
+  const shouldShowInternalAlert = snapshot.connection.isInternal && 
                          snapshot.currentUserType === 'agency' && 
                          snapshot.partner.type === 'client' &&
                          isOnOverviewTab;
   
-  // Dismiss state management with sessionStorage
-  const storageKey = `draft-alert-dismissed-${snapshot.connection.id}`;
-  // Use mounted state to prevent flicker - don't render alert until we've checked sessionStorage
+  // Determine if disconnected alert should be shown (disconnected connection, on all tabs)
+  const shouldShowDisconnectedAlert = snapshot.connection.status === 'disconnected';
+  
+  // Dismiss state management with localStorage (persists across sessions)
+  const storageKey = `internal-alert-dismissed-${snapshot.connection.id}`;
+  // Use mounted state to prevent flicker - don't render alert until we've checked localStorage
   const [isMounted, setIsMounted] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
   
-  // Check sessionStorage after mount to avoid hydration issues
+  // Check localStorage after mount to avoid hydration issues
   useEffect(() => {
     try {
-      const dismissed = sessionStorage.getItem(storageKey) === 'true';
+      const dismissed = localStorage.getItem(storageKey) === 'true';
       setIsDismissed(dismissed);
     } catch {
       // Ignore storage errors (e.g., private browsing mode)
@@ -63,11 +66,11 @@ function ConnectionLayoutContent({
   const handleDismiss = () => {
     setIsDismissed(true);
     try {
-      sessionStorage.setItem(storageKey, 'true');
+      localStorage.setItem(storageKey, 'true');
     } catch (error) {
       // Ignore storage errors (e.g., private browsing mode)
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('Failed to save alert dismissal to sessionStorage:', error);
+        console.warn('Failed to save alert dismissal to localStorage:', error);
       }
     }
   };
@@ -92,13 +95,13 @@ function ConnectionLayoutContent({
         currentUserType={currentUserType}
         newRequestsCount={newRequestsCount}
       />
-      {shouldShowAlert && isMounted && !isDismissed && (
+      {shouldShowInternalAlert && isMounted && !isDismissed && (
         <div style={{ paddingTop: '16px' }}>
           <Alert className="relative" style={{ backgroundColor: 'var(--color-neutral-3)', padding: '20px' }}>
             <Users size={16} />
-            <AlertTitle className="text-sm-medium" style={{ color: 'var(--color-base-text-primary)' }}>You're setting up a shared workspace with your client</AlertTitle>
+            <AlertTitle className="text-sm-medium" style={{ color: 'var(--color-base-text-primary)' }}>You're managing your client workspace</AlertTitle>
             <AlertDescription className="text-sm-regular mt-0.5" style={{ color: 'var(--color-base-text-secondary)' }}>
-              Once invited, your accounts will connect, and the client will access their own portal. They'll manage their own name, logo, and info. Requests and contacts are always shared. Tasks, projects, and resources are managed by your team. Set up the workspace now, or invite your client to complete it together.
+            This workspace is internal to your agency. You can manage the entire relationship privately, or invite your client to connect through their portal if you want to collaborate in a shared workspace.
             </AlertDescription>
             <Button
               variant="ghost"
@@ -109,6 +112,16 @@ function ConnectionLayoutContent({
             >
               <X size={16} />
             </Button>
+          </Alert>
+        </div>
+      )}
+      {shouldShowDisconnectedAlert && (
+        <div style={{ paddingTop: '16px' }}>
+          <Alert className="relative" style={{ backgroundColor: 'var(--color-neutral-3)', padding: '20px' }}>
+            <PencilSimpleSlash size={16} />
+            <AlertDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+              This workspace is read-only. To resume collaboration, reconnect using your client's connection code.
+            </AlertDescription>
           </Alert>
         </div>
       )}
@@ -129,15 +142,21 @@ export function ConnectionLayout({ snapshot, context, baseRoute, children }: Con
   const isRequestDetailPage = /\/requests\/[^/]+$/.test(pathname);
   const isTaskDetailPage = /\/tasks\/[^/]+$/.test(pathname);
   const isProjectDetailPage = /\/projects\/[^/]+$/.test(pathname);
+  const isSettingsPage = /\/settings$/.test(pathname);
   
-  // For request, task, or project detail pages, render children directly without ConnectionProvider
-  // RequestDetailContent, TaskDetailContent, and ProjectDetailContent don't use ConnectionProvider and DashboardLayout handles styling
-  if (isRequestDetailPage || isTaskDetailPage || isProjectDetailPage) {
+  // For request, task, project detail pages, or settings page, render children directly without ConnectionProvider
+  // RequestDetailContent, TaskDetailContent, ProjectDetailContent, and ConnectionSettingsForm don't use ConnectionProvider and DashboardLayout handles styling
+  if (isRequestDetailPage || isTaskDetailPage || isProjectDetailPage || isSettingsPage) {
     return <>{children}</>;
   }
   
-  // For other pages, we need the snapshot
+  // For other pages (like overview, requests list, tasks list, projects list), we need the snapshot and ConnectionProvider
+  // If snapshot is null, something went wrong - but we should still try to render (ConnectionProvider will handle null gracefully)
+  // However, ConnectionLayoutContent requires snapshot, so we need to check
   if (!snapshot) {
+    // If snapshot is null for a page that needs it, return null or error state
+    // This shouldn't happen in normal flow, but handle gracefully
+    console.error('ConnectionLayout: snapshot is null for page that requires it', { pathname });
     return <>{children}</>;
   }
   

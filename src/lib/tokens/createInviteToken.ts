@@ -44,12 +44,12 @@ export async function createInviteToken(
       }
     }
 
-    // CRITICAL: Only allow token creation for draft or invited connections
+    // CRITICAL: Only allow token creation for internal or invited connections
     // (invited allows re-invites after 7 days)
-    if (connection.connection_status !== 'draft' && connection.connection_status !== 'invited') {
+    if (connection.connection_status !== 'internal' && connection.connection_status !== 'invited') {
       return {
         success: false,
-        error: 'Token can only be created for draft or invited connections'
+        error: 'Token can only be created for internal or invited connections'
       }
     }
 

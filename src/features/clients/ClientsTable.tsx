@@ -79,11 +79,11 @@ interface ClientsTableProps {
 // Extract column components for better readability and reusability
 const ConnectionCell = React.memo(function ConnectionCell({ client }: { client: Client }) {
   // Map connection_status to badge variant
-  const getVariant = (status: string): "connected" | "invited" | "disconnected" | "draft" => {
+  const getVariant = (status: string): "connected" | "invited" | "disconnected" | "internal" => {
     if (status === 'connected') return 'connected';
     if (status === 'invited') return 'invited';
     if (status === 'disconnected') return 'disconnected';
-    return 'draft';
+    return 'internal';
   };
   
   return (
@@ -358,7 +358,7 @@ const ActionsCell = React.memo(function ActionsCell({
               >
                 <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
                 <span style={{ color: 'var(--color-red-11)' }}>
-                  Delete draft
+                  Delete client
                 </span>
               </DropdownMenuItem>
             </>
@@ -413,14 +413,14 @@ export function ClientsTable({
       }, 200); // Delay to let dialog close animation complete
       
       // Show success toast immediately
-      toast.success('Draft client deleted');
+      toast.success('Client deleted');
       
       // Delete in background - only refresh on error to restore state
       try {
         const result = await deleteClient(clientId, context);
         if (!result.success) {
           // If deletion failed, refresh from server to restore correct state
-          toast.error(result.error || 'Failed to delete draft client');
+          toast.error(result.error || 'Failed to delete client');
           onClientDeleted?.();
         }
         // On success, optimistic update is already correct - no refresh needed
@@ -429,7 +429,7 @@ export function ClientsTable({
           console.error('Error deleting client:', error);
         }
         // If deletion failed, refresh from server to restore correct state
-        toast.error('Failed to delete draft client');
+        toast.error('Failed to delete client');
         onClientDeleted?.();
       }
     }
@@ -670,7 +670,7 @@ export function ClientsTable({
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            This will permanently delete the draft client and all related data. It won't affect any live clients or shared workspaces.
+            This will permanently delete the client and all related data. It won't affect any live clients or shared workspaces.
           </DialogDescription>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
             <Button 

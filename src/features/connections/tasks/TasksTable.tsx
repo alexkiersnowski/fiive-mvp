@@ -156,13 +156,27 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         avatarUrl: selectedMember.avatarUrl
       }
       
+      // Get current task to check visibility state
+      const currentTask = tasks.find(t => t.id === taskId);
+      const currentVisibility = currentTask?.clientVisible ?? false;
+      
+      // Build update object
+      const updates: { assignee: any; clientVisible?: boolean; clientVisibilityLocked?: boolean } = {
+        assignee: newAssignee
+      };
+      
+      if (isClientMember) {
+        // Only change visibility to true if it's currently false
+        if (!currentVisibility) {
+          updates.clientVisible = true;
+        }
+        updates.clientVisibilityLocked = true;
+      }
+      // If assigning to agency member, don't change visibility (keep as-is)
+      
       // Notify parent for bidirectional updates (table → modal)
       if (onTaskUpdate) {
-        onTaskUpdate(taskId, { 
-          assignee: newAssignee,
-          clientVisible: isClientMember ? true : undefined,
-          clientVisibilityLocked: isClientMember ? true : false
-        })
+        onTaskUpdate(taskId, updates)
       }
       
       // Set loading guard

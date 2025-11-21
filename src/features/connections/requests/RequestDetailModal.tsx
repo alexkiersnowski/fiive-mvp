@@ -88,6 +88,7 @@ interface RequestDetailModalProps {
     text: string
   }>) => void
   onConvertToTask?: (request: RequestDetailModalProps['requestData']) => void
+  isGlobalView?: boolean
 }
 
 export function RequestDetailModal({
@@ -106,6 +107,7 @@ export function RequestDetailModal({
   initialComments = [],
   onCommentsUpdate,
   onConvertToTask,
+  isGlobalView = false,
 }: RequestDetailModalProps) {
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
@@ -156,11 +158,8 @@ export function RequestDetailModal({
     // Close modal immediately
     onClose()
     
-    // Show success toast immediately
-    toast.success('Request deleted')
-    
-    // Notify parent - parent handles optimistic update and API call
-    // Parent will handle error recovery if API call fails
+    // Notify parent - parent handles optimistic update, API call, and toast notification
+    // Parent will show success toast after server confirms and handle error recovery if API call fails
     onRequestDeleted?.(requestData.requestId)
   }
   
@@ -318,6 +317,7 @@ export function RequestDetailModal({
                   createdByOrgType: request.createdByOrgType,
                 })
               }}
+              isGlobalView={isGlobalView}
             />
           </div>
         )}

@@ -5,7 +5,7 @@ export type Client = {
   id: string
   name: string
   logo?: string
-  status: "draft" | "invited" | "onboarding" | "active" | "offboarded"
+  status: "internal" | "invited" | "onboarding" | "active" | "offboarded"
   createdAt?: string
   is_draft?: boolean // Indicates if this is a draft client organization
   clientId?: string // The organization ID of the client (for deletion)
@@ -78,7 +78,7 @@ export type ConnectionResult = {
 
 export interface NewClientPayload {
   connection_id: string;
-  connection_status: 'draft';
+  connection_status: 'internal';
   engagement_status: string | null;
   client_id: string;
   client_name: string;

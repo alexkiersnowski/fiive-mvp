@@ -227,7 +227,7 @@ export function AgenciesContent({
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ padding: '24px 16px 24px 32px' }}>
+    <div className="h-full flex flex-col" style={{ padding: '24px 16px 24px 24px' }}>
       {/* Fixed Header Section */}
       <div className="flex-shrink-0">
       {/* Page Header */}

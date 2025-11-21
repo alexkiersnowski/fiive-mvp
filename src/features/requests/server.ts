@@ -339,8 +339,10 @@ export const getRequestsSnapshot = cache(async (
   }
 
   // Apply sorting at database level
-  // Note: Client name sorting may require in-memory sort if database-level sorting doesn't work
+  // Note: Client/Agency name sorting may require in-memory sort if database-level sorting doesn't work
   const isClientNameSort = sort === 'client_asc' || sort === 'client_desc';
+  const isAgencyNameSort = sort === 'agency_asc' || sort === 'agency_desc';
+  const isOrgNameSort = isClientNameSort || isAgencyNameSort;
   const startIndex = cursor ? parseInt(cursor, 10) : 0;
   
   switch (sort) {
@@ -352,6 +354,8 @@ export const getRequestsSnapshot = cache(async (
       break;
     case 'client_asc':
     case 'client_desc':
+    case 'agency_asc':
+    case 'agency_desc':
       // Try database-level sorting first - if this doesn't work, we'll sort in memory after fetching
       // Supabase may not support ordering by nested joined fields, so we'll handle as fallback
       requestsQuery = requestsQuery.order('created_at', { ascending: false });
@@ -360,9 +364,9 @@ export const getRequestsSnapshot = cache(async (
       requestsQuery = requestsQuery.order('created_at', { ascending: false });
   }
 
-  // Apply pagination at database level (for non-client-name sorts)
-  // For client name sorts, we'll fetch all, sort, then paginate
-  if (!isClientNameSort) {
+  // Apply pagination at database level (for non-org-name sorts)
+  // For org name sorts, we'll fetch all, sort, then paginate
+  if (!isOrgNameSort) {
     requestsQuery = requestsQuery.range(startIndex, startIndex + limit - 1);
   }
 
@@ -584,27 +588,32 @@ export const getRequestsSnapshot = cache(async (
       };
     });
 
-  // Extract requests for non-client-name sorts
+  // Extract requests for non-org-name sorts
   const requests: Request[] = requestsWithTimestamps.map(item => item.request);
 
-  // Apply client name sorting in memory if needed (using already-fetched org data)
+  // Apply client/agency name sorting in memory if needed (using already-fetched org data)
   let sortedRequests = requests;
-  if (isClientNameSort) {
+  if (isOrgNameSort) {
     const sortedWithTimestamps = [...requestsWithTimestamps].sort((a, b) => {
-      const aName = a.request.client.name.toLowerCase();
-      const bName = b.request.client.name.toLowerCase();
+      // Determine which organization name to use for sorting
+      const aName = isClientNameSort 
+        ? a.request.client.name.toLowerCase()
+        : (a.request.agency?.name || '').toLowerCase();
+      const bName = isClientNameSort
+        ? b.request.client.name.toLowerCase()
+        : (b.request.agency?.name || '').toLowerCase();
       
-      // Primary sort: by client name (A-Z or Z-A)
+      // Primary sort: by org name (A-Z or Z-A)
       let nameComparison = 0;
-      if (sort === 'client_asc') {
+      if (sort === 'client_asc' || sort === 'agency_asc') {
         if (aName < bName) nameComparison = -1;
         else if (aName > bName) nameComparison = 1;
-      } else { // client_desc
+      } else { // client_desc or agency_desc
         if (aName > bName) nameComparison = -1;
         else if (aName < bName) nameComparison = 1;
       }
       
-      // If client names are different, return the name comparison
+      // If org names are different, return the name comparison
       if (nameComparison !== 0) {
         return nameComparison;
       }
@@ -619,14 +628,14 @@ export const getRequestsSnapshot = cache(async (
   }
 
   // Calculate pagination info
-  const hasNextPage = isClientNameSort 
+  const hasNextPage = isOrgNameSort 
     ? requestsWithTimestamps.length > startIndex + limit
     : (total || 0) > startIndex + limit;
   const nextCursor = hasNextPage ? String(startIndex + limit) : null;
 
   return {
     requests: sortedRequests,
-    total: isClientNameSort ? requestsWithTimestamps.length : (total || 0),
+    total: isOrgNameSort ? requestsWithTimestamps.length : (total || 0),
     unfilteredTotalCount: unfilteredTotalCount || 0,
     cursor: nextCursor,
     hasNextPage,
@@ -634,20 +643,23 @@ export const getRequestsSnapshot = cache(async (
 });
 
 /**
- * Get a single request by ID (works across all connections)
+ * Get a single request by ID (works across all connections) - NON-CACHED version for immediate post-insert fetches
+ * @param connectionId - Optional connection ID. If provided, filters directly by connection_id (faster, more reliable)
  */
-export const getRequestByIdGlobal = cache(async (
+async function getRequestByIdGlobalUncached(
   requestId: string,
-  context: EnhancedModeContext
-): Promise<Request | null> => {
+  context: EnhancedModeContext,
+  connectionId?: string
+): Promise<Request | null> {
   if (!context || !context.orgId || !context.userId) {
     return null;
   }
 
   const supabase = await createClient();
 
-  // First, verify the request belongs to a connection accessible by this org
-  const { data: request, error } = await supabase
+  // CRITICAL: Query request WITHOUT inner join (matches working pattern)
+  // Inner joins can fail if the FK relationship isn't immediately visible after insert
+  let requestQuery = supabase
     .from('requests')
     .select(`
       id,
@@ -660,28 +672,35 @@ export const getRequestByIdGlobal = cache(async (
       created_by_user_id,
       assignee_user_id,
       created_at,
-      created_by_org_id,
-      connections!inner (
-        agency_id,
-        client_id
-      )
+      created_by_org_id
     `)
     .eq('id', requestId)
-    .is('deleted_at', null)
-    .single();
+    .is('deleted_at', null);
+
+  // If connectionId is provided, filter by it directly (faster and more reliable)
+  if (connectionId) {
+    requestQuery = requestQuery.eq('connection_id', connectionId);
+  }
+
+  const { data: request, error } = await requestQuery.single();
 
   if (error || !request) {
     return null;
   }
 
-  const connection = Array.isArray(request.connections) && request.connections.length > 0
-    ? request.connections[0] as { agency_id: string; client_id: string }
-    : null;
-  if (!connection) {
+  // Fetch connection info separately (no inner join)
+  const { data: connection, error: connectionError } = await supabase
+    .from('connections')
+    .select('agency_id, client_id')
+    .eq('id', request.connection_id)
+    .single();
+
+  if (connectionError || !connection) {
     return null;
   }
 
   // Verify access: org must be either agency_id or client_id
+  // If connectionId was provided, we already filtered by it, but still verify access
   const hasAccess = context.variant === 'agency'
     ? connection.agency_id === context.orgId
     : connection.client_id === context.orgId;
@@ -835,7 +854,17 @@ export const getRequestByIdGlobal = cache(async (
     createdByOrgId: request.created_by_org_id,
     createdByOrgType: formatters.getOrgType(request.created_by_org_id, orgTypeMap)
   };
-});
+}
+
+/**
+ * Get a single request by ID (works across all connections) - CACHED version
+ */
+export const getRequestByIdGlobal = cache(getRequestByIdGlobalUncached);
+
+/**
+ * Export uncached version for immediate post-insert fetches
+ */
+export { getRequestByIdGlobalUncached };
 
 /**
  * Get agency members for the active organization
@@ -959,6 +988,59 @@ export const getGlobalNewRequestsCount = cache(async (
 
   if (countError) {
     console.error('Error fetching new requests count:', countError);
+    return 0;
+  }
+
+  return count || 0;
+});
+
+/**
+ * Get global count of requests with status 'in_review' for the current organization
+ */
+export const getGlobalInReviewRequestsCount = cache(async (
+  context: EnhancedModeContext
+): Promise<number> => {
+  // Validate context before proceeding
+  if (!context || !context.orgId || !context.userId) {
+    return 0;
+  }
+
+  const supabase = await createClient();
+  
+  // Get all connection IDs that belong to this organization
+  const connectionQuery = context.variant === 'agency'
+    ? supabase
+        .from('connections')
+        .select('id')
+        .eq('agency_id', context.orgId)
+    : supabase
+        .from('connections')
+        .select('id')
+        .eq('client_id', context.orgId);
+
+  const { data: connections, error: connectionQueryError } = await connectionQuery;
+
+  if (connectionQueryError || !connections) {
+    console.error('Error fetching connections:', connectionQueryError);
+    return 0;
+  }
+
+  const connectionIds = connections.map(c => c.id);
+
+  if (connectionIds.length === 0) {
+    return 0;
+  }
+
+  // Count requests with status 'in_review'
+  const { count, error: countError } = await supabase
+    .from('requests')
+    .select('id', { count: 'exact', head: true })
+    .in('connection_id', connectionIds)
+    .eq('status', 'in_review')
+    .is('deleted_at', null);
+
+  if (countError) {
+    console.error('Error fetching in-review requests count:', countError);
     return 0;
   }
 

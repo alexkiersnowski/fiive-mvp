@@ -29,6 +29,12 @@ const getCreatedTimestamp = (task: Task): number | null => {
   return parseDate(task.createdAt)
 }
 
+const getCompletedTimestamp = (task: Task): number | null => {
+  const fromRaw = parseDate(task.completedAtRaw)
+  if (fromRaw !== null) return fromRaw
+  return parseDate(task.completedAt)
+}
+
 const getStatusPriority = (status: TaskStatus): number => {
   return STATUS_PRIORITY[status] ?? MAX_PRIORITY
 }
@@ -45,6 +51,34 @@ export const compareTasksByStatus = (a: Task, b: Task): number => {
   const pinnedDiff = comparePinned(a, b)
   if (pinnedDiff !== 0) return pinnedDiff
 
+  // Separate Done tasks from non-Done tasks
+  const aIsDone = a.status === 'done'
+  const bIsDone = b.status === 'done'
+  
+  // If one is Done and one isn't, Done always goes last
+  if (aIsDone && !bIsDone) return 1
+  if (!aIsDone && bIsDone) return -1
+  
+  // If both are Done, sort by completed_at (newest → oldest)
+  if (aIsDone && bIsDone) {
+    const aCompleted = getCompletedTimestamp(a)
+    const bCompleted = getCompletedTimestamp(b)
+    
+    if (aCompleted !== null && bCompleted !== null) {
+      return bCompleted - aCompleted // newest first (descending)
+    }
+    if (aCompleted !== null && bCompleted === null) return -1
+    if (aCompleted === null && bCompleted !== null) return 1
+    // Both null - fallback to created_at (newest → oldest)
+    const aCreated = getCreatedTimestamp(a)
+    const bCreated = getCreatedTimestamp(b)
+    if (aCreated !== null && bCreated !== null) {
+      return bCreated - aCreated
+    }
+    return 0
+  }
+
+  // Both are non-Done: use status priority
   const statusDiff = getStatusPriority(a.status) - getStatusPriority(b.status)
   if (statusDiff !== 0) return statusDiff
 
@@ -65,6 +99,34 @@ export const compareTasksByNewest = (a: Task, b: Task): number => {
   const pinnedDiff = comparePinned(a, b)
   if (pinnedDiff !== 0) return pinnedDiff
 
+  // Separate Done tasks from non-Done tasks
+  const aIsDone = a.status === 'done'
+  const bIsDone = b.status === 'done'
+  
+  // If one is Done and one isn't, Done always goes last
+  if (aIsDone && !bIsDone) return 1
+  if (!aIsDone && bIsDone) return -1
+  
+  // If both are Done, sort by completed_at (newest → oldest)
+  if (aIsDone && bIsDone) {
+    const aCompleted = getCompletedTimestamp(a)
+    const bCompleted = getCompletedTimestamp(b)
+    
+    if (aCompleted !== null && bCompleted !== null) {
+      return bCompleted - aCompleted // newest first (descending)
+    }
+    if (aCompleted !== null && bCompleted === null) return -1
+    if (aCompleted === null && bCompleted !== null) return 1
+    // Both null - fallback to created_at (newest → oldest)
+    const aCreated = getCreatedTimestamp(a)
+    const bCreated = getCreatedTimestamp(b)
+    if (aCreated !== null && bCreated !== null) {
+      return bCreated - aCreated
+    }
+    return 0
+  }
+
+  // Both are non-Done: sort by created_at (newest → oldest)
   const aCreated = getCreatedTimestamp(a)
   const bCreated = getCreatedTimestamp(b)
 

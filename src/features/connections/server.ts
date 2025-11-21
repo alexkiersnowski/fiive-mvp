@@ -91,7 +91,8 @@ export const getConnectionSnapshot = cache(async (
           logo_url,
           description,
           website,
-          industry
+          industry,
+          connection_code
         )
       `)
       .eq('id', connectionId)
@@ -125,7 +126,8 @@ export const getConnectionSnapshot = cache(async (
           logo_url,
           description,
           website,
-          industry
+          industry,
+          connection_code
         )
       `)
       .eq('id', connectionId)
@@ -155,6 +157,7 @@ export const getConnectionSnapshot = cache(async (
     description?: string;
     website?: string;
     industry?: string;
+    connection_code?: string;
   } | null;
   
   // Calculate IDs for parallel fetching
@@ -415,14 +418,14 @@ export const getConnectionSnapshot = cache(async (
     }
   }
   
-  const connectionStatus = connection.connection_status || 'draft';
-  const isDraft = connectionStatus === 'draft';
+  const connectionStatus = connection.connection_status || 'internal';
+  const isInternal = connectionStatus === 'internal';
   
   return {
     connection: {
       id: connection.id,
       status: connectionStatus,
-      isDraft,
+      isInternal,
       engagementStatus: connection.engagement_status,
       health: connection.health_status || undefined,
       contractEnd: connection.contract_end_on 
@@ -447,6 +450,7 @@ export const getConnectionSnapshot = cache(async (
       description: partnerOrg?.description,
       website: partnerOrg?.website,
       industry: partnerOrg?.industry,
+      connectionCode: partnerOrg?.connection_code,
       type: currentUserType === 'agency' ? 'client' : 'agency'
     },
     agency: {
@@ -571,6 +575,8 @@ export interface Task {
   updatedAt?: string
   dueDate?: string | null
   dueDateRaw?: string | null
+  completedAt?: string | null
+  completedAtRaw?: string | null
   createdByUserId: string
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
@@ -1109,6 +1115,7 @@ type TaskRow = {
   created_by_user_id: string
   created_at: string
   updated_at: string | null
+  completed_at: string | null
   source_request_id?: string | null
 }
 
@@ -1360,6 +1367,8 @@ async function hydrateTaskRows(
       updatedAt: row.updated_at ? formatters.formatRequestDate(row.updated_at) : undefined,
       dueDate: row.due_date ? formatters.formatRequestDate(row.due_date) : undefined,
       dueDateRaw: row.due_date,
+      completedAt: row.completed_at ? formatters.formatRequestDate(row.completed_at) : undefined,
+      completedAtRaw: row.completed_at,
       createdByUserId: row.created_by_user_id,
       createdByOrgId: createdOrg?.orgId,
       createdByOrgType,
@@ -1513,6 +1522,7 @@ export const getTasksForConnection = cache(async (
       created_by_user_id,
       created_at,
       updated_at,
+      completed_at,
       source_request_id
     `, { count: 'exact' })
     .eq('connection_id', connectionId)
@@ -2083,6 +2093,7 @@ export const getTaskById = cache(async (
       created_by_user_id,
       created_at,
       updated_at,
+      completed_at,
       source_request_id
     `)
     .eq('id', taskId)

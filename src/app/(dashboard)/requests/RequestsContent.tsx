@@ -81,12 +81,18 @@ export function RequestsContent({
   // Initialize with server-fetched comments for instant availability
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments);
 
-  // Sort options
-  const sortOptions = [
-    { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
-    { value: 'client_asc', label: 'Client (A-Z)', buttonLabel: 'Client (A-Z)' },
-    { value: 'client_desc', label: 'Client (Z-A)', buttonLabel: 'Client (Z-A)' }
-  ];
+  // Sort options - different for agency vs client views
+  const sortOptions = context.variant === 'agency'
+    ? [
+        { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
+        { value: 'client_asc', label: 'Client (A-Z)', buttonLabel: 'Client (A-Z)' },
+        { value: 'client_desc', label: 'Client (Z-A)', buttonLabel: 'Client (Z-A)' }
+      ]
+    : [
+        { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
+        { value: 'agency_asc', label: 'Agency (A-Z)', buttonLabel: 'Agency (A-Z)' },
+        { value: 'agency_desc', label: 'Agency (Z-A)', buttonLabel: 'Agency (Z-A)' }
+      ];
 
   // Sync local state with server snapshot when props change
   useEffect(() => {
@@ -241,6 +247,11 @@ export function RequestsContent({
 
     // Create optimistic request
     const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    
+    // Determine client and agency based on variant
+    // Agency view: selectedConnection is a client, current org is agency
+    // Client view: selectedConnection is an agency, current org is client
+    const isAgency = context.variant === 'agency';
     const optimisticRequest: Request = {
       id: payload.tempId,
       connectionId: selectedConnectionId,
@@ -259,11 +270,28 @@ export function RequestsContent({
         orgLogo: undefined,
       },
       assignee: null,
-      client: {
-        id: selectedConnection.id,
-        name: selectedConnection.name,
-        logoUrl: selectedConnection.logoUrl,
-      },
+      client: isAgency 
+        ? {
+            id: selectedConnection.id,
+            name: selectedConnection.name,
+            logoUrl: selectedConnection.logoUrl,
+          }
+        : {
+            id: context.organization.id,
+            name: context.organization.name || '',
+            logoUrl: context.organization.logoUrl,
+          },
+      agency: isAgency
+        ? {
+            id: context.organization.id,
+            name: context.organization.name || '',
+            logoUrl: context.organization.logoUrl,
+          }
+        : {
+            id: selectedConnection.id,
+            name: selectedConnection.name,
+            logoUrl: selectedConnection.logoUrl,
+          },
       createdAt: today,
       createdByOrgId: context.organization.id,
       createdByOrgType: context.variant,
@@ -278,8 +306,12 @@ export function RequestsContent({
     if (!selectedConnectionId) return;
     
     try {
-      const request = await fetchRequestByIdGlobal(requestId, context);
-      if (!request) return;
+      // Use connectionId directly and skip cache for immediate post-insert fetch
+      const request = await fetchRequestByIdGlobal(requestId, context, selectedConnectionId, true);
+      if (!request) {
+        console.error('Failed to fetch newly created request');
+        return;
+      }
       
       // Replace temp row if present; otherwise prepend and increment count
       setRequests(prev => {
@@ -289,9 +321,14 @@ export function RequestsContent({
         return next;
       });
       
-      // Update selectedRequest if it's currently showing the tempId
-      if (tempId && selectedRequest?.id === tempId) {
-        setSelectedRequest(request);
+      // Update selectedRequest if it matches tempId (using functional update to avoid stale closure)
+      if (tempId) {
+        setSelectedRequest(prev => {
+          if (prev?.id === tempId) {
+            return request;
+          }
+          return prev;
+        });
       }
       
       // Fetch comments for the new request
@@ -308,7 +345,7 @@ export function RequestsContent({
     } catch (error) {
       console.error('Failed to fetch newly created request:', error);
     }
-  }, [selectedConnectionId, context, selectedRequest]);
+  }, [selectedConnectionId, context]);
 
   const handleRequestClick = useCallback(async (requestId: string) => {
     // Try to get request from local state first
@@ -380,9 +417,10 @@ export function RequestsContent({
       // Determine baseRoute based on context variant
       // Agencies view clients, clients view agencies
       const baseRoute = context.variant === 'agency' ? 'clients' : 'agencies';
-      router.push(`/${baseRoute}/${selectedRequest.connectionId}/requests/${selectedRequest.id}`);
+      const url = `/${baseRoute}/${selectedRequest.connectionId}/requests/${selectedRequest.id}`;
+      window.location.href = url;
     }
-  }, [selectedRequest, router, context.variant]);
+  }, [selectedRequest, context.variant]);
 
   const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => {
     // Optimistic update
@@ -413,15 +451,11 @@ export function RequestsContent({
       setSelectedRequest(null);
     }
     
-    // Show success toast immediately
-    toast.success('Request deleted');
-    
-    // Delete in background - real-time subscription will handle UI updates
-    // No server refresh needed to avoid flicker
     try {
       const { deleteRequest } = await import('@/features/connections/requests/actions');
       await deleteRequest(requestId);
-      // Real-time subscription will handle UI updates, no manual refresh needed
+      // Only show success toast after server confirms
+      toast.success('Request deleted');
     } catch (error) {
       // Revert optimistic update on error
       if (deletedRequest && deletedIndex >= 0) {
@@ -461,6 +495,7 @@ export function RequestsContent({
         <RequestsHeader
           onNewRequest={handleNewRequest}
           newRequestsCount={newRequestsCount}
+          isAgency={isAgency}
         />
       </div>
 

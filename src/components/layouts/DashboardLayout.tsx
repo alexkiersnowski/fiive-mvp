@@ -29,8 +29,11 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   // Check if we're on a detail page (should use card variant, not full-width)
   // Matches detail pages: requests/projects/tasks under clients/agencies
   const isDetailPage = /^\/(clients|agencies)\/[^/]+\/(requests|projects|tasks)\/[^/]+$/.test(pathname)
-  const isFullWidthPage = !isDetailPage && (['/home', '/clients', '/agencies', '/requests'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/') || pathname.startsWith('/requests/'))
-  const isSettingsPage = pathname.startsWith('/settings')
+  // Check if we're on a connection settings page
+  const isConnectionSettingsPage = /^\/(clients|agencies)\/[^/]+\/settings$/.test(pathname)
+  // Exclude connection settings pages from full-width check
+  const isFullWidthPage = !isDetailPage && !isConnectionSettingsPage && (['/home', '/clients', '/agencies', '/requests', '/tasks'].includes(pathname) || pathname.startsWith('/clients/') || pathname.startsWith('/agencies/') || pathname.startsWith('/requests/') || pathname.startsWith('/tasks/'))
+  const isSettingsPage = pathname.startsWith('/settings') || isConnectionSettingsPage
   const isMembersPage = pathname === '/settings/organization/members'
   const sidebarVariant = isSettingsPage ? 'secondary' : 'primary'
   
@@ -69,7 +72,8 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   }, [pathname])
   
   // Determine sidebar width based on variant and collapse state
-  const sidebarWidth = isSettingsPage ? '240px' : (effectiveIsCollapsed ? '60px' : '240px')
+  // Connection settings pages should always show full sidebar (like settings pages)
+  const sidebarWidth = (isSettingsPage || isConnectionSettingsPage) ? '240px' : (effectiveIsCollapsed ? '60px' : '240px')
   
   return (
     <div 
@@ -121,8 +125,8 @@ export default function DashboardLayout({ data, context, children, initialIsColl
             borderRadius: isFullWidthPage ? '0' : 'var(--radius-6, 16px)',
             border: isFullWidthPage ? 'none' : '1px solid var(--color-neutral-alpha-4, rgba(0, 0, 45, 0.09))',
             background: isFullWidthPage ? 'transparent' : 'var(--color-base-panel-default, rgba(255, 255, 255, 0.80))',
-            padding: isFullWidthPage ? '0' : (isSettingsPage ? (isMembersPage ? '0 64px 40px 64px' : '40px 64px 40px 64px') : isDetailPage ? '24px 32px 0px 32px' : '24px 32px 0px 32px'),
-            overflow: isFullWidthPage ? 'visible' : (isSettingsPage ? 'auto' : 'hidden'),
+            padding: isFullWidthPage ? '0' : ((isSettingsPage || isConnectionSettingsPage) ? (isMembersPage ? '0 64px 40px 64px' : '40px 64px 40px 64px') : isDetailPage ? '24px 32px 0px 32px' : '24px 32px 0px 32px'),
+            overflow: isFullWidthPage ? 'visible' : ((isSettingsPage || isConnectionSettingsPage) ? 'auto' : 'hidden'),
             display: isFullWidthPage ? 'block' : 'flex',
             flexDirection: 'column'
           }}

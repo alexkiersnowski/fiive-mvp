@@ -1,9 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/connection-badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { InlineEdit } from '@/components/ui/inline-edit';
@@ -11,17 +15,22 @@ import { ImageUpload } from '@/components/ui/image-upload';
 import { ArrowLeft, DotsThree, Link, PaperPlaneTilt, Trash, XCircle } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { updateDraftClientOrganization, inviteClientToConnection, resendInviteEmail, cancelInvitation } from './actions';
+import { updateDraftClientOrganization, inviteClientToConnection, resendInviteEmail, cancelInvitation, reconnectConnection } from './actions';
 import { deleteClient } from '@/features/clients/actions';
 import { useConnection } from './ConnectionContext';
 import type { ConnectionSnapshot } from './types';
 import type { StatusVariant } from '@/components/ui/connection-badge';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/shadcn-io/spinner';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 
 interface ConnectionHeaderProps {
   snapshot: ConnectionSnapshot;
 }
+
+const reconnectSchema = z.object({
+  connectionCode: z.string().min(1, "Connection code is required")
+})
 
 export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
   const router = useRouter();
@@ -37,20 +46,34 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
   const [emailValidationError, setEmailValidationError] = useState<string>('');
   const [isResending, setIsResending] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
+  const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+
+  // Form for reconnect dialog
+  const reconnectForm = useForm<{ connectionCode: string }>({
+    resolver: zodResolver(reconnectSchema),
+    defaultValues: {
+      connectionCode: ""
+    },
+    mode: "onSubmit",
+  });
   
-  // Determine if name should be editable (draft connection, agency user, client partner)
-  const isNameEditable = snapshot.connection.isDraft && 
+  // Determine if name should be editable (internal connection, agency user, client partner)
+  const isNameEditable = snapshot.connection.isInternal && 
                          snapshot.currentUserType === 'agency' && 
                          snapshot.partner.type === 'client';
   
   // Logo is editable under same conditions as name
   const isLogoEditable = isNameEditable;
   
-  // Check if this is a draft connection
-  const isDraft = snapshot.connection.isDraft && snapshot.partner.type === 'client';
+  // Check if this is an internal connection
+  const isInternal = snapshot.connection.isInternal && snapshot.partner.type === 'client';
   
   // Check if this is an invited connection (works for both client and agency partners)
   const isInvited = snapshot.connection.status === 'invited';
+  
+  // Check if this is a disconnected connection
+  const isDisconnected = snapshot.connection.status === 'disconnected';
   
   // Determine back link and label based on partner type
   const backHref = snapshot.partner.type === 'client' ? '/clients' : '/agencies';
@@ -182,7 +205,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
     }
   };
   
-  // Handle delete draft
+  // Handle delete internal
   const handleDeleteClick = () => {
     setIsSettingsOpen(false);
     setDeleteDialogOpen(true);
@@ -233,6 +256,52 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
     }
   };
 
+  // Handle reconnect
+  const handleReconnect = async (data: { connectionCode: string }) => {
+    // Validate connection code matches partner organization's connection code
+    if (data.connectionCode.trim() !== snapshot.partner.connectionCode) {
+      reconnectForm.setError('connectionCode', {
+        message: 'Invalid code. Please check and try again.'
+      });
+      return;
+    }
+
+    setIsReconnecting(true);
+    try {
+      const result = await reconnectConnection({ 
+        connectionId: snapshot.connection.id,
+        connectionCode: data.connectionCode.trim()
+      });
+
+      if (result.success) {
+        toast.success('Connection reconnected');
+        setReconnectDialogOpen(false);
+        reconnectForm.reset();
+        router.refresh();
+      } else {
+        // If connection code was valid but update failed (e.g., RLS), close modal and show toast
+        // Otherwise, show error in form field
+        const isPermissionError = result.error?.includes('permission') || result.error?.includes('blocked');
+        if (isPermissionError) {
+          toast.error(result.error || 'Failed to reconnect connection');
+          setReconnectDialogOpen(false);
+          reconnectForm.reset();
+        } else {
+          reconnectForm.setError('connectionCode', {
+            message: result.error || 'Invalid code. Please check and try again.'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error reconnecting connection:', error);
+      reconnectForm.setError('connectionCode', {
+        message: 'Failed to reconnect connection'
+      });
+    } finally {
+      setIsReconnecting(false);
+    }
+  };
+
   const confirmDeleteClient = async () => {
     const clientOrgId = snapshot.partner.id;
     
@@ -243,7 +312,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
     }
 
     // Show success toast immediately
-    toast.success('Draft client deleted');
+    toast.success('Client deleted');
     
     // Close dialog
     setDeleteDialogOpen(false);
@@ -255,11 +324,11 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
     try {
       const result = await deleteClient(clientOrgId, context);
       if (!result.success) {
-        toast.error(result.error || 'Failed to delete draft client');
+        toast.error(result.error || 'Failed to delete client');
       }
     } catch (error) {
       console.error('Error deleting client:', error);
-      toast.error('Failed to delete draft client');
+      toast.error('Failed to delete client');
     }
   };
   
@@ -330,11 +399,29 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
         </div>
         
         <div className="flex items-center gap-3">
-          <StatusBadge 
-            variant={snapshot.connection.status as StatusVariant}
-            size="lg"
-            showText={true}
-          />
+          {snapshot.connection.status === 'internal' ? (
+            <Tooltip delayDuration={250}>
+              <TooltipTrigger asChild>
+                <div>
+                  <StatusBadge 
+                    variant={snapshot.connection.status as StatusVariant}
+                    size="lg"
+                    showText={true}
+                    showTooltip={false}
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8}>
+                <p>Agency-only until connected</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <StatusBadge 
+              variant={snapshot.connection.status as StatusVariant}
+              size="lg"
+              showText={true}
+            />
+          )}
           
           <DropdownMenu modal={false} open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
             <DropdownMenuTrigger asChild>
@@ -351,7 +438,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push(`${backHref}/${snapshot.connection.id}/settings`)}>
                 <Link size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Connection settings
               </DropdownMenuItem>
@@ -377,7 +464,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
                   </DropdownMenuItem>
                 </>
               )}
-              {isDraft && (
+              {isInternal && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -386,7 +473,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
                   >
                     <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
                     <span style={{ color: 'var(--color-red-11)' }}>
-                      Delete draft
+                      Delete client
                     </span>
                   </DropdownMenuItem>
                 </>
@@ -394,7 +481,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
             </DropdownMenuContent>
           </DropdownMenu>
           
-          {isDraft && (
+          {isInternal && (
             <Button
               variant="default"
               size="lg"
@@ -402,6 +489,17 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
               onClick={() => setInviteDialogOpen(true)}
             >
               Invite client
+            </Button>
+          )}
+          
+          {isDisconnected && (
+            <Button
+              variant="default"
+              size="lg"
+              className="cursor-pointer text-sm flex items-center gap-2"
+              onClick={() => setReconnectDialogOpen(true)}
+            >
+              Reconnect
             </Button>
           )}
           
@@ -416,7 +514,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
               <DialogDescription 
                 className="text-sm-regular mb-0"
               >
-                Invite your client&apos;s primary contact to set up their own account and join your shared workspace.
+                Invite your client&apos;s primary contact to set up their account and connect to your workspace
               </DialogDescription>
               <div style={{ marginTop: '12px' }}>
                 <Input
@@ -479,7 +577,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
               <DialogDescription 
                 className="text-sm-regular mb-0"
               >
-                This will permanently delete the draft client and all related data. It won't affect any live clients or shared workspaces.
+                This will permanently delete the client and all related data. It won't affect any live connections or shared workspaces.
               </DialogDescription>
               <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
                 <Button 
@@ -498,6 +596,76 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
                 >
                   Delete
                 </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Reconnect Dialog */}
+          <Dialog open={reconnectDialogOpen} onOpenChange={setReconnectDialogOpen}>
+            <DialogContent style={{ padding: '24px', maxWidth: '460px', height: 'auto', gap: '12px' }} className="[&>button]:hidden">
+              <div className="flex flex-col h-full">
+                <DialogTitle className="display-5-medium mb-3" style={{ color: 'var(--color-base-text-primary)' }}>
+                  Reconnect to {partnerName}
+                </DialogTitle>
+                <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                  Use a connection code to reconnect your shared workspace
+                </DialogDescription>
+                <Form {...reconnectForm}>
+                  <form onSubmit={reconnectForm.handleSubmit(handleReconnect)} className="space-y-5 flex-1 flex flex-col">
+                    <div className="mt-5">
+                      <FormField
+                        control={reconnectForm.control}
+                        name="connectionCode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium">Connection code</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="xxxx-xxxx-xxxx-xxxx-xxxx"
+                                className="h-10 px-4 py-2 text-sm"
+                              />
+                            </FormControl>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {snapshot.partner.type === 'client' 
+                                ? 'Ask your client to share the connection code in their admin settings'
+                                : 'Ask your agency to share the connection code in their admin settings'}
+                            </p>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-3 pt-2 mt-auto">
+                      <Button 
+                        type="button"
+                        variant="ghost" 
+                        onClick={() => {
+                          setReconnectDialogOpen(false);
+                          reconnectForm.reset();
+                        }}
+                        style={{ height: '40px' }}
+                        className="cursor-pointer"
+                        disabled={isReconnecting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="submit"
+                        style={{ height: '40px' }}
+                        className="cursor-pointer relative"
+                        disabled={isReconnecting}
+                      >
+                        <span className={isReconnecting ? "invisible" : ""}>Continue</span>
+                        {isReconnecting && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Spinner size={16} />
+                          </div>
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
               </div>
             </DialogContent>
           </Dialog>

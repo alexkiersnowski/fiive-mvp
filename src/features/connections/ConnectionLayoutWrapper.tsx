@@ -42,44 +42,50 @@ export default async function ConnectionLayoutWrapper({
     notFound();
   }
 
-  // Check if we're on a detail page (request, task, or project detail)
-  // Skip snapshot fetch for detail pages since ConnectionLayout doesn't use it
+  // Check if we're on a detail page (request, task, or project detail) or settings page
+  // Skip snapshot fetch for detail pages and settings page since ConnectionLayout doesn't use it
   // Note: Server components don't have direct pathname access, so we use a best-effort detection
-  // ConnectionLayout will handle null snapshot gracefully for detail pages
+  // ConnectionLayout will handle null snapshot gracefully for detail pages and settings page
   const headersList = await headers();
-  const pathname = headersList.get('x-pathname') || headersList.get('referer') || '';
-  let isDetailPage = false;
+  const pathnameHeader = headersList.get('x-pathname');
+  const referer = headersList.get('referer') || '';
   
-  // Try to detect detail pages from pathname header (set by middleware) or referer
-  if (pathname) {
+  // Only use pathname header if available (more reliable than referer)
+  // If pathname header is not available, we'll always fetch snapshot to be safe
+  let isDetailPage = false;
+  let isSettingsPage = false;
+  
+  if (pathnameHeader) {
+    // Pathname header is available - use it directly (most reliable)
     try {
-      // If pathname header is available (set by middleware), use it directly
-      // Otherwise, parse from referer URL
-      const urlPathname = pathname.startsWith('/') 
-        ? pathname 
+      const urlPathname = pathnameHeader.startsWith('/') 
+        ? pathnameHeader 
         : (() => {
             try {
-              const url = new URL(pathname);
+              const url = new URL(pathnameHeader);
               return url.pathname;
             } catch {
-              return pathname;
+              return pathnameHeader;
             }
           })();
       
-      // Check if pathname matches detail page patterns
+      // Check if pathname matches detail page patterns or settings page
       isDetailPage = /\/requests\/[^/]+$/.test(urlPathname) || 
                      /\/tasks\/[^/]+$/.test(urlPathname) || 
                      /\/projects\/[^/]+$/.test(urlPathname);
+      isSettingsPage = /\/settings$/.test(urlPathname);
     } catch {
       // If URL parsing fails, assume we need snapshot (conservative approach)
+      isDetailPage = false;
+      isSettingsPage = false;
     }
   }
-  // Note: On initial page load without pathname/referer, we'll fetch snapshot (conservative)
-  // This is acceptable since ConnectionLayout handles both cases correctly
+  // If pathname header is not available, always fetch snapshot (conservative approach)
+  // This ensures pages like overview always get the snapshot they need
   
-  // Only fetch snapshot if not detected as detail page
+  // Only fetch snapshot if not detected as detail page or settings page
   // getConnectionSnapshot is cached, so multiple calls within the same request are deduplicated
-  const snapshot = isDetailPage ? null : await getConnectionSnapshot(context, connectionId);
+  const snapshot = (isDetailPage || isSettingsPage) ? null : await getConnectionSnapshot(context, connectionId);
 
   return (
     <ConnectionLayout 

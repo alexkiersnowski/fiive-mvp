@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 import { Circle } from "@phosphor-icons/react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 
-export type StatusVariant = "connected" | "invited" | "disconnected" | "draft"
+export type StatusVariant = "connected" | "invited" | "disconnected" | "internal"
 export type BadgeSize = "sm" | "lg"
 
 interface StatusBadgeProps {
@@ -29,7 +29,7 @@ const statusStyles = {
     backgroundColor: "var(--color-semantic-error-3)",
     borderRadius: "var(--radius-1-max, 3px)"
   },
-  draft: {
+  internal: {
     backgroundColor: "var(--color-neutral-alpha-3)",
     borderRadius: "var(--radius-1-max, 3px)"
   }
@@ -45,7 +45,7 @@ const iconStyles = {
   disconnected: {
     color: "var(--color-semantic-error-11)"
   },
-  draft: {
+  internal: {
     color: "var(--color-neutral-11)"
   }
 }
@@ -54,7 +54,7 @@ const tooltipLabels = {
   connected: "Connected",
   invited: "Invited",
   disconnected: "Disconnected",
-  draft: "Draft"
+  internal: "Internal"
 }
 
 export function StatusBadge({ variant, size = "sm", className, showTooltip = false, showText = false }: StatusBadgeProps) {

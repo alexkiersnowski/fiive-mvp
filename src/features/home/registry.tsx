@@ -5,11 +5,14 @@ import type { CardConfig } from './types';
 import ClientsCard from './cards/stats/ClientsCard';
 import NewRequestsCard from './cards/stats/NewRequestsCard';
 import ContractsEndingCard from './cards/stats/ContractsEndingCard';
+import RequestsInReviewCard from './cards/stats/RequestsInReviewCard';
 import TasksDueCard from './cards/stats/TasksDueCard';
+import TasksAssignedCard from './cards/stats/TasksAssignedCard';
 
 // Import other cards
 import RequestsCard from './cards/RequestsCard';
 import HealthCard from './cards/HealthCard';
+import AgencyProjects from './cards/AgencyProjects';
 import TasksCard from './cards/TasksCard';
 import ResourcesCard from './cards/ResourcesCard';
 
@@ -60,11 +63,11 @@ const CLIENT_CARDS: CardConfig[] = [
   },
   {
     key: 'requests-in-review',
-    Component: ContractsEndingCard, // Will be context-aware
+    Component: RequestsInReviewCard,
   },
   {
     key: 'tasks-assigned',
-    Component: TasksDueCard, // Will be context-aware
+    Component: TasksAssignedCard,
   },
   {
     key: 'requests',
@@ -72,7 +75,7 @@ const CLIENT_CARDS: CardConfig[] = [
   },
   {
     key: 'health',
-    Component: HealthCard,
+    Component: AgencyProjects,
   },
   {
     key: 'tasks',

@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Plus, LockSimple, Eye, EyeSlash, LinkSimple, PencilSimple, LinkBreak } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 import { createConnectionResource, deleteConnectionResource, updateConnectionResource } from '../resources/actions';
+import { useConnection } from '../ConnectionContext';
 import type { ConnectionSnapshot } from '../types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
@@ -97,6 +98,7 @@ interface ResourcesCardClientProps {
 }
 
 export default function ResourcesCardClient({ snapshot, context, initialResources }: ResourcesCardClientProps) {
+  const { isDisconnected } = useConnection();
   const isAgency = context.variant === 'agency';
   const title = 'Resources';
   const description = isAgency 
@@ -168,6 +170,8 @@ export default function ResourcesCardClient({ snapshot, context, initialResource
   };
 
   const handleSubmitLink = () => {
+    if (isDisconnected) return;
+    
     const normalizedUrl = normalizeUrl(linkUrl);
     if (!normalizedUrl) {
       return;
@@ -226,6 +230,8 @@ export default function ResourcesCardClient({ snapshot, context, initialResource
   };
 
   const handleRemoveResource = (resourceId: string) => {
+    if (isDisconnected) return;
+    
     startTransition(async () => {
       const result = await deleteConnectionResource(resourceId, snapshot.connection.id);
 
@@ -331,8 +337,8 @@ export default function ResourcesCardClient({ snapshot, context, initialResource
                     )
                   ) : undefined}
                   iconButtonSize={24}
-                  iconButtonEnd={isAgency}
-                  dropdownItems={isAgency ? [
+                  iconButtonEnd={isAgency && !isDisconnected}
+                  dropdownItems={(isAgency && !isDisconnected) ? [
                     {
                       label: 'Edit link',
                       icon: (
@@ -385,7 +391,7 @@ export default function ResourcesCardClient({ snapshot, context, initialResource
           />
         </div>
       )}
-      {isAgency && (
+      {isAgency && !isDisconnected && (
         <div className={`flex justify-end ${hasResources ? 'pt-2' : 'mt-auto'}`}>
           <Popover
             open={isPopoverOpen}

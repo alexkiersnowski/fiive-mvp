@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { InlineEdit, InlineEditRef } from '@/components/ui/inline-edit'
 import { ListRow } from '@/components/ui/list-row'
-import { X, Users } from '@phosphor-icons/react'
+import { X, Users, BuildingOffice } from '@phosphor-icons/react'
 import { createRequest, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
 
@@ -140,9 +140,8 @@ export function NewRequestModal({
     const targetConnectionId = isGlobal ? selectedConnectionId : connectionId
     if (!targetConnectionId) return
     
-    // Close modal and show toast immediately for snappy UX
+    // Close modal immediately for snappy UX
     onClose()
-    toast.success('Request created successfully')
     
     try {
       // Look up project name from projects list
@@ -168,9 +167,12 @@ export function NewRequestModal({
         projectId === 'general' ? null : projectId,
         assigneeUserId
       )
-      // Notify parent with the created id so it can fetch and prepend the row
+      
+      // Only show success toast after server confirms
       if (created?.id) {
-        ;(onRequestCreated as any)?.({ requestId: created.id, tempId })
+        toast.success('Request created successfully')
+        // Notify parent with the created id so it can fetch and prepend the row
+        onRequestCreated?.({ requestId: created.id, tempId })
       }
     } catch (error) {
       console.error('Error creating request:', error)
@@ -287,7 +289,13 @@ export function NewRequestModal({
                 <ListRow
                   avatar={true}
                   avatarUrl={selectedConnectionId ? connections.find(c => c.id === selectedConnectionId)?.logoUrl : undefined}
-                  avatarFallback={!selectedConnectionId ? <Users weight="fill" className="text-white" /> : undefined}
+                  avatarFallback={!selectedConnectionId ? (
+                    variant === 'client' ? (
+                      <BuildingOffice weight="fill" className="text-white" />
+                    ) : (
+                      <Users weight="fill" className="text-white" />
+                    )
+                  ) : undefined}
                   text={selectedConnectionId ? connections.find(c => c.id === selectedConnectionId)?.name || (variant === 'agency' ? 'Client' : 'Agency') : (variant === 'agency' ? 'Client' : 'Agency')}
                   textColor={selectedConnectionId ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
                   comboboxSelectedValue={selectedConnectionId || null}

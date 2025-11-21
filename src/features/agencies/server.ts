@@ -102,7 +102,7 @@ export const getAgenciesSnapshot = cache(async (
       name: org?.name || 'Unknown Agency',
       logo: org?.logo_url,
       industry: org?.industry,
-      status: (conn.connection_status as "connected" | "invited" | "disconnected" | "draft") || 'draft',
+      status: (conn.connection_status as "connected" | "invited" | "disconnected" | "internal") || 'internal',
       accountManager
     };
   });

@@ -66,6 +66,7 @@ type InlineEditProps =
       placeholder?: string
       className?: string
       dateFormat?: string // e.g., 'dd MMM yyyy' for '23 Oct 2025'
+      nonInteractive?: boolean // If true, makes the field non-editable (display only)
     }
 
 export interface InlineEditRef {
@@ -661,6 +662,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     const dateFormatString = props.dateFormat || 'd MMM yyyy' // e.g., '23 Oct 2025'
     
     const handleDateSelect = (date: Date | undefined) => {
+      if (props.nonInteractive) return;
       setSelectedDate(date)
       if (date) {
         // Format the date for display and save ISO string
@@ -673,6 +675,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     }
 
     const handleDateClear = (e: React.MouseEvent) => {
+      if (props.nonInteractive) return;
       e.stopPropagation()
       setSelectedDate(undefined)
       props.onSave('')
@@ -680,23 +683,22 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     }
     
     return (
-      <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+      <Popover open={!props.nonInteractive && isPopoverOpen} onOpenChange={(open) => !props.nonInteractive && setIsPopoverOpen(open)}>
         <PopoverTrigger asChild>
           <div
             className={cn(
               "py-1 px-1 text-sm-regular rounded-sm transition-colors duration-75 flex items-center justify-between gap-2",
-              "hover:bg-[var(--color-interactive-surface-hover)]",
-              isPopoverOpen && "bg-[var(--color-interactive-surface-hover)]",
-              "!cursor-pointer", // Force cursor pointer with !important
+              !props.nonInteractive && "hover:bg-[var(--color-interactive-surface-hover)]",
+              !props.nonInteractive && isPopoverOpen && "bg-[var(--color-interactive-surface-hover)]",
               props.className
             )}
             style={{
-              cursor: 'pointer',
+              cursor: props.nonInteractive ? 'default' : 'pointer',
               ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {})
             }}
           >
             <span>{props.value || props.placeholder || 'Select date'}</span>
-            {props.value && isPopoverOpen && (
+            {props.value && !props.nonInteractive && isPopoverOpen && (
               <XCircle 
                 size={16} 
                 weight="fill" 

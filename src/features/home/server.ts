@@ -88,6 +88,116 @@ export const getContractsEndingCount = cache(async (context: EnhancedModeContext
   return connections?.length || 0;
 });
 
+export const getTasksDueSoonCount = cache(async (context: EnhancedModeContext): Promise<number> => {
+  const supabase = await createClient();
+  
+  // Get all connection IDs that belong to this organization
+  // Agency: connections where agency_id = orgId
+  // Client: connections where client_id = orgId
+  const connectionQuery = context.variant === 'agency'
+    ? supabase
+        .from('connections')
+        .select('id')
+        .eq('agency_id', context.orgId)
+    : supabase
+        .from('connections')
+        .select('id')
+        .eq('client_id', context.orgId);
+
+  const { data: connections, error: connectionQueryError } = await connectionQuery;
+
+  if (connectionQueryError || !connections) {
+    console.error('Error fetching connections for tasks due soon count:', connectionQueryError);
+    return 0;
+  }
+
+  const connectionIds = connections.map(c => c.id);
+
+  if (connectionIds.length === 0) {
+    // No connections, return 0
+    return 0;
+  }
+
+  // Calculate 7 days from now
+  const today = new Date();
+  const sevenDaysFromNow = new Date();
+  sevenDaysFromNow.setDate(today.getDate() + 7);
+  
+  // Format dates for PostgreSQL (YYYY-MM-DD)
+  const todayStr = today.toISOString().split('T')[0];
+  const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
+
+  // Query tasks that are due within the next 7 days
+  // Rules: status != 'done', due_date IS NOT NULL, due_date >= today, due_date <= today + 7 days
+  const { count, error } = await supabase
+    .from('tasks')
+    .select('id', { count: 'exact', head: true })
+    .in('connection_id', connectionIds)
+    .is('deleted_at', null)
+    .neq('status', 'done')
+    .not('due_date', 'is', null)
+    .gte('due_date', todayStr)
+    .lte('due_date', sevenDaysStr);
+
+  if (error) {
+    console.error('Error fetching tasks due soon count:', error);
+    return 0;
+  }
+
+  return count || 0;
+});
+
+/**
+ * Get live project counts for all agency connections (client context only)
+ * Returns a map of connectionId -> projectCount
+ */
+export const getLiveProjectCountsForAgencies = cache(async (
+  context: EnhancedModeContext,
+  connectionIds: string[]
+): Promise<Record<string, number>> => {
+  // Only works for client context
+  if (context.variant !== 'client') {
+    return {};
+  }
+
+  if (connectionIds.length === 0) {
+    return {};
+  }
+
+  const supabase = await createClient();
+
+  // Count live projects for each connection
+  // Live projects = status IN ['planned', 'active', 'on_hold']
+  const { data: projects, error } = await supabase
+    .from('projects')
+    .select('connection_id')
+    .in('connection_id', connectionIds)
+    .in('status', ['planned', 'active', 'on_hold'])
+    .is('deleted_at', null);
+
+  if (error) {
+    console.error('Error fetching live project counts:', error);
+    return {};
+  }
+
+  // Build a map of connectionId -> count
+  const counts: Record<string, number> = {};
+  
+  // Initialize all connection IDs to 0
+  connectionIds.forEach(id => {
+    counts[id] = 0;
+  });
+
+  // Count projects per connection
+  (projects || []).forEach(project => {
+    if (project.connection_id) {
+      counts[project.connection_id] = (counts[project.connection_id] || 0) + 1;
+    }
+  });
+
+  return counts;
+});
+
 // Unified query that fetches all home page data in a single database call
 export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => {
   const supabase = await createClient();
@@ -121,7 +231,13 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
       };
     }
 
-    // Map agencies to preview format
+    // Get connection IDs for project count lookup
+    const connectionIds = (connections || []).map(c => c.id);
+    
+    // Fetch live project counts for all connections
+    const projectCounts = await getLiveProjectCountsForAgencies(context, connectionIds);
+
+    // Map agencies to preview format with actual project counts
     const agencyPreviews = (connections || []).slice(0, 5).map(conn => {
       const org = conn.organizations as { name?: string; logo_url?: string; industry?: string } | null;
       return {
@@ -129,7 +245,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
         connectionId: conn.id,
         name: org?.name || 'Unknown Agency',
         logo: org?.logo_url,
-        projectCount: 0 // TODO: Wire up actual project count when available
+        projectCount: projectCounts[conn.id] || 0
       };
     });
 
@@ -220,4 +336,42 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
     healthCounts,
     contractsEndingCount
   };
+});
+
+export const getOrganizationResources = cache(async (
+  context: EnhancedModeContext
+): Promise<Array<{
+  id: string;
+  url: string;
+  label: string | null;
+  createdAt: string | null;
+}>> => {
+  const supabase = await createClient();
+  
+  const { data, error } = await supabase
+    .from('organization_resources')
+    .select('id, url, label, created_at')
+    .eq('organization_id', context.orgId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to load organization resources:', error);
+    }
+    return [];
+  }
+
+  const rows = (data ?? []) as Array<{
+    id: string;
+    url: string;
+    label: string | null;
+    created_at: string | null;
+  }>;
+
+  return rows.map((item) => ({
+    id: item.id,
+    url: item.url,
+    label: item.label,
+    createdAt: item.created_at,
+  }));
 });

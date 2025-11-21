@@ -13,16 +13,23 @@ export async function updateClientPrimaryContact(
   const supabase = await createClient()
   
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('connections')
       .update({ client_primary_contact_id: clientPrimaryContactId })
       .eq('id', connectionId)
+      .select('id')
+      .maybeSingle()
     
     if (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error updating client primary contact:', error)
       }
       return { success: false, error: error.message }
+    }
+    
+    // Check if any rows were actually updated (RLS might block silently)
+    if (!data) {
+      return { success: false, error: 'You do not have permission to update this connection.' }
     }
     
     // Revalidate the connection pages to reflect the changes
@@ -47,16 +54,23 @@ export async function updateEngagementStatus(
   const supabase = await createClient()
   
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('connections')
       .update({ engagement_status: engagementStatus })
       .eq('id', connectionId)
+      .select('id')
+      .maybeSingle()
     
     if (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error updating engagement status:', error)
       }
       return { success: false, error: error.message }
+    }
+    
+    // Check if any rows were actually updated (RLS might block silently)
+    if (!data) {
+      return { success: false, error: 'You do not have permission to update this connection.' }
     }
     
     // Revalidate the connection pages to reflect the changes
@@ -97,16 +111,23 @@ export async function updateContractValue(
       numericValue = cleanValue
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('connections')
       .update({ contract_value: numericValue })
       .eq('id', connectionId)
+      .select('id')
+      .maybeSingle()
 
     if (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error updating contract value:', error)
       }
       return { success: false, error: error.message }
+    }
+
+    // Check if any rows were actually updated (RLS might block silently)
+    if (!data) {
+      return { success: false, error: 'You do not have permission to update this connection.' }
     }
 
     // Revalidate the connection pages to reflect the changes
@@ -148,16 +169,23 @@ export async function updateContractEndDate(
       isoDate = `${year}-${month}-${day}`
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('connections')
       .update({ contract_end_on: isoDate })
       .eq('id', connectionId)
+      .select('id')
+      .maybeSingle()
 
     if (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error updating contract end date:', error)
       }
       return { success: false, error: error.message }
+    }
+
+    // Check if any rows were actually updated (RLS might block silently)
+    if (!data) {
+      return { success: false, error: 'You do not have permission to update this connection.' }
     }
 
     // Revalidate the connection pages to reflect the changes
@@ -182,16 +210,23 @@ export async function updateHealthStatus(
   const supabase = await createClient()
   
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('connections')
       .update({ health_status: healthStatus })
       .eq('id', connectionId)
+      .select('id')
+      .maybeSingle()
     
     if (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error updating health status:', error)
       }
       return { success: false, error: error.message }
+    }
+    
+    // Check if any rows were actually updated (RLS might block silently)
+    if (!data) {
+      return { success: false, error: 'You do not have permission to update this connection.' }
     }
     
     // Revalidate the connection pages to reflect the changes
@@ -217,16 +252,23 @@ export async function updateAgencyPrimaryContact(
   const supabase = await createClient()
   
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('connections')
       .update({ agency_primary_contact_id: memberId })
       .eq('id', connectionId)
+      .select('id')
+      .maybeSingle()
     
     if (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Error updating agency primary contact:', error)
       }
       return { success: false, error: error.message }
+    }
+    
+    // Check if any rows were actually updated (RLS might block silently)
+    if (!data) {
+      return { success: false, error: 'You do not have permission to update this connection.' }
     }
     
     // Revalidate the connection pages to reflect the changes
@@ -296,7 +338,7 @@ export async function updateDraftClientOrganization(data: {
     }
     const agencyOrgId = agencyResult.agencyOrgId
 
-    // Validate connection exists, belongs to agency, and is in draft state
+    // Validate connection exists, belongs to agency, and is in internal state
     const { data: connection, error: connectionError } = await supabase
       .from('connections')
       .select('id, connection_status, client_id, agency_id')
@@ -311,11 +353,11 @@ export async function updateDraftClientOrganization(data: {
       }
     }
 
-    // CRITICAL: Only allow updates if connection is in draft state
-    if (connection.connection_status !== 'draft') {
+    // CRITICAL: Only allow updates if connection is in internal state
+    if (connection.connection_status !== 'internal') {
       return { 
         success: false, 
-        error: "Organization details can only be updated for draft connections" 
+        error: "Organization details can only be updated for internal connections" 
       }
     }
 
@@ -436,7 +478,7 @@ export async function inviteClientToConnection(data: {
     }
     const agencyOrgId = agencyResult.agencyOrgId
 
-    // Validate connection exists, belongs to agency, and is in draft or invited state
+    // Validate connection exists, belongs to agency, and is in internal or invited state
     const { data: connection, error: connectionError } = await supabase
       .from('connections')
       .select('id, connection_status, client_id, agency_id')
@@ -451,12 +493,12 @@ export async function inviteClientToConnection(data: {
       }
     }
 
-    // CRITICAL: Only allow invites if connection is in draft or invited state
+    // CRITICAL: Only allow invites if connection is in internal or invited state
     // (invited allows re-invites after 7 days)
-    if (connection.connection_status !== 'draft' && connection.connection_status !== 'invited') {
+    if (connection.connection_status !== 'internal' && connection.connection_status !== 'invited') {
       return { 
         success: false, 
-        error: "Client can only be invited for draft or invited connections" 
+        error: "Client can only be invited for internal or invited connections" 
       }
     }
 
@@ -995,9 +1037,9 @@ export async function cancelInvitation(data: {
     }
 
     // Clear invite fields
-    // For agency-invited clients: set status back to draft (agency can edit draft)
-    // For client-invited agencies: keep status as 'invited' (clients can't edit drafts)
-    const newStatus = userOrgType === 'agency' ? 'draft' : 'invited'
+    // For agency-invited clients: set status back to internal (agency can edit internal)
+    // For client-invited agencies: keep status as 'invited' (clients can't edit internal)
+    const newStatus = userOrgType === 'agency' ? 'internal' : 'invited'
     
     const { error: updateError } = await supabase
       .from('connections')
@@ -1031,6 +1073,288 @@ export async function cancelInvitation(data: {
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('Unexpected error canceling invitation:', error)
+    }
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function disconnectConnection(data: {
+  connectionId: string
+}) {
+  const supabase = await createClient()
+  
+  try {
+    // Verify the user is authenticated
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { 
+        success: false, 
+        error: "Unauthorized" 
+      }
+    }
+
+    // Get user's organization ID and type
+    const { data: membership, error: membershipError } = await supabase
+      .from('memberships')
+      .select(`
+        org_id,
+        organizations!inner(id, type, owner_id)
+      `)
+      .eq('user_id', user.id)
+      .is('organizations.is_draft', false)
+      .single()
+
+    let userOrgId: string | null = null
+    let userOrgType: string | null = null
+
+    if (membershipError || !membership) {
+      // Fallback: check if user is owner
+      const { data: ownerOrg, error: ownerError } = await supabase
+        .from('organizations')
+        .select('id, type')
+        .eq('owner_id', user.id)
+        .is('is_draft', false)
+        .single()
+
+      if (ownerError || !ownerOrg) {
+        return {
+          success: false,
+          error: 'You must be a member of an organization'
+        }
+      }
+
+      userOrgId = ownerOrg.id
+      userOrgType = ownerOrg.type
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const org = (membership as any).organizations
+      userOrgId = org.id
+      userOrgType = org.type
+    }
+
+    if (!userOrgId || !userOrgType) {
+      return {
+        success: false,
+        error: 'Organization not found'
+      }
+    }
+
+    // Validate connection exists and belongs to user's org
+    const { data: connection, error: connectionError } = await supabase
+      .from('connections')
+      .select('id, connection_status, agency_id, client_id')
+      .eq('id', data.connectionId)
+      .or(userOrgType === 'agency' 
+        ? `agency_id.eq.${userOrgId}` 
+        : `client_id.eq.${userOrgId}`)
+      .single()
+
+    if (connectionError || !connection) {
+      return { 
+        success: false, 
+        error: "Connection not found or access denied" 
+      }
+    }
+
+    // CRITICAL: Only allow disconnect for connected connections
+    if (connection.connection_status !== 'connected') {
+      return { 
+        success: false, 
+        error: "Can only disconnect connected connections" 
+      }
+    }
+
+    // Update connection status to disconnected
+    const { error: updateError } = await supabase
+      .from('connections')
+      .update({
+        connection_status: 'disconnected',
+        disconnected_at: new Date().toISOString()
+      })
+      .eq('id', data.connectionId)
+
+    if (updateError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error disconnecting connection:', updateError)
+      }
+      return {
+        success: false,
+        error: 'Failed to disconnect connection'
+      }
+    }
+
+    // Revalidate connection pages to reflect the changes
+    revalidatePath(`/clients/${data.connectionId}`)
+    revalidatePath(`/agencies/${data.connectionId}`)
+    revalidatePath(`/clients/${data.connectionId}/settings`)
+    revalidatePath(`/agencies/${data.connectionId}/settings`)
+    revalidatePath('/clients')
+    revalidatePath('/agencies')
+
+    return {
+      success: true
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error disconnecting connection:', error)
+    }
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function reconnectConnection(data: {
+  connectionId: string
+  connectionCode: string
+}) {
+  const supabase = await createClient()
+  
+  try {
+    // Verify the user is authenticated
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { 
+        success: false, 
+        error: "Unauthorized" 
+      }
+    }
+
+    // Get user's organization ID and type
+    const { data: membership, error: membershipError } = await supabase
+      .from('memberships')
+      .select(`
+        org_id,
+        organizations!inner(id, type, owner_id)
+      `)
+      .eq('user_id', user.id)
+      .is('organizations.is_draft', false)
+      .single()
+
+    let userOrgId: string | null = null
+    let userOrgType: string | null = null
+
+    if (membershipError || !membership) {
+      // Fallback: check if user is owner
+      const { data: ownerOrg, error: ownerError } = await supabase
+        .from('organizations')
+        .select('id, type')
+        .eq('owner_id', user.id)
+        .is('is_draft', false)
+        .single()
+
+      if (ownerError || !ownerOrg) {
+        return {
+          success: false,
+          error: 'You must be a member of an organization'
+        }
+      }
+
+      userOrgId = ownerOrg.id
+      userOrgType = ownerOrg.type
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const org = (membership as any).organizations
+      userOrgId = org.id
+      userOrgType = org.type
+    }
+
+    if (!userOrgId || !userOrgType) {
+      return {
+        success: false,
+        error: 'Organization not found'
+      }
+    }
+
+    // Validate connection exists and belongs to user's org
+    const { data: connection, error: connectionError } = await supabase
+      .from('connections')
+      .select('id, connection_status, agency_id, client_id')
+      .eq('id', data.connectionId)
+      .or(userOrgType === 'agency' 
+        ? `agency_id.eq.${userOrgId}` 
+        : `client_id.eq.${userOrgId}`)
+      .single()
+
+    if (connectionError || !connection) {
+      return { 
+        success: false, 
+        error: "Connection not found or access denied" 
+      }
+    }
+
+    // CRITICAL: Only allow reconnect for disconnected connections
+    if (connection.connection_status !== 'disconnected') {
+      return { 
+        success: false, 
+        error: "Can only reconnect disconnected connections" 
+      }
+    }
+
+    // Validate connection code matches partner organization's connection code
+    const partnerOrgId = userOrgType === 'agency' ? connection.client_id : connection.agency_id
+    const { data: partnerOrg, error: partnerOrgError } = await supabase
+      .from('organizations')
+      .select('connection_code')
+      .eq('id', partnerOrgId)
+      .single()
+
+    if (partnerOrgError || !partnerOrg) {
+      return {
+        success: false,
+        error: 'Partner organization not found'
+      }
+    }
+
+    if (data.connectionCode.trim() !== partnerOrg.connection_code) {
+      return {
+        success: false,
+        error: 'Invalid code. Please check and try again.'
+      }
+    }
+
+    // Update connection status to connected
+    const { data: updatedConnection, error: updateError } = await supabase
+      .from('connections')
+      .update({
+        connection_status: 'connected',
+        connected_at: new Date().toISOString(),
+        disconnected_at: null
+      })
+      .eq('id', data.connectionId)
+      .select('id')
+      .maybeSingle()
+
+    if (updateError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error reconnecting connection:', updateError)
+      }
+      return {
+        success: false,
+        error: 'Failed to reconnect connection'
+      }
+    }
+
+    // Check if any rows were actually updated (RLS might block silently)
+    if (!updatedConnection) {
+      return {
+        success: false,
+        error: 'You do not have permission to reconnect this connection.'
+      }
+    }
+
+    // Revalidate connection pages to reflect the changes
+    revalidatePath(`/clients/${data.connectionId}`)
+    revalidatePath(`/agencies/${data.connectionId}`)
+    revalidatePath(`/clients/${data.connectionId}/settings`)
+    revalidatePath(`/agencies/${data.connectionId}/settings`)
+    revalidatePath('/clients')
+    revalidatePath('/agencies')
+
+    return {
+      success: true
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Unexpected error reconnecting connection:', error)
     }
     return { success: false, error: 'An unexpected error occurred' }
   }

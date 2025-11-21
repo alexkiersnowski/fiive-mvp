@@ -56,7 +56,7 @@ interface RequestsTableProps {
 }
 
 export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask }: RequestsTableProps) {
-  const { snapshot } = useConnection()
+  const { snapshot, isDisconnected } = useConnection()
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -341,7 +341,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               }
             </span>
           </div>
-          {onNewRequest && (
+          {onNewRequest && !isDisconnected && (
             <Button 
               variant="outline" 
               size="sm" 
@@ -397,9 +397,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={8}>
                 {isAgency 
-                  ? (snapshot.connection.isDraft
-                      ? 'Visible after invite'
-                      : 'Both you and your client can see this')
+                  ? 'Visible in client portal'
                   : 'Both you and your agency can manage this'}
                 </TooltipContent>
               </Tooltip>
@@ -435,40 +433,42 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               <SortAscending size={16} />
               {currentSortLabel}
             </Button>
-            <Button
-              variant="default"
-              size="lg"
-              className="cursor-pointer text-sm flex-shrink-0 h-6"
-              style={{ paddingLeft: '16px', paddingRight: '16px' }}
-              onClick={() => {
-                onNewRequest?.();
-              }}
-              onMouseEnter={() => {
-                // Prefetch projects on hover for instant modal opening
-                if (onNewRequest) {
-                  const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
-                  if (connectionId) {
-                    fetchProjectsForConnection(connectionId).catch(() => {
-                      // Silently fail - modal will fetch on open if prefetch fails
-                    });
+            {!isDisconnected && (
+              <Button
+                variant="default"
+                size="lg"
+                className="cursor-pointer text-sm flex-shrink-0 h-6"
+                style={{ paddingLeft: '16px', paddingRight: '16px' }}
+                onClick={() => {
+                  onNewRequest?.();
+                }}
+                onMouseEnter={() => {
+                  // Prefetch projects on hover for instant modal opening
+                  if (onNewRequest) {
+                    const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
+                    if (connectionId) {
+                      fetchProjectsForConnection(connectionId).catch(() => {
+                        // Silently fail - modal will fetch on open if prefetch fails
+                      });
+                    }
                   }
-                }
-              }}
-              onFocus={() => {
-                // Prefetch projects on focus for keyboard navigation
-                if (onNewRequest) {
-                  const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
-                  if (connectionId) {
-                    fetchProjectsForConnection(connectionId).catch(() => {
-                      // Silently fail - modal will fetch on open if prefetch fails
-                    });
+                }}
+                onFocus={() => {
+                  // Prefetch projects on focus for keyboard navigation
+                  if (onNewRequest) {
+                    const connectionId = window.location.pathname.match(/\/(?:agencies|clients)\/([^/]+)/)?.[1];
+                    if (connectionId) {
+                      fetchProjectsForConnection(connectionId).catch(() => {
+                        // Silently fail - modal will fetch on open if prefetch fails
+                      });
+                    }
                   }
-                }
-              }}
-            >
-              <Plus size={16} className="mr-1" />
-              {isAgency ? 'New request' : 'Submit request'}
-            </Button>
+                }}
+              >
+                <Plus size={16} className="mr-1" />
+                {isAgency ? 'New request' : 'Submit request'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -546,21 +546,30 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 {isAgency ? (
                   <TableCell 
                     className="w-[15%] py-0" 
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={isDisconnected ? undefined : (e) => e.stopPropagation()}
                   >
-                    <InlineEdit
-                      type="badge"
-                      value={request.status}
-                      options={[
-                        { value: 'new', label: 'New' },
-                        { value: 'in_review', label: 'In review' },
-                        { value: 'accepted', label: 'Accepted' },
-                        { value: 'canceled', label: 'Canceled' },
-                      ]}
-                      onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
-                      badgeComponent="request"
-                      className="truncate h-6 rounded-[8px]"
-                    />
+                    {isDisconnected ? (
+                      <RequestBadge 
+                        variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
+                        size="sm" 
+                        showText={true}
+                        className="inline-flex"
+                      />
+                    ) : (
+                      <InlineEdit
+                        type="badge"
+                        value={request.status}
+                        options={[
+                          { value: 'new', label: 'New' },
+                          { value: 'in_review', label: 'In review' },
+                          { value: 'accepted', label: 'Accepted' },
+                          { value: 'canceled', label: 'Canceled' },
+                        ]}
+                        onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
+                        badgeComponent="request"
+                        className="truncate h-6 rounded-[8px]"
+                      />
+                    )}
                   </TableCell>
                 ) : (
                   <TableCell className="w-[15%] py-0">
@@ -619,7 +628,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
 
                     <TableCell 
                       className="w-[15%] py-0"
-                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                      onClick={isDisconnected ? undefined : (e: React.MouseEvent) => e.stopPropagation()}
                     >
                       <ListRow
                         ref={assigneeListRowRef}
@@ -634,12 +643,13 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         onClick={() => {
                           // Assignee click handled by combobox
                         }}
-                        comboboxOptions={comboboxOptions}
-                        onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
-                        comboboxPlaceholder="Search members..."
-                        comboboxWidth="240px"
-                        clearable={!!request.assignee}
-                        onClear={() => handleClearAssignee(request.id)}
+                        comboboxOptions={isDisconnected ? undefined : comboboxOptions}
+                        onComboboxSelect={isDisconnected ? undefined : (memberId) => handleAssigneeSelect(request.id, memberId)}
+                        comboboxPlaceholder={isDisconnected ? undefined : "Search members..."}
+                        comboboxWidth={isDisconnected ? undefined : "240px"}
+                        clearable={isDisconnected ? false : !!request.assignee}
+                        onClear={isDisconnected ? undefined : () => handleClearAssignee(request.id)}
+                        nonInteractive={isDisconnected}
                       />
                     </TableCell>
                   </>
@@ -647,7 +657,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   <>
                     <TableCell 
                       className="w-[15%] py-0"
-                      onClick={request.assignee ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
+                      onClick={request.assignee && !isDisconnected ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
                     >
                       <ListRow
                         avatar={true}
@@ -658,8 +668,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         variant="stacked"
                         className="min-w-0"
                       comboboxSelectedValue={request.assignee?.id ?? null}
-                        nonInteractive={!request.assignee}
-                        onClick={request.assignee ? () => {
+                        nonInteractive={isDisconnected || !request.assignee}
+                        onClick={request.assignee && !isDisconnected ? () => {
                           const nameParts = request.assignee!.name.split(' ')
                           const assigneeMember = agencyMembers.find(member => member.id === request.assignee!.id)
                           handleContactClick({
@@ -752,7 +762,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                           <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           View details
                         </DropdownMenuItem>
-                        {isAgency && (
+                        {!isDisconnected && isAgency && (
                           <DropdownMenuItem
                             onClick={() => {
                               setOpenActionsDropdown(null)
@@ -770,7 +780,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                           <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           Copy link
                         </DropdownMenuItem>
-                        {request.createdByOrgId === currentOrgId && (
+                        {!isDisconnected && request.createdByOrgId === currentOrgId && (
                           <>
                             <div className="border-t border-[var(--color-neutral-6)] my-1" />
                             <DropdownMenuItem 

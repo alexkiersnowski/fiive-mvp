@@ -126,11 +126,12 @@ interface RequestDetailContentProps {
     createdByOrgId?: string
     createdByOrgType?: 'agency' | 'client'
   }) => void
+  isGlobalView?: boolean
 }
 
 type ConvertRequest = NonNullable<ConvertToTaskModalProps['request']>
 
-export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -138,7 +139,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   const baseRoute = pathname?.startsWith('/agencies/') ? 'agencies' : 'clients'
   
   // Determine if we're in global requests view (not connection-specific)
-  const isGlobalView = pathname?.startsWith('/requests')
+  // Use prop if provided, otherwise check pathname
+  const isGlobalView = propIsGlobalView ?? pathname?.startsWith('/requests')
   
   // Determine if the request is locked for editing based on view context and organization type
   // Agency view: locked if created by client
@@ -668,13 +670,6 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     
     try {
       await updateRequestStatus(requestId, validStatus)
-      const statusLabels = {
-        new: 'New',
-        in_review: 'In review',
-        accepted: 'Accepted',
-        canceled: 'Canceled'
-      }
-      toast.success(`Status updated to ${statusLabels[validStatus]}`)
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update status:', error)
@@ -708,7 +703,6 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       
       try {
         await updateRequestAssignee(requestId, memberId)
-        toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
         // Real-time subscription will handle UI updates
       } catch (error) {
         console.error('Failed to update assignee:', error)
@@ -734,7 +728,6 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     
     try {
       await updateRequestAssignee(requestId, null)
-      toast.success('Assignee removed')
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to clear assignee:', error)
@@ -1019,11 +1012,17 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 avatar={true}
                 avatarUrl={variant === 'agency' ? (client?.logoUrl || null) : (agency?.logoUrl || null)}
                 text={variant === 'agency' ? (client?.name || 'Unknown Client') : (agency?.name || 'Unknown Agency')}
-                nonInteractive={!(isGlobalView && variant === 'agency' && connectionId)}
-                onClick={isGlobalView && variant === 'agency' && connectionId ? () => {
-                  router.push(`/clients/${connectionId}/overview`)
-                } : undefined}
-                iconEnd={isGlobalView && variant === 'agency' && connectionId ? (
+                nonInteractive={!(
+                  isGlobalView && 
+                  connectionId && 
+                  ((variant === 'agency') || (variant === 'client'))
+                )}
+                onClick={isGlobalView && connectionId ? (
+                  variant === 'agency' 
+                    ? () => { window.location.href = `/clients/${connectionId}/overview`; }
+                    : () => { window.location.href = `/agencies/${connectionId}/overview`; }
+                ) : undefined}
+                iconEnd={isGlobalView && connectionId ? (
                   <ArrowSquareOut 
                     size={16} 
                     className="opacity-0 group-hover:opacity-100 transition-opacity duration-75"

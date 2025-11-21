@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -22,24 +22,8 @@ function getCurrencySymbol(currencyCode: 'EUR' | 'USD' | 'GBP'): string {
 }
 
 export default function DetailsCard({ context }: { context: EnhancedModeContext }) {
-  const { snapshot } = useConnection();
+  const { snapshot, isDisconnected } = useConnection();
   const isAgency = context.variant === 'agency';
-  const [contractValue, setContractValue] = useState(snapshot.connection.contractValue || '');
-  const [contractEnd, setContractEnd] = useState(snapshot.connection.contractEnd || '');
-  const [healthStatus, setHealthStatus] = useState(snapshot.connection.health || '');
-  
-  // Update local state if snapshot changes
-  useEffect(() => {
-    setContractValue(snapshot.connection.contractValue || '');
-  }, [snapshot.connection.contractValue]);
-  
-  useEffect(() => {
-    setContractEnd(snapshot.connection.contractEnd || '');
-  }, [snapshot.connection.contractEnd]);
-  
-  useEffect(() => {
-    setHealthStatus(snapshot.connection.health || '');
-  }, [snapshot.connection.health]);
 
   return (
     <Card className="w-full h-full min-h-[228px] pt-5 pb-5 px-5 flex flex-col gap-3">
@@ -60,7 +44,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
               }}
             >
               <EyeSlash size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Internal only</span>
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Not client visible</span>
             </Badge>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
@@ -88,6 +72,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                   { value: 'paused', label: 'Paused' },
                   { value: 'offboarded', label: 'Offboarded' }
                 ]}
+                nonInteractive={isDisconnected}
                 onSave={async (newValue) => {
                   try {
                     const result = await updateEngagementStatus(
@@ -129,15 +114,14 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
             {isAgency ? (
               <InlineEdit
                 type="text"
-                value={contractValue}
+                value={snapshot.connection.contractValue || ''}
                 placeholder={`E.g. ${getCurrencySymbol(snapshot.agency.currencyCode)}250,000`}
                 editingPlaceholder="250,000"
                 currency={getCurrencySymbol(snapshot.agency.currencyCode)}
                 numeric={true}
                 showBorder={true}
+                nonInteractive={isDisconnected}
                 onSave={async (newValue) => {
-                  setContractValue(newValue);
-                  
                   try {
                     const result = await updateContractValue(
                       snapshot.connection.id,
@@ -148,8 +132,6 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                       if (process.env.NODE_ENV !== 'production') {
                         console.error('Failed to update contract value:', result.error);
                       }
-                      // Revert to previous value on error
-                      setContractValue(snapshot.connection.contractValue || '');
                       toast.error('Failed to update contract value');
                     } else {
                       toast.success('Contract value updated');
@@ -158,8 +140,6 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                     if (process.env.NODE_ENV !== 'production') {
                       console.error('Error updating contract value:', error);
                     }
-                    // Revert to previous value on error
-                    setContractValue(snapshot.connection.contractValue || '');
                     toast.error('Failed to update contract value');
                   }
                 }}
@@ -182,12 +162,11 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
             {isAgency ? (
               <InlineEdit
                 type="date"
-                value={contractEnd}
+                value={snapshot.connection.contractEnd || ''}
                 placeholder="Add date"
                 dateFormat="d MMM yyyy"
+                nonInteractive={isDisconnected}
                 onSave={async (newValue) => {
-                  setContractEnd(newValue);
-                  
                   try {
                     const result = await updateContractEndDate(
                       snapshot.connection.id,
@@ -198,8 +177,6 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                       if (process.env.NODE_ENV !== 'production') {
                         console.error('Failed to update contract end date:', result.error);
                       }
-                      // Revert to previous value on error
-                      setContractEnd(snapshot.connection.contractEnd || '');
                       toast.error('Failed to update contract end date');
                     } else {
                       toast.success('Contract end date updated');
@@ -208,8 +185,6 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                     if (process.env.NODE_ENV !== 'production') {
                       console.error('Error updating contract end date:', error);
                     }
-                    // Revert to previous value on error
-                    setContractEnd(snapshot.connection.contractEnd || '');
                     toast.error('Failed to update contract end date');
                   }
                 }}
@@ -230,15 +205,14 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
             {isAgency ? (
               <InlineEdit
                 type="badge"
-                value={healthStatus}
+                value={snapshot.connection.health || ''}
                 options={[
                   { value: 'healthy', label: 'Healthy' },
                   { value: 'at_risk', label: 'At risk' },
                   { value: 'critical', label: 'Critical' }
                 ]}
+                nonInteractive={isDisconnected}
                 onSave={async (newValue) => {
-                  setHealthStatus(newValue);
-                  
                   try {
                     const result = await updateHealthStatus(
                       snapshot.connection.id,
@@ -249,8 +223,6 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                       if (process.env.NODE_ENV !== 'production') {
                         console.error('Failed to update health status:', result.error);
                       }
-                      // Revert to previous value on error
-                      setHealthStatus(snapshot.connection.health || '');
                       toast.error('Failed to update health status');
                     } else {
                       toast.success('Health status updated');
@@ -259,8 +231,6 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                     if (process.env.NODE_ENV !== 'production') {
                       console.error('Error updating health status:', error);
                     }
-                    // Revert to previous value on error
-                    setHealthStatus(snapshot.connection.health || '');
                     toast.error('Failed to update health status');
                   }
                 }}

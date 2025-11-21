@@ -7,7 +7,6 @@ import { TaskDetailContent } from './TaskDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { deleteTask } from './actions'
 
 interface TaskDetailModalProps {
   taskData: {
@@ -102,9 +101,10 @@ interface TaskDetailModalProps {
     createdAt: Date
     text: string
   }>) => void
+  isGlobalView?: boolean
 }
 
-export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: TaskDetailModalProps) {
+export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false }: TaskDetailModalProps) {
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // All fields are editable (no restrictions)
@@ -121,17 +121,8 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
     // Close modal immediately
     onClose()
     
-    // Show success toast immediately
-    toast.success('Task deleted')
-    
-    // Update table optimistically
+    // Notify parent - parent handles optimistic update, toast, and server action
     onTaskDeleted?.(taskData.taskId)
-    
-    // Delete in background
-    deleteTask(taskData.taskId).catch((error) => {
-      console.error('Error deleting task:', error)
-      toast.error('Failed to delete task')
-    })
   }
 
   const handleCopyLink = useCallback(() => {
@@ -275,6 +266,7 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
               activeUser={activeUser}
               initialComments={initialComments}
               onCommentsUpdate={onCommentsUpdate}
+              isGlobalView={isGlobalView}
             />
           </div>
         )}

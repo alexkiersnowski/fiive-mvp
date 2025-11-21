@@ -415,9 +415,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={8}>
                 {isAgency 
-                  ? (snapshot.connection.isDraft
-                      ? 'Visible after invite. Only your agency can edit.'
-                      : 'Your client can see this. Only your agency can edit.')
+                  ? 'Visible in client portal. Only your agency can edit.'
                   : 'Only your agency can edit this'}
               </TooltipContent>
             </Tooltip>
