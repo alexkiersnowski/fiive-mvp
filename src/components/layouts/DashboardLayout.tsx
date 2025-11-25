@@ -4,7 +4,9 @@ import { useState, useRef, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import Topbar from '@/components/ui/topbar'
 import SidebarComponent from '@/components/ui/sidebar'
+import { PastDueBanner } from '@/components/ui/past-due-banner'
 import { EnhancedModeContext } from '@/lib/mode/getActiveContext'
+import { toast } from 'sonner'
 
 interface DashboardLayoutProps {
   data: EnhancedModeContext
@@ -75,17 +77,51 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   // Connection settings pages should always show full sidebar (like settings pages)
   const sidebarWidth = (isSettingsPage || isConnectionSettingsPage) ? '240px' : (effectiveIsCollapsed ? '60px' : '240px')
   
+  // Check if we should show the past due banner
+  // Only show to organization owners (same restriction as billing settings)
+  const showPastDueBanner = context.organization.billing_status === 'past_due' && data.currentUserRole === 'owner'
+  
+  // Handle portal session creation
+  const handleManagePayment = async () => {
+    try {
+      const response = await fetch('/api/stripe/create-portal-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to create portal session')
+      }
+
+      const { url } = await response.json()
+      if (url) {
+        window.location.href = url
+      }
+    } catch (error) {
+      console.error('Error creating portal session:', error)
+      toast.error('Failed to open payment portal. Please try again.')
+    }
+  }
+  
   return (
     <div 
       className="h-screen" 
       style={{ 
         backgroundColor: 'var(--color-neutral-2)',
         display: 'grid',
-        gridTemplateRows: 'auto 1fr',
+        gridTemplateRows: showPastDueBanner ? 'auto auto 1fr' : 'auto 1fr',
         gridTemplateColumns: `${sidebarWidth} 1fr`,
         transition: isSameVariant ? `grid-template-columns ${isCollapsed ? '0.15s' : '0.1s'} ease-in-out` : 'none'
       }}
     >
+      {showPastDueBanner && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <PastDueBanner onManagePayment={handleManagePayment} />
+        </div>
+      )}
       <div style={{ gridColumn: '1 / -1' }}>
         <Topbar 
           user={data.user}
@@ -108,6 +144,7 @@ export default function DashboardLayout({ data, context, children, initialIsColl
         disableTextAnimation={!isSameVariant}
         currentUserRole={data.currentUserRole}
         capabilities={context.capabilities}
+        billingStatus={context.organization.billing_status}
       />
       <main
         ref={mainRef}

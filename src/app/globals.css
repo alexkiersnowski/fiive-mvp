@@ -807,4 +807,15 @@
     );
   }
 
+  /* Past Due Banner Styles */
+  .past-due-banner {
+    background-color: var(--color-semantic-warning-3);
+  }
+
+  .past-due-banner-text,
+  .past-due-banner-icon,
+  .past-due-banner-button {
+    color: var(--color-semantic-warning-11);
+  }
+
 }
