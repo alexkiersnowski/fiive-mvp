@@ -1,0 +1,224 @@
+"use client"
+
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useForm } from "react-hook-form"
+import { useEffect } from "react"
+import { z } from "zod"
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/shadcn-io/spinner'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+
+const authSchema = z.object({
+  email: z
+    .string()
+    .min(1, "Please enter your work email")
+    .email("Enter a valid email address")
+})
+
+type AuthFormData = z.infer<typeof authSchema>
+
+interface AuthLayoutProps {
+  title: string
+  subtitle: string
+  description?: string
+  linkText: string
+  linkHref: string
+  linkLabel: string
+  buttonText: string
+  placeholder?: string
+  onSubmit: (data: AuthFormData) => Promise<void>
+  formKey?: string
+  showForm?: boolean
+}
+
+export default function AuthLayout({ 
+  title, 
+  subtitle, 
+  description,
+  linkText, 
+  linkHref, 
+  linkLabel,
+  buttonText,
+  placeholder = "Enter your email address",
+  onSubmit,
+  formKey = "auth-form",
+  showForm = true
+}: AuthLayoutProps) {
+  const form = useForm<AuthFormData>({
+    resolver: zodResolver(authSchema),
+    defaultValues: {
+      email: "",
+    },
+    mode: "onSubmit",
+  })
+
+  // Reset form when formKey changes to prevent stale state
+  useEffect(() => {
+    form.reset()
+  }, [formKey, form])
+
+  const handleSubmit = async (data: AuthFormData) => {
+    try {
+      await onSubmit(data)
+    } catch (error) {
+      console.error('Form submission error:', error)
+    }
+  }
+  return (
+    <div className="min-h-screen flex relative" style={{ backgroundColor: 'var(--color-neutral-1)' }}>
+      {/* Navigation bar */}
+      <div className="absolute top-0 left-0 w-full z-10" style={{ 
+        paddingLeft: '40px', 
+        paddingRight: '40px', 
+        paddingTop: '24px', 
+        paddingBottom: '24px' 
+      }}>
+        <img 
+          src="/logos/fiive-logo.svg" 
+          alt="Fiive" 
+          width={96}
+          height={24}
+          style={{ height: '24px' }}
+          draggable={false}
+          loading="eager"
+        />
+      </div>
+
+      {/* Left side - Form content (2/3 width) */}
+      <div className="flex-1 relative" style={{ width: '66.67%' }}>
+        {/* Main content container - full height with relative positioning */}
+        <div className="h-full relative">
+          {/* Main content - centered with bottom offset */}
+          <div className="h-full flex items-center justify-center p-8">
+            <div className="w-full space-y-8 mb-6" style={{ maxWidth: 'var(--max-width-auth)' }}>
+              <div className="text-center">
+                <h1 className="display-8-medium" style={{ marginBottom: 'var(--scale-4)' }}>{title}</h1>
+                <p className="text-md-regular" style={{ 
+                  color: 'var(--color-base-text-primary)',
+                  marginBottom: description ? '4px' : 'var(--scale-7)'
+                }}>
+                  {subtitle}
+                </p>
+                {description && (
+                  <p className="text-md-regular" style={{ 
+                    color: 'var(--color-base-text-primary)',
+                    marginBottom: 'var(--scale-7)'
+                  }}>
+                    {description}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-6">
+                {showForm ? (
+                  <>
+                    <Form {...form}>
+                      <form key={formKey} onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
+                        <FormField
+                          control={form.control}
+                          name="email"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="sr-only">Email address</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  autoComplete="email"
+                                  placeholder={placeholder}
+                                  className="h-10 px-4 py-2 text-sm"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <Button 
+                          type="submit" 
+                          size="lg" 
+                          className="w-full cursor-pointer text-sm"
+                          disabled={form.formState.isSubmitting}
+                        >
+                          {form.formState.isSubmitting ? (
+                            <Spinner size={16} />
+                          ) : (
+                            buttonText
+                          )}
+                        </Button>
+                      </form>
+                    </Form>
+                    
+                    <div className="text-center">
+                      <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+                        By proceeding you agree to the{' '}
+                        <a 
+                          href="/terms" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-sm-regular underline"
+                          style={{ color: 'var(--color-base-text-secondary)' }}
+                        >
+                          Terms of Service
+                        </a>
+                        {' '}and{' '}
+                        <a 
+                          href="/privacy" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-sm-regular underline"
+                          style={{ color: 'var(--color-base-text-secondary)' }}
+                        >
+                          Privacy Policy
+                        </a>
+                      </p>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          
+          {/* Bottom text - absolutely positioned at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 p-8" style={{ paddingBottom: '24px' }}>
+            <div className="text-center">
+              <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+                {linkText}{' '}
+                <a 
+                  href={linkHref} 
+                  className="text-sm-regular underline"
+                  style={{ color: 'var(--color-base-text-secondary)' }}
+                >
+                  {linkLabel}
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right side - Graphic container (1/3 width) */}
+      <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
+        <div className="w-full h-full p-2">
+          <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
+            <img 
+              src="/logos/brand-watermark.svg" 
+              alt="Fiive" 
+              width={240}
+              height={240}
+              className="max-w-full h-60 object-contain"
+              draggable={false}
+              loading="eager"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
