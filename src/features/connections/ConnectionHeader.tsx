@@ -577,7 +577,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
               <DialogDescription 
                 className="text-sm-regular mb-0"
               >
-                This will permanently delete the client and all related data. It won't affect any live connections or shared workspaces.
+                This will permanently delete the client and all related data. It won&apos;t affect any live connections or shared workspaces.
               </DialogDescription>
               <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
                 <Button 

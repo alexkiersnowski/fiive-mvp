@@ -3,9 +3,17 @@
 import { useConnection } from '../ConnectionContext';
 import ResourcesCardClient from './ResourcesCardClient';
 
+type ConnectionResource = {
+  id: string;
+  url: string;
+  label: string | null;
+  clientVisible: boolean;
+  createdAt: string | null;
+};
+
 interface ResourcesCardWrapperProps {
   connectionId: string;
-  initialResources: any[];
+  initialResources: ConnectionResource[];
 }
 
 export function ResourcesCardWrapper({ 

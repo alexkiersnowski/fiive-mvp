@@ -9,6 +9,7 @@ import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext'
+import type { Request } from '../server'
 
 interface RequestDetailModalProps {
   requestData: {
@@ -61,7 +62,7 @@ interface RequestDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
   onRequestDeleted?: (requestId: string) => void
   connectionId: string
   currentOrgId: string

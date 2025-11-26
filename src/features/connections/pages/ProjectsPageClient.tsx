@@ -10,6 +10,8 @@ import { NewProjectModal } from '../projects/NewProjectModal'
 import type { Project, Comment } from '../server';
 import { fetchProjectsForConnection, fetchProjectById, fetchCommentsForProject, fetchCommentsForProjects } from '../projects/actions';
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
+import type { VirtualItem } from '@tanstack/react-virtual';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 interface ProjectsPageClientProps {
   connectionId: string
@@ -370,7 +372,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'projects', filter: `connection_id=eq.${connectionId}` },
-        async (payload: any) => {
+        async (payload: RealtimePostgresChangesPayload<Project>) => {
           const newId = payload?.new?.id
           if (!newId) return
           try {
@@ -396,7 +398,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'projects', filter: `connection_id=eq.${connectionId}` },
-        async (payload: any) => {
+        async (payload: RealtimePostgresChangesPayload<Project>) => {
           const updated = payload?.new
           if (!updated) return
           
@@ -614,7 +616,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   }, [hasMore, isPrefetching, prefetchedProjects.length, currentOffset, projects.length])
 
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((virtualRows: any[]) => {
+  const handleLoadMore = useCallback((virtualRows: VirtualItem[]) => {
     // Virtual scroll triggers loadMore in ProjectsTable based on scroll position
     // This handler is called when user scrolls near the end
             loadMore()

@@ -70,7 +70,7 @@ interface ProjectDetailContentProps {
   requestsCount?: number
   tasksCount?: number
   mode?: 'modal' | 'page'
-  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any; startDate?: string; endDate?: string }) => void
+  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: Project['assignee']; startDate?: string; endDate?: string }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string

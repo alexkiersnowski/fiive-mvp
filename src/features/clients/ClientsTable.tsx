@@ -18,6 +18,7 @@ import { deleteClient } from './actions';
 import { resendInviteEmail, cancelInvitation } from '@/features/connections/actions';
 import type { Client } from './types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
+import type { VirtualItem } from '@tanstack/react-virtual';
 
 // Style constants to prevent object recreation on each render
 const STYLES = {
@@ -68,7 +69,7 @@ interface ClientsTableProps {
   hasNextPage?: boolean;
   unfilteredTotalCount?: number; // Total count without search/filter applied
   onAddClient?: () => void;
-  onLoadMore?: (virtualRows: any[]) => void;
+  onLoadMore?: (virtualRows: VirtualItem[]) => void;
   parentRef?: React.RefObject<HTMLDivElement | null>;
   headerOffset?: number;
   context: EnhancedModeContext;
@@ -447,7 +448,7 @@ export function ClientsTable({
   }, [clients]);
 
   const guardedLoadMore = useCallback(
-    (virtualRows: any[]) => {
+    (virtualRows: VirtualItem[]) => {
       if (!hasNextPage || isLoading) return;
       onLoadMore?.(virtualRows);
     },
@@ -670,7 +671,7 @@ export function ClientsTable({
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            This will permanently delete the client and all related data. It won't affect any live clients or shared workspaces.
+            This will permanently delete the client and all related data. It won&apos;t affect any live clients or shared workspaces.
           </DialogDescription>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
             <Button 

@@ -422,7 +422,7 @@ export function RequestsContent({
     }
   }, [selectedRequest, context.variant]);
 
-  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => {
+  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => {
     // Optimistic update
     setRequests(prev => prev.map(r => 
       r.id === requestId 

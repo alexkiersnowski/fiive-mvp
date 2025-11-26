@@ -60,7 +60,7 @@ interface ProjectDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any }) => void
+  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: Project['assignee'] }) => void
   onProjectDeleted?: (projectId: string) => void
   connectionId: string
   currentOrgId: string

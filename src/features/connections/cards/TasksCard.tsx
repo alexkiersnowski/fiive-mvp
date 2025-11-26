@@ -5,6 +5,7 @@ import {
   getConnectionMembers,
   type Task,
   type Comment as TaskComment,
+  type Project,
 } from '../server';
 import type { MemberSummary } from '../utils/memberSorting';
 import TasksCardClient from './TasksCardClient';
@@ -95,7 +96,15 @@ export default async function TasksCard({
 
   // Fetch projects only if not provided (optimization: share projects across cards)
   const projectsPromise = providedProjects 
-    ? Promise.resolve({ projects: providedProjects.map(p => ({ id: p.id, title: p.name, requestsCount: 0, tasksCount: 0 } as any)), totalCount: providedProjects.length })
+    ? Promise.resolve({ 
+        projects: providedProjects.map(p => ({ 
+          id: p.id, 
+          title: p.name, 
+          requestsCount: 0, 
+          tasksCount: 0 
+        } as Pick<Project, 'id' | 'title' | 'requestsCount' | 'tasksCount'>)), 
+        totalCount: providedProjects.length 
+      })
     : getProjectsForConnection(connectionId, { limit: 1000, offset: 0 });
 
   const [commentsRecord, projectsResult, memberData] = await Promise.all([

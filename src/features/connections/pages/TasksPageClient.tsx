@@ -12,6 +12,8 @@ import { fetchTasksForConnection, fetchTaskById, fetchCommentsForTasks } from '.
 import { sortTasksWithPinnedFirst, type TaskSortMode } from '../tasks/taskSort';
 import { sortMembersWithActiveFirst, type MemberSummary } from '../utils/memberSorting';
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
+import type { VirtualItem } from '@tanstack/react-virtual';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 type PrefetchedComment = {
   id: string
@@ -497,7 +499,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'tasks', filter: `connection_id=eq.${connectionId}` },
-        async (payload: any) => {
+        async (payload: RealtimePostgresChangesPayload<Task>) => {
           const newId = payload?.new?.id
           if (!newId) return
           try {
@@ -523,7 +525,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tasks', filter: `connection_id=eq.${connectionId}` },
-        async (payload: any) => {
+        async (payload: RealtimePostgresChangesPayload<Task>) => {
           const updated = payload?.new
           if (!updated) return
           
@@ -760,7 +762,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   }, [hasMore, isPrefetching, prefetchedTasks.length, currentOffset, tasks.length])
 
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((virtualRows: any[]) => {
+  const handleLoadMore = useCallback((virtualRows: VirtualItem[]) => {
     // Virtual scroll triggers loadMore in TasksTable based on scroll position
     // This handler is called when user scrolls near the end
             loadMore()
@@ -844,7 +846,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return tasks.find(r => r.id === taskId)
   }
 
-  function handleTaskUpdate(taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) {
+  function handleTaskUpdate(taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) {
     // Get the original task to compare status changes
     const originalTask = tasks.find(r => r.id === taskId)
 

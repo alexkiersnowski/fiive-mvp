@@ -182,8 +182,8 @@ export const getRequestsSnapshot = cache(async (
     const { data: connectionsForOrgSearch, error: connectionsForOrgSearchError } = connectionsForOrgSearchResult;
     if (!connectionsForOrgSearchError && connectionsForOrgSearch) {
       const orgIdsToSearch = context.variant === 'agency'
-        ? (connectionsForOrgSearch || []).map(c => (c as any).client_id).filter((id): id is string => id !== null)
-        : (connectionsForOrgSearch || []).map(c => (c as any).agency_id).filter((id): id is string => id !== null);
+        ? (connectionsForOrgSearch || []).map((c: { client_id: string | null }) => c.client_id).filter((id): id is string => id !== null)
+        : (connectionsForOrgSearch || []).map((c: { agency_id: string | null }) => c.agency_id).filter((id): id is string => id !== null);
       
       if (orgIdsToSearch.length > 0) {
         const { data: matchingOrgs, error: orgsError } = await supabase
@@ -500,7 +500,7 @@ export const getRequestsSnapshot = cache(async (
   // Build user org map (for submittedBy org info)
   const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
   if (!membershipsError && membershipsData) {
-    membershipsData.forEach((membership: any) => {
+    membershipsData.forEach((membership: { user_id: string; organizations: { id: string; name: string; logo_url: string | null } | Array<{ id: string; name: string; logo_url: string | null }> }) => {
       const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
       if (org) {
         userOrgMap[membership.user_id] = {
@@ -541,7 +541,7 @@ export const getRequestsSnapshot = cache(async (
       const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] || null : null;
       
       // Extract joined project data
-      const requestWithJoins = request as any;
+      const requestWithJoins = request as typeof request & { projects?: { id: string; name: string } | Array<{ id: string; name: string }> };
       const projectData = request.project_id && requestWithJoins.projects
         ? (Array.isArray(requestWithJoins.projects) ? requestWithJoins.projects[0] : requestWithJoins.projects)
         : null;
@@ -793,7 +793,7 @@ async function getRequestByIdGlobalUncached(
   // Build user org map
   const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
   if (!membershipsResult.error && membershipsResult.data) {
-    membershipsResult.data.forEach((membership: any) => {
+    membershipsResult.data.forEach((membership: { user_id: string; organizations: { id: string; name: string; logo_url: string | null } | Array<{ id: string; name: string; logo_url: string | null }> }) => {
       const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
       if (org) {
         userOrgMap[membership.user_id] = {
@@ -1092,11 +1092,11 @@ export const getConnectionsForGlobalView = cache(async (
     }
     
     return connections
-      .filter(conn => conn.organizations)
+      .filter((conn): conn is typeof conn & { organizations: { name: string; logo_url: string | null } } => !!conn.organizations)
       .map(conn => ({
         id: conn.id,
-        name: (conn.organizations as any).name,
-        logoUrl: (conn.organizations as any).logo_url || undefined
+        name: conn.organizations.name,
+        logoUrl: conn.organizations.logo_url || undefined
       }));
   } else {
     // Client viewing agencies - get all agency connections
@@ -1121,11 +1121,11 @@ export const getConnectionsForGlobalView = cache(async (
     }
     
     return connections
-      .filter(conn => conn.organizations)
+      .filter((conn): conn is typeof conn & { organizations: { name: string; logo_url: string | null } } => !!conn.organizations)
       .map(conn => ({
         id: conn.id,
-        name: (conn.organizations as any).name,
-        logoUrl: (conn.organizations as any).logo_url || undefined
+        name: conn.organizations.name,
+        logoUrl: conn.organizations.logo_url || undefined
       }));
   }
 });

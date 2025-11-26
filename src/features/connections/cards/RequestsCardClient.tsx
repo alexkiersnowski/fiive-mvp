@@ -145,7 +145,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     title?: string;
     description?: string;
     status?: 'new' | 'in_review' | 'accepted' | 'canceled';
-    assignee?: any;
+    assignee?: Request['assignee'];
     project?: { id: string; name: string } | null;
   }) => {
     let previousStatus: 'new' | 'in_review' | 'accepted' | 'canceled' | undefined;

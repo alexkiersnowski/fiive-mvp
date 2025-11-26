@@ -382,7 +382,7 @@ export async function POST(request: NextRequest) {
         break
       }
       
-      case 'invoice.past_due' as any: {
+      case 'invoice.past_due': {
         const invoice = event.data.object as Stripe.Invoice
         const customerId = invoice.customer as string
         

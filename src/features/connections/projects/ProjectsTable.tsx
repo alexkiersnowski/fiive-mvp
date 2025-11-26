@@ -18,6 +18,7 @@ import { toast } from 'sonner'
 import { updateProjectAssignee, updateProjectStatus, deleteProject } from './actions'
 import type { Project } from '../server'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import type { VirtualItem } from '@tanstack/react-virtual'
 import { useConnection } from '../ConnectionContext'
 
 interface ProjectsTableProps {
@@ -34,9 +35,9 @@ interface ProjectsTableProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any }) => void
+  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: Project['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: VirtualItem[]) => void
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -215,7 +216,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     if (isMutingStatus.current) return
     
     const validStatuses = ['planned', 'active', 'on_hold', 'completed', 'canceled'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Invalid status:', newStatus)
       }

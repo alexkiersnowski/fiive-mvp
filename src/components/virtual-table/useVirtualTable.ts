@@ -1,20 +1,20 @@
 'use client'
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
 import { VIRTUAL_ROW_HEIGHT, VIRTUAL_OVERSCAN, VIRTUAL_LOAD_MORE_THRESHOLD, VIRTUAL_LOAD_MORE_DEBOUNCE } from './constants'
 
 interface UseVirtualTableOptions<T> {
   items: T[]
-  onLoadMore?: (virtualItems: any[]) => void
-  scrollRestoreDeps?: any[]
+  onLoadMore?: (virtualItems: VirtualItem[]) => void
+  scrollRestoreDeps?: unknown[]
   parentRef?: React.RefObject<HTMLElement | null>
 }
 
 interface UseVirtualTableReturn<T> {
   containerRef: React.RefObject<HTMLDivElement | null>
-  rowVirtualizer: any
-  virtualItems: any[]
+  rowVirtualizer: ReturnType<typeof useVirtualizer>
+  virtualItems: VirtualItem[]
   isNearEnd: boolean
 }
 

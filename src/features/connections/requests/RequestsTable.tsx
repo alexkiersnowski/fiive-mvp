@@ -18,6 +18,7 @@ import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, Link
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
 import type { Request } from '../server'
+import type { VirtualItem } from '@tanstack/react-virtual'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 import { useConnection } from '../ConnectionContext'
 
@@ -35,9 +36,9 @@ interface RequestsTableProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: VirtualItem[]) => void
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -206,7 +207,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     if (isMutingStatus.current) return
     
     const validStatuses = ['new', 'in_review', 'accepted', 'canceled'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Invalid status:', newStatus)
       }

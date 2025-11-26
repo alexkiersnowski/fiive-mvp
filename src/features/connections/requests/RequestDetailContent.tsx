@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { InlineEdit } from '@/components/ui/inline-edit'
-import { RequestBadge } from '@/components/ui/request-badge'
+import { RequestBadge, type RequestVariant } from '@/components/ui/request-badge'
+import type { Request } from '../server'
 import { StatusButton } from '@/components/ui/status-button'
 import { ListRow } from '@/components/ui/list-row'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -75,7 +76,7 @@ interface RequestDetailContentProps {
   status?: 'new' | 'in_review' | 'accepted' | 'canceled'
   createdAt?: string
   mode?: 'modal' | 'page'
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -913,7 +914,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                               onSelect={() => handleStatusChange(option.value as string)}
                               className="flex items-center justify-between cursor-pointer"
                             >
-                              <RequestBadge variant={option.value as any} size="sm" showText />
+                              <RequestBadge variant={option.value as RequestVariant} size="sm" showText />
                               {option.value === statusValue && (
                                 <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
                               )}

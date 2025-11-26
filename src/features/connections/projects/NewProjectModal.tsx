@@ -137,7 +137,7 @@ export function NewProjectModal({ client, agencyMembers = [], isOpen, onClose, o
       )
       // Notify parent with the created id so it can fetch and prepend the row
       if (created?.id) {
-        ;(onProjectCreated as any)?.({ projectId: created.id, tempId })
+        onProjectCreated?.({ projectId: created.id, tempId })
       }
     } catch (error) {
       console.error('Error creating project:', error)

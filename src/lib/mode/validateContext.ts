@@ -16,49 +16,34 @@ export function validateOrgContext(context: EnhancedModeContext | null): boolean
     return false;
   }
 
-  // CRITICAL: Draft organizations cannot be active contexts
-  // They are only visible through connection views, never as logged-in org contexts
-  if (context.organization.is_draft === true) {
-    const errorMessage = `SECURITY VIOLATION: Draft organization cannot be active context. Org ID: ${context.orgId}, Variant: ${context.variant}, Org Name: ${context.organization.name}`;
-    console.error(errorMessage);
-    
-    // Log to Sentry if available (works in both server and client contexts)
-    try {
-      // Try dynamic import for Sentry (works in server-side Next.js)
-      const Sentry = require('@sentry/nextjs');
-      if (Sentry) {
-        Sentry.captureException(new Error(errorMessage), {
-          tags: { type: 'draft_org_context_validation_failure' },
-          extra: { 
-            orgId: context.orgId, 
-            userId: context.userId, 
-            variant: context.variant,
-            orgName: context.organization.name
-          }
-        });
-      }
-    } catch (sentryError) {
-      // Sentry not available or failed to import - continue with console logging
-      console.error('Failed to log to Sentry:', sentryError);
+    // CRITICAL: Draft organizations cannot be active contexts
+    // They are only visible through connection views, never as logged-in org contexts
+    if (context.organization.is_draft === true) {
+      const errorMessage = `SECURITY VIOLATION: Draft organization cannot be active context. Org ID: ${context.orgId}, Variant: ${context.variant}, Org Name: ${context.organization.name}`;
+      console.error(errorMessage);
+      // Note: Sentry logging is handled in getActiveContext.ts (async function)
+      // This synchronous function only logs to console to avoid build-time module resolution issues
+      
+      return false;
     }
-    
-    return false;
-  }
 
   // Validate variant matches organization type
   if (context.variant !== context.organization.type) {
     const errorMessage = `Context variant mismatch: variant=${context.variant}, orgType=${context.organization.type}`;
     console.error(errorMessage);
     
-    if (typeof window !== 'undefined' && (window as any).Sentry) {
-      (window as any).Sentry.captureException(new Error(errorMessage), {
-        tags: { type: 'context_variant_mismatch' },
-        extra: { 
-          orgId: context.orgId, 
-          variant: context.variant,
-          orgType: context.organization.type
-        }
-      });
+    if (typeof window !== 'undefined') {
+      const windowWithSentry = window as { Sentry?: { captureException: (error: Error, options?: { tags?: Record<string, string>; extra?: Record<string, unknown> }) => void } };
+      if (windowWithSentry.Sentry) {
+        windowWithSentry.Sentry.captureException(new Error(errorMessage), {
+          tags: { type: 'context_variant_mismatch' },
+          extra: { 
+            orgId: context.orgId, 
+            variant: context.variant,
+            orgType: context.organization.type
+          }
+        });
+      }
     }
     
     return false;

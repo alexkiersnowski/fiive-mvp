@@ -263,7 +263,7 @@ export function NewTaskModal({
       if (created?.id) {
         toast.success('Task created successfully')
         // Notify parent with the created id so it can fetch and prepend the row
-        ;(onTaskCreated as any)?.({ taskId: created.id, tempId })
+        onTaskCreated?.({ taskId: created.id, tempId })
       }
     } catch (error) {
       console.error('Error creating task:', error)

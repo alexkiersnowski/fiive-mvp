@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import { updateMemberRole, removeMember, validateAndInviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import type { VirtualItem } from '@tanstack/react-virtual'
 
 const PAGE_SIZE = 100
 
@@ -135,7 +136,7 @@ interface MembersTableProps {
   parentRef?: React.RefObject<HTMLDivElement | null>
   unfilteredTotalCount?: number
   isBootstrapping?: boolean
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: VirtualItem[]) => void
   hasNextPage?: boolean
   isLoading?: boolean
   headerOffset?: number
@@ -215,7 +216,7 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   
   // Guarded load more callback
   const guardedLoadMore = useCallback(
-    (virtualRows: any[]) => {
+    (virtualRows: VirtualItem[]) => {
       if (!hasNextPage || isLoading) return
       onLoadMore?.(virtualRows)
     },

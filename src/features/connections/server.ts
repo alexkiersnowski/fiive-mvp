@@ -911,7 +911,7 @@ export const getRequestsForConnection = cache(async (
   }
   
   // If requests is null/undefined, treat as no results (empty query result)
-  let requestsData = requests || [];
+  const requestsData = requests || [];
   
   if (clientOrgError && isDev) {
     console.error('Error fetching client organization:', clientOrgError);
@@ -1251,7 +1251,7 @@ async function hydrateTaskRows(
     }
   }
 
-  let requestMap: Record<string, { id: string; title: string | null; created_by_user_id: string | null; created_at: string | null }> = {}
+  const requestMap: Record<string, { id: string; title: string | null; created_by_user_id: string | null; created_at: string | null }> = {}
   if (requestIds.size > 0) {
     const { data: requestRows, error: requestError } = await supabase
       .from('requests')
@@ -1636,8 +1636,26 @@ export const getTasksForConnection = cache(async (
   return { tasks: sortedTasks, totalCount }
 })
 
+interface MembershipWithProfile {
+  profiles: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string;
+    avatar_url: string | null;
+    job_title: string | null;
+  } | Array<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string;
+    avatar_url: string | null;
+    job_title: string | null;
+  }>;
+}
+
 const mapMembershipProfiles = (
-  members: any[],
+  members: MembershipWithProfile[],
   orgDetails: { id: string; name: string; type: 'agency' | 'client' }
 ) => {
   return members?.map(member => {
@@ -1965,7 +1983,7 @@ export const getRequestById = cache(async (
   
   // Fetch user profiles, memberships, org type, and project in parallel
   let profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
-  let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
   let orgType: 'agency' | 'client' | undefined = undefined;
   let project: { id: string; name: string } | null = null;
   
@@ -2801,8 +2819,8 @@ export const getProjectsForConnection = cache(async (
   
   // Fetch requests and tasks counts for all projects in parallel
   const projectIds = projectsData.map(p => p.id);
-  let requestsCountMap: Record<string, number> = {};
-  let tasksCountMap: Record<string, number> = {};
+  const requestsCountMap: Record<string, number> = {};
+  const tasksCountMap: Record<string, number> = {};
   
   if (projectIds.length > 0) {
     const chunkSize = 200
@@ -3046,7 +3064,7 @@ export const getProjectById = cache(async (
   }
   
   // Fetch organization IDs for each user from memberships
-  let userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
   
   if (userIds.size > 0) {
     const { data: memberships, error: membershipsError } = await supabase

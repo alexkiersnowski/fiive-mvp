@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/search-input'
 import MembersTable from './MembersTable'
 import { OrganizationMember, OrganizationInvitation, getOrganizationMembers, getOrganizationInvitations } from '../../actions'
+import type { VirtualItem } from '@tanstack/react-virtual'
 
 const PAGE_SIZE = 100
 
@@ -106,7 +107,7 @@ export default function MembersContent({
   }, [isLoading, hasMore, currentOffset, organizationId, debouncedSearchQuery])
   
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((virtualRows: any[]) => {
+  const handleLoadMore = useCallback((virtualRows: VirtualItem[]) => {
     loadMore()
   }, [loadMore])
   

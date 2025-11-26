@@ -203,7 +203,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       title?: string;
       description?: string;
       status?: "to_do" | "in_progress" | "on_hold" | "done";
-      assignee?: any;
+      assignee?: Task['assignee'];
       project?: { id: string; name: string } | null;
       dueDate?: string | null;
       dueDateRaw?: string | null;

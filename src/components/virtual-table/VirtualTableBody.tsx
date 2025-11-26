@@ -2,12 +2,13 @@
 
 import { Table, TableBody, TableRow } from '@/components/ui/table'
 import { VIRTUAL_ROW_HEIGHT } from './constants'
+import type { VirtualItem } from '@tanstack/react-virtual'
 
 interface VirtualTableBodyProps<T> {
   items: T[]
   virtualItems: { index: number; start: number; end: number; size: number; measureElement: (el: HTMLElement | null) => void }[]
   rowVirtualizer: { measureElement: (el: HTMLElement | null) => void; getTotalSize: () => number }
-  renderRow: (item: T, index: number, virtualRow: any) => React.ReactNode
+  renderRow: (item: T, index: number, virtualRow: VirtualItem) => React.ReactNode
   emptyState?: React.ReactNode
   rowClassName?: string
   onRowClick?: (item: T) => void

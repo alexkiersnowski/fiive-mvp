@@ -20,6 +20,7 @@ import type { Task } from './types'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 import { dispatchTaskAssignedChanged } from '@/features/home/cards/stats/TasksAssignedCard'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
+import type { VirtualItem } from '@tanstack/react-virtual'
 
 interface TasksTableProps {
   userAvatar?: string
@@ -46,9 +47,9 @@ interface TasksTableProps {
     orgName?: string
     orgType?: 'agency' | 'client'
   }>>
-  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null }) => void
+  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: VirtualItem[]) => void
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -277,7 +278,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     if (isMutingStatus.current) return
     
     const validStatuses = ['to_do', 'in_progress', 'on_hold', 'done'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Invalid status:', newStatus)
       }

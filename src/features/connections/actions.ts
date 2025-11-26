@@ -657,10 +657,10 @@ export async function inviteClientToConnection(data: {
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const agencyEmails = (agencyMembers || []).map((m: any) => 
-      m.profiles?.email?.toLowerCase()
-    ).filter(Boolean)
+    const agencyEmails = (agencyMembers || []).map((m: { profiles: { email: string } | { email: string }[] }) => {
+      const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+      return profile?.email?.toLowerCase();
+    }).filter(Boolean) as string[]
 
     if (agencyEmails.includes(data.email.toLowerCase())) {
       return {
