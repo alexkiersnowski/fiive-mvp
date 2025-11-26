@@ -11,7 +11,7 @@ interface UseVirtualTableOptions<T> {
   parentRef?: React.RefObject<HTMLElement | null>
 }
 
-interface UseVirtualTableReturn<T> {
+interface UseVirtualTableReturn<_T> {
   containerRef: React.RefObject<HTMLDivElement | null>
   rowVirtualizer: { measureElement: (el: HTMLElement | null) => void; getTotalSize: () => number; scrollToIndex: (index: number) => void; measure: () => void; getVirtualItems: () => VirtualItem[] }
   virtualItems: VirtualItem[]
@@ -33,7 +33,7 @@ export function useVirtualTable<_T>({
   onLoadMore,
   scrollRestoreDeps = [],
   parentRef
-}: UseVirtualTableOptions<T>): UseVirtualTableReturn<T> {
+}: UseVirtualTableOptions<_T>): UseVirtualTableReturn<_T> {
   const containerRef = useRef<HTMLDivElement>(null)
   
   const rowVirtualizer = useVirtualizer({

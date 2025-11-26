@@ -300,7 +300,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
 
   // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
+  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
     items: requests,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],
