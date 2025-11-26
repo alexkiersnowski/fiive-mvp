@@ -203,10 +203,10 @@ function Calendar({
         Nav: ({ children, ...props }) => {
           // Filter out all react-day-picker specific props that aren't valid for div
           const {
-            onPreviousClick,
-            onNextClick,
-            previousMonth,
-            nextMonth,
+            onPreviousClick: _onPreviousClick,
+            onNextClick: _onNextClick,
+            previousMonth: _previousMonth,
+            nextMonth: _nextMonth,
             ...divProps
           } = props
           

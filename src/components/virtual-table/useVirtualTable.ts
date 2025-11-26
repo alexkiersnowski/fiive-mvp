@@ -28,7 +28,7 @@ interface UseVirtualTableReturn<T> {
  * @param parentRef - Optional parent scroll element ref
  * @returns Virtualizer instance and virtual items
  */
-export function useVirtualTable<T>({
+export function useVirtualTable<_T>({
   items,
   onLoadMore,
   scrollRestoreDeps = [],

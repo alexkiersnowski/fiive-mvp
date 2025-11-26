@@ -117,7 +117,6 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_isPending, startTransition] = useTransition()
   
   // Loading state lock to prevent concurrent loadMore calls
@@ -688,7 +687,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   }, [hasMore, isPrefetching, prefetchedRequests.length, currentOffset, requests.length])
 
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((virtualRows: VirtualItem[]) => {
+  const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
     // Virtual scroll triggers loadMore in RequestsTable based on scroll position
     // This handler is called when user scrolls near the end
             loadMore()
@@ -723,7 +722,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   }>>([])
   const [convertRequest, setConvertRequest] = useState<ModalRequest | null>(null)
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
-  const [isConverting, setIsConverting] = useState(false)
+  const [_isConverting, _setIsConverting] = useState(false)
 
   function getRequestById(requestId: string) {
     return requests.find(r => r.id === requestId)

@@ -206,7 +206,7 @@ interface OnboardingLayoutProps {
 export default function OnboardingLayout({ 
   title, 
   subtitle,
-  description,
+  description: _description,
   buttonText,
   placeholder = "Enter your email address",
   onSubmit,

@@ -857,7 +857,6 @@ export async function resendInviteEmail(data: {
 
     // Import token creation and email sending functions
     const { createInviteToken } = await import('@/lib/tokens/createInviteToken')
-    const { sendClientInviteEmail } = await import('@/app/actions/sendClientInviteEmail')
 
     // Invalidate old token before creating new one (security: only one valid token at a time)
     const { error: clearTokenError } = await supabase

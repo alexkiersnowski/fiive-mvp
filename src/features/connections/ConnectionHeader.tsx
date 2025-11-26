@@ -37,8 +37,8 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
   const { context } = useConnection();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [partnerName, setPartnerName] = useState(snapshot.partner.name);
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [_logoFile, setLogoFile] = useState<File | null>(null);
+  const [_isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');

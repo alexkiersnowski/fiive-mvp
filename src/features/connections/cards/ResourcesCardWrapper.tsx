@@ -17,7 +17,7 @@ interface ResourcesCardWrapperProps {
 }
 
 export function ResourcesCardWrapper({ 
-  connectionId, 
+  connectionId: _connectionId, 
   initialResources 
 }: ResourcesCardWrapperProps) {
   const { snapshot, context } = useConnection();

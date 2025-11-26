@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
         signature,
         webhookSecret
       )
-    } catch (err) {
+    } catch (_err) {
       return NextResponse.json(
         { error: 'Invalid signature' },
         { status: 401 }

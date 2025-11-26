@@ -17,12 +17,12 @@ function decodeCursor(cursor: string): number {
 let cachedMockData: Client[] | null = null;
 
 // Cache for month mapping to avoid recreation
-const MONTH_MAP: { [key: string]: number } = {
+const _MONTH_MAP: { [key: string]: number } = {
   'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
   'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
 } as const;
 
-function generateMockData(): Client[] {
+function _generateMockData(): Client[] {
   if (cachedMockData) {
     return cachedMockData;
   }
@@ -215,7 +215,7 @@ export const getClientsSnapshot = cache(async (
   let filteredConnections = connectionsArray;
   
   if (search.trim()) {
-    const escapedSearch = escapeForILike(search.trim());
+    const _escapedSearch = escapeForILike(search.trim());
     const searchLower = search.trim().toLowerCase();
     const searchTerms = searchLower.split(' ').filter(t => t.length > 0);
     

@@ -359,9 +359,9 @@ export async function validateConnectionCode(
 // Existing actions below
 
 export async function updateClientsFilters(
-  searchValue: string,
-  sortValue: string,
-  context: EnhancedModeContext
+  _searchValue: string,
+  _sortValue: string,
+  _context: EnhancedModeContext
 ) {
   // In a real app, this would update URL search params or database filters
   // For now, we'll just revalidate the clients page

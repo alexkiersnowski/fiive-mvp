@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'

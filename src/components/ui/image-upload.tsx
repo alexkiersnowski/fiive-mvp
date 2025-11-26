@@ -23,7 +23,7 @@ export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
+  const [_isUploading, setIsUploading] = useState(false)
   
   // Store base64 data for instant preview
   const [base64Preview, setBase64Preview] = useState<string | null>(null)

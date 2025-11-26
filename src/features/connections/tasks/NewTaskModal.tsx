@@ -68,7 +68,7 @@ export function NewTaskModal({
   onTaskOptimistic, 
   onTaskCreated, 
   connectionId, 
-  currentOrgId, 
+  currentOrgId: _currentOrgId, 
   variant = 'agency',
   isGlobal = false,
   onConnectionSelect
@@ -275,7 +275,7 @@ export function NewTaskModal({
       console.error('Error creating task:', error)
       toast.error('Failed to create task')
     }
-  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, connectionMembers, agencyMembers, membersToUse, onTaskCreated, onTaskOptimistic, onClose])
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, membersToUse, onTaskCreated, onTaskOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {

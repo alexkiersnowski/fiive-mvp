@@ -415,8 +415,8 @@ export async function validateConnectionCode(
 // Additional actions for future implementation
 
 export async function updateAgenciesFilters(
-  searchValue: string,
-  context: EnhancedModeContext
+  _searchValue: string,
+  _context: EnhancedModeContext
 ) {
   // In a real app, this would update URL search params or database filters
   // For now, we'll just revalidate the agencies page

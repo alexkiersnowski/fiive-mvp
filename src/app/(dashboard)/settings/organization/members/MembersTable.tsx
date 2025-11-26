@@ -156,10 +156,10 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   isLoading = false,
   headerOffset = 0,
   searchQuery: externalSearchQuery = '',
-  onSearchChange,
+  onSearchChange: _onSearchChange,
   onInviteClick: _externalOnInviteClick
 }, ref) {
-  const [internalSearchQuery, setInternalSearchQuery] = useState('')
+  const [_internalSearchQuery, _setInternalSearchQuery] = useState('')
   const searchQuery = externalSearchQuery || internalSearchQuery
   const [localMembers, setLocalMembers] = useState(members)
   const [localInvitations, setLocalInvitations] = useState(invitations)

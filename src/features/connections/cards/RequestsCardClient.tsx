@@ -97,7 +97,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [convertRequest, setConvertRequest] = useState<RequestDetailPayload | null>(null);
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
-  const [isConverting, setIsConverting] = useState(false);
+  const [_isConverting, _setIsConverting] = useState(false);
 
   useEffect(() => {
     setPrefetchedRequests(requests);

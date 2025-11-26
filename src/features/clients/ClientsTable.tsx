@@ -236,7 +236,7 @@ const HealthCell = React.memo(function HealthCell({ client }: { client: Client }
 
 const ActionsCell = React.memo(function ActionsCell({ 
   client, 
-  context, 
+  context: _context, 
   onDeleteClick 
 }: { 
   client: Client; 
@@ -400,7 +400,7 @@ export function ClientsTable({
 
   const confirmDeleteClient = useCallback(async () => {
     if (pendingDelete) {
-      const { clientId, clientName } = pendingDelete;
+      const { clientId, clientName: _clientName } = pendingDelete;
       
       // Optimistically remove client from UI immediately (row disappears right away)
       onClientDeleteOptimistic?.(clientId);
