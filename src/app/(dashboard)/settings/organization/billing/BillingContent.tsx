@@ -55,15 +55,6 @@ const AGENCY_PRO_FEATURES = [
   { text: 'Directly influence the future of Fiive' },
   { text: 'Founding member rate locked for life' }
 ]
-  { text: 'Unlimited team members' },
-  { text: 'Full client & relationship visibility' },
-  { text: 'Requests, projects & task management' },
-  { text: 'Shared links & resources' },
-  { text: 'All current & future features' },
-  { text: 'Priority onboarding & support' },
-  { text: 'Directly influence the future of Fiive' },
-  { text: 'Founding member rate locked for life' }
-]
 
 /**
  * Helper function to determine plan details from Stripe price ID
