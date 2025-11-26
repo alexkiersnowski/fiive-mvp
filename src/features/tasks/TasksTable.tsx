@@ -21,7 +21,6 @@ import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 import type { VirtualItem } from '@tanstack/react-virtual'
 import { dispatchTaskAssignedChanged } from '@/features/home/cards/stats/TasksAssignedCard'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
-import type { VirtualItem } from '@tanstack/react-virtual'
 
 interface TasksTableProps {
   userAvatar?: string

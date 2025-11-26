@@ -184,7 +184,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           }
         })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialProjects])
 
   // Helper to merge arrays by id while preserving order and uniqueness
