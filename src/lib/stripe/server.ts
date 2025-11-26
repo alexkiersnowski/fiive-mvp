@@ -96,8 +96,8 @@ export function mapSubscriptionStatusToBillingStatus(
   // CRITICAL: Check cancel_at_period_end FIRST before checking status
   // If subscription is active but set to cancel at period end, it's cancelling
   // Use explicit boolean check - Stripe should always send boolean, but be defensive
-  // Also check for truthy values in case of unexpected types
-  const isCancelling = cancelAtPeriodEnd === true || cancelAtPeriodEnd === 1 || cancelAtPeriodEnd === 'true'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isCancelling = cancelAtPeriodEnd === true || (cancelAtPeriodEnd as any) === 1 || (cancelAtPeriodEnd as any) === 'true'
   
   if (status === 'active' && isCancelling) {
     return 'canceled_pending'
