@@ -42,7 +42,7 @@ interface TasksCardClientProps extends StatsCardProps {
 export default function TasksCardClient({
   tasks,
   prefetchedNextTask = null,
-  snapshot,
+  snapshot: _snapshot,
   context,
   agencyMembers = [],
   initialComments = {},

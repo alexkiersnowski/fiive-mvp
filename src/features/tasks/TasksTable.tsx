@@ -394,7 +394,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   }
 
   // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
+  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
     items: tasks,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],

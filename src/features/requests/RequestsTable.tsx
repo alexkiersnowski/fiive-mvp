@@ -59,7 +59,7 @@ interface RequestsTableProps {
 }
 
 export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, sortOptions = [], sortValue: propSortValue = 'created', onSortChange }: RequestsTableProps) {
-  const router = useRouter()
+  const _router = useRouter()
   
   const [searchQuery, setSearchQuery] = useState('')
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
@@ -67,7 +67,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
+  const [_isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
@@ -275,7 +275,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
 
   // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
+  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
     items: requests,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],

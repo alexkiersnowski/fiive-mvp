@@ -51,7 +51,7 @@ function RequestsInReviewCardClient({ initialCount, context }: RequestsInReviewC
   const connectionIdsRef = useRef<string[]>([])
   const pendingOptimisticUpdatesRef = useRef<Set<string>>(new Set())
   
-  const isAgency = context.variant === 'agency'
+  const _isAgency = context.variant === 'agency'
   const title = 'Requests in review'
   const buttonText = 'Requests'
 

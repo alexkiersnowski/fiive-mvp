@@ -41,7 +41,7 @@ interface RequestsCardClientProps extends StatsCardProps {
 export default function RequestsCardClient({
   requests,
   prefetchedNextRequest = null,
-  snapshot,
+  snapshot: _snapshot,
   context,
   agencyMembers = [],
   initialComments = {},

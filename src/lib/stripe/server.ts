@@ -48,7 +48,7 @@ export async function getOrCreateCustomer(
       await stripe.customers.retrieve(org.stripe_customer_id)
       // Customer exists, return it
       return org.stripe_customer_id
-    } catch (error) {
+    } catch (_error) {
       // Customer doesn't exist (likely from different mode), clear it and create new one
       // Clear the invalid customer ID
       await supabase
@@ -214,7 +214,7 @@ export async function verifyCheckoutSessionAndGetBillingStatus(
       shouldShowDialog: true
     }
     
-  } catch (error) {
+  } catch (_error) {
     // On error, return current status from database
     const { data: org } = await supabase
       .from('organizations')

@@ -59,10 +59,10 @@ interface TasksTableProps {
   sortMode?: TaskSortMode
 }
 
-export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onTaskDeleted, sortMode = 'status' }: TasksTableProps) {
+export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], onTaskUpdate, currentOrgId: _currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onTaskDeleted, sortMode = 'status' }: TasksTableProps) {
   const { isDisconnected } = useConnection()
   const pathname = usePathname()
-  const router = useRouter()
+  const _router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   const [searchQuery, setSearchQuery] = useState('')
@@ -100,7 +100,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
+  const [_isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
@@ -341,7 +341,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   }
 
   // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
+  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
     items: orderedTasks,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],

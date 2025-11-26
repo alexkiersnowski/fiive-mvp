@@ -56,20 +56,20 @@ interface RequestsTableProps {
 }
 
 export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask }: RequestsTableProps) {
-  const { snapshot, isDisconnected } = useConnection()
+  const { snapshot: _snapshot, isDisconnected } = useConnection()
   const pathname = usePathname()
-  const router = useRouter()
+  const _router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   const [searchQuery, setSearchQuery] = useState('')
   const [sortValue, setSortValue] = useState('created')
-  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
-  const [requestStatus, setRequestStatus] = useState('in_review')
+  const [_isSortDropdownOpen, _setIsSortDropdownOpen] = useState(false)
+  const [_requestStatus, _setRequestStatus] = useState('in_review')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
+  const [_isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
@@ -116,7 +116,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     [sortOptions, sortValue]
   )
 
-  const handleSortChange = (newSortValue: string) => {
+  const _handleSortChange = (newSortValue: string) => {
     setSortValue(newSortValue)
     // Sort will be applied when we implement actual data
   }

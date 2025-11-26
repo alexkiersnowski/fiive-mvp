@@ -23,7 +23,7 @@ const reconnectSchema = z.object({
   connectionCode: z.string().min(1, "Connection code is required")
 })
 
-const agencyTypes: ComboboxOption[] = [
+const _agencyTypes: ComboboxOption[] = [
   { value: "Advertising Agency", label: "Advertising Agency" },
   { value: "Brand Agency", label: "Brand Agency" },
   { value: "Content & Social Media Agency", label: "Content & Social Media Agency" },
@@ -37,7 +37,7 @@ const agencyTypes: ComboboxOption[] = [
   { value: "Web & Digital Agency", label: "Web & Digital Agency" },
 ]
 
-const industryTypes: ComboboxOption[] = [
+const _industryTypes: ComboboxOption[] = [
   { value: "Education & Training", label: "Education & Training" },
   { value: "Finance & Insurance", label: "Finance & Insurance" },
   { value: "Healthcare & Wellness", label: "Healthcare & Wellness" },

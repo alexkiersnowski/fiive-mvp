@@ -10,7 +10,7 @@ import { ListRow } from '@/components/ui/list-row';
 import { Plus, ArrowRight, EyeSlash } from '@phosphor-icons/react/dist/ssr';
 import type { StatsCardProps } from '../types';
 
-export default function AgencyProjects({ snapshot, context }: StatsCardProps) {
+export default function AgencyProjects({ snapshot, context: _context }: StatsCardProps) {
   const router = useRouter();
   const title = 'Live projects';
   const description = 'No projects yet. Your agency manages projects. Add an agency to start collaborating on projects.';

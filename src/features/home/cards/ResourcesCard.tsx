@@ -2,7 +2,7 @@ import { getOrganizationResources } from '../server';
 import { ResourcesCardWrapper } from './ResourcesCardWrapper';
 import type { StatsCardProps } from '../types';
 
-export default async function ResourcesCard({ snapshot, context }: StatsCardProps) {
+export default async function ResourcesCard({ snapshot: _snapshot, context }: StatsCardProps) {
   // Fetch resources server-side
   const initialResources = await getOrganizationResources(context);
 

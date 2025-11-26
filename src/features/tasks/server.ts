@@ -5,7 +5,7 @@ import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { TasksSnapshot, Task, TasksPaginationOptions } from './types';
 import * as formatters from '../connections/formatters';
 
-type TaskRow = {
+type _TaskRow = {
   id: string
   connection_id: string
   project_id: string | null
@@ -31,7 +31,7 @@ type ProfileRow = {
   job_title?: string
 }
 
-type MembershipRow = {
+type _MembershipRow = {
   user_id: string
   org_id: string
   organizations: {
@@ -45,7 +45,7 @@ type MembershipRow = {
   }>
 }
 
-type OrganizationRow = {
+type _OrganizationRow = {
   id: string
   name?: string | null
   logo_url?: string | null

@@ -2488,7 +2488,7 @@ export interface ProjectsWithCount {
 }
 
 // Mock Project data for UI development
-const generateMockProjects = (connectionId: string, count: number = 10): Project[] => {
+const _generateMockProjects = (connectionId: string, count: number = 10): Project[] => {
   const mockProjects: Project[] = []
   const statuses: Array<'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'> = ['planned', 'active', 'on_hold', 'completed', 'canceled']
   
@@ -2559,7 +2559,7 @@ export const getProjectsForConnection = cache(async (
 ): Promise<ProjectsWithCount> => {
   const isDev = process.env.NODE_ENV !== 'production';
   const startTime = isDev ? performance.now() : 0;
-  const { limit = 100, offset = 0, searchQuery, assignedToUserId, createdByUserId, sort = 'newest_first' } = options || {};
+  const { limit = 100, offset = 0, searchQuery, assignedToUserId: _assignedToUserId, createdByUserId: _createdByUserId, sort = 'newest_first' } = options || {};
   const supabase = await createClient();
   
   // Fetch the connection info (cached, shared with getAgencyMembersForConnection)
@@ -2748,7 +2748,7 @@ export const getProjectsForConnection = cache(async (
   }
   
   // Get currency code from agency org (default to EUR)
-  const currencyCode = (agencyOrg?.currency_code as 'EUR' | 'USD' | 'GBP') || 'EUR';
+  const _currencyCode = (agencyOrg?.currency_code as 'EUR' | 'USD' | 'GBP') || 'EUR';
   
   // Fetch all unique user IDs for submitted by
   // Fetch unique user IDs (assignee_user_id and created_by_org_id columns do not exist in schema)
@@ -2762,7 +2762,7 @@ export const getProjectsForConnection = cache(async (
   // Note: created_by_org_id column does not exist in schema, so we don't fetch org types
   let profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
   const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
-  const orgTypeMap: Record<string, 'agency' | 'client'> = {}; // Empty since created_by_org_id doesn't exist
+  const _orgTypeMap: Record<string, 'agency' | 'client'> = {}; // Empty since created_by_org_id doesn't exist
   let parallelTime = 0;
   if (userIds.size > 0) {
     const userIdArray = Array.from(userIds);
@@ -2995,7 +2995,7 @@ export const getProjectById = cache(async (
   }
   
   // Get currency code from agency org (default to EUR)
-  const currencyCode = (agencyOrg?.currency_code as 'EUR' | 'USD' | 'GBP') || 'EUR';
+  const _currencyCode = (agencyOrg?.currency_code as 'EUR' | 'USD' | 'GBP') || 'EUR';
   
   // Fetch the specific project
   // Note: Only selecting columns that exist in the schema
@@ -3100,7 +3100,7 @@ export const getProjectById = cache(async (
   const assigneeProfile = null;
   
   // Note: created_by_org_id column does not exist in schema, so orgType is always undefined
-  const orgType: 'agency' | 'client' | undefined = undefined;
+  const _orgType: 'agency' | 'client' | undefined = undefined;
   
   // Fetch requests count for this project
   let requestsCount = 0;

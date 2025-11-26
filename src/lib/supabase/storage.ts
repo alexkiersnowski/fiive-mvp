@@ -16,7 +16,7 @@ export async function uploadLogo(file: File, organizationId: string): Promise<st
   const filePath = `${organizationId}/${fileName}`
 
   // Upload file to public logos bucket (unique filename ensures no conflicts)
-  const { data, error } = await supabase.storage
+  const { data: _data, error } = await supabase.storage
     .from('logos')
     .upload(filePath, file, {
       cacheControl: '3600',
@@ -54,7 +54,7 @@ export async function uploadAvatar(file: File, profileId: string): Promise<strin
   const filePath = `${profileId}/${fileName}`
 
   // Upload file to public avatars bucket (unique filename ensures no conflicts)
-  const { data, error } = await supabase.storage
+  const { data: _data, error } = await supabase.storage
     .from('avatars')
     .upload(filePath, file, {
       cacheControl: '3600',

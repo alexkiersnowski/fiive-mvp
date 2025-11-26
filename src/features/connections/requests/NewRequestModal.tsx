@@ -57,7 +57,7 @@ export function NewRequestModal({
   onRequestOptimistic, 
   onRequestCreated, 
   connectionId, 
-  currentOrgId, 
+  currentOrgId: _currentOrgId, 
   variant = 'agency',
   isGlobal = false,
   onConnectionSelect
@@ -204,7 +204,7 @@ export function NewRequestModal({
     : null
   
   // Get selected connection/client
-  const selectedConnection = isGlobal && selectedConnectionId
+  const _selectedConnection = isGlobal && selectedConnectionId
     ? connections.find(c => c.id === selectedConnectionId)
     : client
   
