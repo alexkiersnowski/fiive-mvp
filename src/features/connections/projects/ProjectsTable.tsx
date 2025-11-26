@@ -54,10 +54,10 @@ interface ProjectsTableProps {
   onSortChange?: (sortValue: string) => void
 }
 
-export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
+export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitials: _userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId: _currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization: _agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
   const { isDisconnected } = useConnection()
   const pathname = usePathname()
-  const router = useRouter()
+  const _router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   const [searchQuery, setSearchQuery] = useState('')
@@ -73,8 +73,8 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   const [pendingDelete, setPendingDelete] = useState<{projectId: string; projectName: string} | null>(null)
   
   // Assignee ref for combobox functionality
-  const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
+  const _assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
+  const [_isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
@@ -99,7 +99,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   const projectCount = totalCount !== undefined ? totalCount : projects.length
   
   // Transform agency members to combobox options (memoized to prevent recreation)
-  const comboboxOptions = useMemo(() => 
+  const _comboboxOptions = useMemo(() => 
     agencyMembers.map(member => ({
       value: member.id,
       label: `${member.firstName} ${member.lastName}`,
@@ -131,7 +131,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   }
 
   // Assignee handlers with loading guard
-  const handleAssigneeSelect = async (projectId: string, memberId: string) => {
+  const _handleAssigneeSelect = async (projectId: string, memberId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -175,7 +175,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     }
   }
 
-  const handleClearAssignee = async (projectId: string) => {
+  const _handleClearAssignee = async (projectId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -262,7 +262,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   }
 
   // Profile Card handler
-  const handleContactClick = (contact: {
+  const _handleContactClick = (contact: {
     id: string;
     first_name: string;
     last_name: string;
@@ -326,7 +326,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   }
 
   // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
+  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
     items: projects,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],

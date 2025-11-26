@@ -41,7 +41,7 @@ interface NewProjectModalProps {
   variant?: 'agency' | 'client'
 }
 
-export function NewProjectModal({ client, agencyMembers = [], isOpen, onClose, onProjectOptimistic, onProjectCreated, connectionId, currentOrgId, variant = 'agency' }: NewProjectModalProps) {
+export function NewProjectModal({ client, agencyMembers: _agencyMembers = [], isOpen, onClose, onProjectOptimistic, onProjectCreated, connectionId, currentOrgId: _currentOrgId, variant = 'agency' }: NewProjectModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)

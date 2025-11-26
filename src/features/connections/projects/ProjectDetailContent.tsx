@@ -88,7 +88,7 @@ interface ProjectDetailContentProps {
   isDisconnected?: boolean
 }
 
-export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, createdAt, requestsCount = 0, tasksCount = 0, mode = 'modal', onProjectUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isDisconnected = false }: ProjectDetailContentProps) {
+export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy: _submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, createdAt: _createdAt, requestsCount = 0, tasksCount = 0, mode = 'modal', onProjectUpdate, createdByOrgId: _createdByOrgId, createdByOrgType: _createdByOrgType, currentOrgId: _currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser: _activeUser, initialComments: _initialComments = [], onCommentsUpdate: _onCommentsUpdate, isDisconnected = false }: ProjectDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -143,14 +143,14 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
   }
   
   // Determine dialog title based on organization type that created the project
-  const getDialogTitle = () => {
+  const _getDialogTitle = () => {
     return 'Project'
   }
   
   const [titleValue, setTitleValue] = useState(title)
   const [descriptionValue, setDescriptionValue] = useState(description)
   const [statusValue, setStatusValue] = useState(status)
-  const [projectType, setProjectType] = useState(type || 'general')
+  const [_projectType, setProjectType] = useState(type || 'general')
   const [titleResetKey, setTitleResetKey] = useState(0)
   const [assigneeValue, setAssigneeValue] = useState(assignee)
   const [startDateValue, setStartDateValue] = useState(startDate || '')
@@ -309,7 +309,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
   }
 
-  const handleProjectTypeSave = (value: string) => {
+  const _handleProjectTypeSave = (value: string) => {
     setProjectType(value)
     // TODO: Save to database
     console.log('Saving project type:', value)
@@ -351,7 +351,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
   }
 
-  const handleAssigneeSelect = async (memberId: string) => {
+  const _handleAssigneeSelect = async (memberId: string) => {
     const selectedMember = agencyMembers.find(member => member.id === memberId)
     if (selectedMember) {
       const newAssignee = {
@@ -386,7 +386,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
   }
 
-  const handleClearAssignee = async () => {
+  const _handleClearAssignee = async () => {
     // Optimistic update
     const previousAssignee = assigneeValue
     setAssigneeValue(null)

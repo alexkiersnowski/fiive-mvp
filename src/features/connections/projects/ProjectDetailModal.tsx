@@ -88,7 +88,7 @@ interface ProjectDetailModalProps {
   }>) => void
 }
 
-export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, onClose, onExpand, onProjectUpdate, onProjectDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailModalProps) {
+export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, onClose, onExpand, onProjectUpdate, onProjectDeleted, connectionId: _connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailModalProps) {
   const { isDisconnected } = useConnection()
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
