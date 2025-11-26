@@ -161,34 +161,10 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       const errorMessage = `SECURITY VIOLATION: Attempted to use draft organization as active context. Org ID: ${organization.id}, User ID: ${user.id}, Org Name: ${organization.name}`;
       console.error(errorMessage);
       
-      // Log to Sentry if available (works in both server and client contexts)
-      // Use runtime-constructed module path to prevent Turbopack from statically analyzing the import
-      try {
-        // Construct module path at runtime to avoid build-time resolution
-        const sentryModulePath = '@' + 'sentry/nextjs';
-        // @ts-expect-error - Sentry is optional dependency, may not be installed
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const Sentry = await import(sentryModulePath).catch(() => null);
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-        if (Sentry && typeof Sentry.captureException === 'function') {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-          Sentry.captureException(new Error(errorMessage), {
-            tags: { type: 'draft_org_context_violation' },
-            extra: { 
-              orgId: organization.id, 
-              userId: user.id, 
-              orgName: organization.name,
-              orgType: organization.type
-            }
-          });
-        }
-      } catch (sentryError) {
-        // Sentry not available or failed to import - continue with console logging
-        // Suppress error in production to avoid noise
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('Failed to log to Sentry:', sentryError);
-        }
-      }
+      // Log error (Sentry integration removed to avoid build-time module resolution issues)
+      // Error is logged to console for debugging purposes
+      // If Sentry is needed in the future, it should be installed as a dependency
+      console.error(errorMessage);
       
       return null;
     }
