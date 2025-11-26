@@ -89,6 +89,7 @@ export function mapSubscriptionStatusToBillingStatus(
 ): 'free' | 'active' | 'canceled_pending' | 'past_due' {
   const status = subscription.status
   const cancelAtPeriodEnd = subscription.cancel_at_period_end
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const currentPeriodEnd = (subscription as any).current_period_end as number | null | undefined
   const now = Math.floor(Date.now() / 1000)
   
