@@ -44,7 +44,9 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
               }}
             >
               <EyeSlash size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Not client visible</span>
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                {isAgency ? 'Not client visible' : 'Internal only'}
+              </span>
             </Badge>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>

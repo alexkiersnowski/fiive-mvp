@@ -320,7 +320,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isInternal ? "To be invited" : "Assign contact"}
+                    text={isDisconnected ? "No contact assigned" : (isInternal ? "To be invited" : "Assign contact")}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -376,7 +376,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text="Assign contact"
+                    text={isDisconnected ? "No contact assigned" : "Assign contact"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -426,7 +426,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text="Awaiting agency assignment"
+                    text={isDisconnected ? "No contact assigned" : "Awaiting agency assignment"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -479,7 +479,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text="Assign contact to represent your team"
+                    text={isDisconnected ? "No contact assigned" : "Assign contact to represent your team"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}

@@ -4,7 +4,7 @@
 -- Description: Creates a read-only RPC function to verify invite tokens
 --              for the client claim flow. Accepts pre-hashed token (hashed in Node.js)
 --              and checks if it matches a connection's invite_token within
---              the 7-day expiration window. Accepts both 'draft' and 'invited' statuses.
+--              the 7-day expiration window. Accepts both 'internal' and 'invited' statuses.
 -- ============================================================================
 
 -- Drop existing function if it exists (to allow parameter name change)
@@ -47,12 +47,12 @@ BEGIN
   WHERE c.invite_token = token_hash
     AND c.invited_at IS NOT NULL
     AND c.invited_at > (NOW() - INTERVAL '7 days')
-    AND c.connection_status IN ('draft', 'invited');
+    AND c.connection_status IN ('internal', 'invited');
 END;
 $$;
 
 COMMENT ON FUNCTION public.verify_invite_token(TEXT)
-IS 'Verifies an invite token hash (pre-hashed in Node.js) and checks against connections table. Returns connection details if token is valid and not expired (7 days). Accepts both draft and invited connection statuses. Works for both agency-inviting-client and client-inviting-agency flows. Returns the draft org ID (client_id field contains the draft org ID, whether it is a client or agency org).';
+IS 'Verifies an invite token hash (pre-hashed in Node.js) and checks against connections table. Returns connection details if token is valid and not expired (7 days). Accepts both internal and invited connection statuses. Works for both agency-inviting-client and client-inviting-agency flows. Returns the draft org ID (client_id field contains the draft org ID, whether it is a client or agency org).';
 
 -- Grant execute permission to anonymous and authenticated users
 -- Required for unauthenticated users to verify invite tokens

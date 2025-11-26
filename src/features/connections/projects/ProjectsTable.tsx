@@ -55,7 +55,7 @@ interface ProjectsTableProps {
 }
 
 export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
-  const { snapshot } = useConnection()
+  const { isDisconnected } = useConnection()
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -363,7 +363,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                 : 'Projects are created by your agency and give you a shared view of work and progress'}
             </span>
           </div>
-          {onNewProject && isAgency && (
+          {onNewProject && isAgency && !isDisconnected && (
             <Button 
               variant="outline" 
               size="sm" 
@@ -459,7 +459,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            {isAgency && (
+            {isAgency && !isDisconnected && (
             <Button
               variant="default"
               size="lg"
@@ -531,7 +531,14 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                   {project.title}
                 </TableCell>
 
-                {isAgency ? (
+                {isDisconnected || !isAgency ? (
+                  <TableCell 
+                    className="w-[15%] py-0"
+                    onClick={isDisconnected ? undefined : (e) => e.stopPropagation()}
+                  >
+                    <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
+                  </TableCell>
+                ) : (
                   <TableCell 
                     className="w-[15%] py-0" 
                     onClick={(e) => e.stopPropagation()}
@@ -550,10 +557,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                       badgeComponent="project"
                       className="truncate h-6 rounded-[8px]"
                     />
-                  </TableCell>
-                ) : (
-                  <TableCell className="w-[15%] py-0">
-                    <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
                   </TableCell>
                 )}
 
@@ -616,7 +619,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                           <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           Copy link
                         </DropdownMenuItem>
-                        {isAgency && (
+                        {!isDisconnected && isAgency && (
                           <>
                         <div className="border-t border-[var(--color-neutral-6)] my-1" />
                         <DropdownMenuItem 

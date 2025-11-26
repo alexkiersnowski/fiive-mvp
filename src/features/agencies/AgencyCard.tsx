@@ -50,8 +50,13 @@ export function AgencyCard({
   } | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   
+  const isAccessible = status === 'connected' || status === 'disconnected';
+  const isInvited = status === 'invited';
+  
   const handleCardClick = () => {
-    router.push(`/agencies/${connectionId}/overview`);
+    if (isAccessible) {
+      router.push(`/agencies/${connectionId}/overview`);
+    }
   };
 
   const handleAccountManagerClick = () => {
@@ -81,17 +86,18 @@ export function AgencyCard({
   return (
     <>
       <Card 
-        className="relative h-45 cursor-pointer transition-colors duration-75"
+        className={`relative h-45 transition-colors duration-75 ${isAccessible ? 'cursor-pointer' : ''}`}
         style={{
-          backgroundColor: 'var(--color-base-surface-page-background)'
+          backgroundColor: 'var(--color-base-surface-page-background)',
+          pointerEvents: isAccessible ? 'auto' : 'none'
         }}
-        onMouseEnter={(e) => {
+        onMouseEnter={isAccessible ? (e) => {
           e.currentTarget.style.backgroundColor = 'var(--color-neutral-3)';
-        }}
-        onMouseLeave={(e) => {
+        } : undefined}
+        onMouseLeave={isAccessible ? (e) => {
           e.currentTarget.style.backgroundColor = 'var(--color-base-surface-page-background)';
-        }}
-        onClick={handleCardClick}
+        } : undefined}
+        onClick={isAccessible ? handleCardClick : undefined}
       >
       <CardContent className="py-5 px-5 h-full">
         {/* Connection Badge - Top Right */}
@@ -123,7 +129,13 @@ export function AgencyCard({
               )}
             </div>
           </div>
-          {accountManager && (
+          {isInvited ? (
+            <div className="flex-shrink-0 min-w-0 w-1/3">
+              <span className="text-sm-regular ml-1 truncate block" style={{ color: 'var(--color-base-text-tertiary)' }}>
+                Waiting to connect…
+              </span>
+            </div>
+          ) : accountManager && (
             <div className="flex-shrink-0 min-w-0 w-1/3">
               {accountManager.name === 'Unassigned' ? (
                 <div className="flex items-center p-1" style={{ borderRadius: 'calc(var(--radius) - 2px)' }}>

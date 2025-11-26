@@ -37,11 +37,15 @@ export const validateConnectionAccess = cache(async (
     
     return !error && !!data;
   } else {
+    // For clients, check that connection_status is 'connected' or 'disconnected'
+    // This prevents access to connection pages before the agency has claimed their organization
+    // but allows access to disconnected connections (previously connected)
     const { data, error } = await supabase
       .from('connections')
-      .select('id')
+      .select('id, connection_status')
       .eq('id', connectionId)
       .eq('client_id', context.orgId)
+      .in('connection_status', ['connected', 'disconnected'])
       .single();
     
     return !error && !!data;
@@ -607,6 +611,36 @@ const getConnectionInfo = cache(async (connectionId: string) => {
   }
   
   return { connection, error: null };
+});
+
+/**
+ * Get connection status for a given connection ID
+ */
+export const getConnectionStatus = cache(async (
+  connectionId: string,
+  context: EnhancedModeContext
+): Promise<'connected' | 'invited' | 'disconnected' | 'internal' | null> => {
+  const supabase = await createClient();
+  
+  const query = context.variant === 'agency'
+    ? supabase
+        .from('connections')
+        .select('connection_status')
+        .eq('id', connectionId)
+        .eq('agency_id', context.orgId)
+    : supabase
+        .from('connections')
+        .select('connection_status')
+        .eq('id', connectionId)
+        .eq('client_id', context.orgId);
+  
+  const { data, error } = await query.single();
+  
+  if (error || !data) {
+    return null;
+  }
+  
+  return (data.connection_status || 'internal') as 'connected' | 'invited' | 'disconnected' | 'internal';
 });
 
 export interface RequestsWithCount {

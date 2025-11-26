@@ -86,9 +86,10 @@ interface ProjectDetailContentProps {
   }
   initialComments?: Comment[]
   onCommentsUpdate?: (comments: Comment[]) => void
+  isDisconnected?: boolean
 }
 
-export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, createdAt, requestsCount = 0, tasksCount = 0, mode = 'modal', onProjectUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailContentProps) {
+export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, createdAt, requestsCount = 0, tasksCount = 0, mode = 'modal', onProjectUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isDisconnected = false }: ProjectDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -554,7 +555,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Copy link
               </DropdownMenuItem>
-              {variant === 'agency' && (
+              {!isDisconnected && variant === 'agency' && (
                 <>
               <div className="border-t border-[var(--color-neutral-6)] my-1" />
               <DropdownMenuItem 
@@ -582,21 +583,30 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
         <div className="flex-shrink-0 pb-4 pr-8">
           <div className="flex items-start gap-3">
             <div data-inline-edit="title" className="flex-1 min-w-0">
-              <InlineEdit
-                key={titleResetKey}
-                type="text"
-                value={titleValue}
-                onSave={handleTitleSave}
-                placeholder="Project name"
-                textClass="display-7-medium text-primary"
-                multiline={true}
-                maxLength={255}
-                preventNewLines={true}
-                className="px-0"
-                nonInteractive={variant === 'client'}
-              />
+              {isDisconnected || variant === 'client' ? (
+                <p className="display-7-medium text-primary px-0">
+                  {titleValue}
+                </p>
+              ) : (
+                <InlineEdit
+                  key={titleResetKey}
+                  type="text"
+                  value={titleValue}
+                  onSave={handleTitleSave}
+                  placeholder="Project name"
+                  textClass="display-7-medium text-primary"
+                  multiline={true}
+                  maxLength={255}
+                  preventNewLines={true}
+                  className="px-0"
+                />
+              )}
             </div>
-            {variant === 'agency' ? (
+            {isDisconnected || variant !== 'agency' ? (
+              <div className="mt-1.5">
+                <ProjectBadge variant={statusValue} size="lg" showText={true} />
+              </div>
+            ) : (
               <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
                 <PopoverTrigger asChild>
                   <button
@@ -637,10 +647,6 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                   </Command>
                 </PopoverContent>
               </Popover>
-            ) : (
-              <div className="mt-1.5">
-                <ProjectBadge variant={statusValue} size="lg" showText={true} />
-              </div>
             )}
           </div>
         </div>
@@ -649,7 +655,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
         <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
           <div className="flex flex-col gap-5">
             <div data-inline-edit="description">
-              {variant === 'client' ? (
+              {isDisconnected || variant === 'client' ? (
                 <div
                   className="text-md-regular px-0 whitespace-pre-wrap"
                   style={{ fontSize: '15px', lineHeight: '22px' }}
@@ -712,19 +718,19 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">Start date</p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
-              <InlineEdit
-                type="date"
-                value={startDateValue}
-                placeholder="Add date"
-                dateFormat="d MMM yyyy"
-                onSave={handleStartDateSave}
-                className="h-[28px] cursor-pointer truncate"
-              />
-              ) : (
+              {isDisconnected || variant !== 'agency' ? (
                 <span className="text-sm-regular text-primary ml-1">
-                  {startDateValue || "No date"}
+                  {startDateValue || "No start date"}
                 </span>
+              ) : (
+                <InlineEdit
+                  type="date"
+                  value={startDateValue}
+                  placeholder="Add date"
+                  dateFormat="d MMM yyyy"
+                  onSave={handleStartDateSave}
+                  className="h-[28px] cursor-pointer truncate"
+                />
               )}
             </div>
           </div>
@@ -735,19 +741,19 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">End date</p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
-              <InlineEdit
-                type="date"
-                value={endDateValue}
-                placeholder="Add date"
-                dateFormat="d MMM yyyy"
-                onSave={handleEndDateSave}
-                className="h-[28px] cursor-pointer truncate"
-              />
-              ) : (
+              {isDisconnected || variant !== 'agency' ? (
                 <span className="text-sm-regular text-primary ml-1">
-                  {endDateValue || "No date"}
+                  {endDateValue || "No end date"}
                 </span>
+              ) : (
+                <InlineEdit
+                  type="date"
+                  value={endDateValue}
+                  placeholder="Add date"
+                  dateFormat="d MMM yyyy"
+                  onSave={handleEndDateSave}
+                  className="h-[28px] cursor-pointer truncate"
+                />
               )}
             </div>
           </div>

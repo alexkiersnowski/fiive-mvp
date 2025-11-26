@@ -129,7 +129,7 @@ BEGIN
     v_client_id,
     NULL,
     NULL,
-    'draft',
+    'internal',
     NULL,
     NULL,
     NULL,

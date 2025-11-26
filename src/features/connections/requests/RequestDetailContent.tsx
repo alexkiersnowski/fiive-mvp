@@ -127,11 +127,12 @@ interface RequestDetailContentProps {
     createdByOrgType?: 'agency' | 'client'
   }) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean
 }
 
 type ConvertRequest = NonNullable<ConvertToTaskModalProps['request']>
 
-export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView, isDisconnected = false }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -154,8 +155,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     }
   })()
   
-  // Determine if current org can edit this request (based on lock status)
-  const canEdit = !isLocked
+  // Determine if current org can edit this request (based on lock status and disconnected state)
+  const canEdit = !isLocked && !isDisconnected
   
   // State for actions dropdown
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
@@ -827,7 +828,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[200px]">
-              {variant === 'agency' && (
+              {!isDisconnected && variant === 'agency' && (
                 <DropdownMenuItem onClick={handleConvertClick}>
                   <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Convert to task
@@ -840,7 +841,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Copy link
               </DropdownMenuItem>
-              {!isLocked && (
+              {!isDisconnected && !isLocked && (
                 <>
                   <div className="border-t border-[var(--color-neutral-6)] my-1" />
                   <DropdownMenuItem 
@@ -883,39 +884,47 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               />
             </div>
             {variant === 'agency' ? (
-              <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
-                <PopoverTrigger asChild>
-                  <StatusButton variant={statusValue} className="mt-1.5">
-                    <CaretDown size={12} weight="fill" />
-                  </StatusButton>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-full min-w-48 p-0"
-                  align="start"
-                  style={{ width: 'var(--radix-popover-trigger-width)' }}
+              isDisconnected ? (
+                <StatusButton 
+                  variant={statusValue} 
+                  className="mt-1.5 pointer-events-none"
                 >
-                  <Command>
-                    <CommandList>
-                      <CommandEmpty>No status found.</CommandEmpty>
-                      <CommandGroup>
-                        {statusOptions.map((option) => (
-                          <CommandItem
-                            key={option.value}
-                            value={option.value}
-                            onSelect={() => handleStatusChange(option.value as string)}
-                            className="flex items-center justify-between cursor-pointer"
-                          >
-                            <RequestBadge variant={option.value as any} size="sm" showText />
-                            {option.value === statusValue && (
-                              <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
-                            )}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                </StatusButton>
+              ) : (
+                <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
+                  <PopoverTrigger asChild>
+                    <StatusButton variant={statusValue} className="mt-1.5">
+                      <CaretDown size={12} weight="fill" />
+                    </StatusButton>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-full min-w-48 p-0"
+                    align="start"
+                    style={{ width: 'var(--radix-popover-trigger-width)' }}
+                  >
+                    <Command>
+                      <CommandList>
+                        <CommandEmpty>No status found.</CommandEmpty>
+                        <CommandGroup>
+                          {statusOptions.map((option) => (
+                            <CommandItem
+                              key={option.value}
+                              value={option.value}
+                              onSelect={() => handleStatusChange(option.value as string)}
+                              className="flex items-center justify-between cursor-pointer"
+                            >
+                              <RequestBadge variant={option.value as any} size="sm" showText />
+                              {option.value === statusValue && (
+                                <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
+                              )}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              )
             ) : (
               <StatusButton 
                 variant={statusValue} 
@@ -964,11 +973,13 @@ export function RequestDetailContent({ requestId, title, description, client, ag
         <>
           <h4 className="text-md-medium text-primary mt-5">Comments</h4>
             
-            {/* Comment Input */}
-            <CommentInput 
-              activeUser={activeUser}
-              onCommentSubmit={handleCommentSubmit}
-            />
+            {/* Comment Input - Hide when disconnected */}
+            {!isDisconnected && (
+              <CommentInput 
+                activeUser={activeUser}
+                onCommentSubmit={handleCommentSubmit}
+              />
+            )}
 
             {/* Comments List */}
             {comments.map((comment) => (
@@ -982,6 +993,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 createdByUserId={comment.userId}
                 activeUserId={activeUser?.id}
                 onDelete={handleCommentDelete}
+                hideActions={isDisconnected}
               />
             ))}
           </>
@@ -1054,24 +1066,32 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
             <div className="w-3/5 min-w-0">
-              <InlineEdit
-                type="badge"
-                value={requestProject ? requestProject.id : 'general'}
-                options={[
-                  { value: 'general', label: 'General request' },
-                  ...projects.map(p => ({ value: p.id, label: p.name }))
-                ]}
-                onSave={handleProjectSave}
-                searchPlaceholder="Search projects…"
-                clearable={false}
-                dividerIndex={0}
-                placeholder="General request"
-                popoverWidth="240px"
-                badgeBorderRadius="4px"
-                maxHeight="210px"
-                className="h-6"
-                nonInteractive={!canEdit}
-              />
+              {isDisconnected ? (
+                <div className="h-6 flex items-center">
+                  <p className="text-sm-regular text-primary truncate ml-1">
+                    {requestProject ? requestProject.name : 'General request'}
+                  </p>
+                </div>
+              ) : (
+                <InlineEdit
+                  type="badge"
+                  value={requestProject ? requestProject.id : 'general'}
+                  options={[
+                    { value: 'general', label: 'General request' },
+                    ...projects.map(p => ({ value: p.id, label: p.name }))
+                  ]}
+                  onSave={handleProjectSave}
+                  searchPlaceholder="Search projects…"
+                  clearable={false}
+                  dividerIndex={0}
+                  placeholder="General request"
+                  popoverWidth="240px"
+                  badgeBorderRadius="4px"
+                  maxHeight="210px"
+                  className="h-6"
+                  nonInteractive={!canEdit}
+                />
+              )}
             </div>
           </div>
 
@@ -1103,17 +1123,17 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                   text={assigneeValue ? assigneeValue.name : 'Unassigned'}
                   textColor={assigneeValue ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
                   comboboxSelectedValue={assigneeValue?.id ?? null}
-                  comboboxOptions={variant === 'agency' ? agencyMembers.map(member => ({
+                  comboboxOptions={isDisconnected ? undefined : (variant === 'agency' ? agencyMembers.map(member => ({
                     value: member.id,
                     label: `${member.firstName} ${member.lastName}`,
                     avatar: member.avatarUrl
-                  })) : undefined}
-                  comboboxPlaceholder={variant === 'agency' ? "Search members…" : undefined}
-                  onComboboxSelect={variant === 'agency' ? handleAssigneeSelect : undefined}
-                  clearable={variant === 'agency' ? !!assigneeValue : false}
-                  onClear={variant === 'agency' ? handleClearAssignee : undefined}
+                  })) : undefined)}
+                  comboboxPlaceholder={isDisconnected ? undefined : (variant === 'agency' ? "Search members…" : undefined)}
+                  onComboboxSelect={isDisconnected ? undefined : (variant === 'agency' ? handleAssigneeSelect : undefined)}
+                  clearable={isDisconnected ? false : (variant === 'agency' ? !!assigneeValue : false)}
+                  onClear={isDisconnected ? undefined : (variant === 'agency' ? handleClearAssignee : undefined)}
                   borderRadius="4px"
-                  nonInteractive={variant === 'client'}
+                  nonInteractive={isDisconnected || variant === 'client'}
                 />
               </div>
             </div>

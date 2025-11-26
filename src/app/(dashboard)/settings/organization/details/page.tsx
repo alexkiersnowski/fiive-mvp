@@ -1,8 +1,51 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext'
+import { createClient } from '@/lib/supabase/server'
+import { cache } from 'react'
 import DetailsForm from './DetailsForm'
+import DeleteWorkspace from './DeleteWorkspace'
 
 // Cache for 30 seconds to improve performance while keeping data reasonably fresh
 export const revalidate = 30
+
+/**
+ * Check if an organization has any real connections (non-draft status)
+ * Real connections are those with status: 'invited', 'connected', or 'disconnected'
+ */
+const hasRealConnections = cache(async (
+  orgId: string,
+  variant: 'agency' | 'client'
+): Promise<boolean> => {
+  const supabase = await createClient()
+  
+  try {
+    let query = supabase
+      .from('connections')
+      .select('id')
+      .in('connection_status', ['invited', 'connected', 'disconnected'])
+      .limit(1)
+    
+    if (variant === 'agency') {
+      query = query.eq('agency_id', orgId)
+    } else {
+      query = query.eq('client_id', orgId)
+    }
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error checking for real connections:', error)
+      // Default to showing "contact support" message for safety
+      return true
+    }
+    
+    // Return true if any real connections exist
+    return (data?.length ?? 0) > 0
+  } catch (error) {
+    console.error('Unexpected error checking for real connections:', error)
+    // Default to showing "contact support" message for safety
+    return true
+  }
+})
 
 export default async function OrganizationDetailsPage() {
   const context = await getActiveContext()
@@ -49,6 +92,15 @@ export default async function OrganizationDetailsPage() {
         : 'How your company will be seen by agencies'
       )
 
+  // Check if organization has real connections (invited, connected, or disconnected)
+  // Internal connections don't count as "real" connections
+  const hasRealConnectionsResult = await hasRealConnections(context.orgId, context.variant)
+  
+  // Can delete workspace only if:
+  // 1. No real connections exist (only internal or no connections)
+  // 2. billing_status is 'free'
+  const canDeleteWorkspace = !hasRealConnectionsResult && organization.billing_status === 'free'
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -75,6 +127,14 @@ export default async function OrganizationDetailsPage() {
         currentUserRole={currentUserRole}
         variant={context.variant}
       />
+
+      {/* Delete Workspace Section */}
+      {currentUserRole === 'owner' && (
+        <DeleteWorkspace 
+          canDeleteWorkspace={canDeleteWorkspace}
+          organizationName={organization.name}
+        />
+      )}
     </div>
   )
 }

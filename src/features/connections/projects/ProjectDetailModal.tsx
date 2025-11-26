@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { toast } from 'sonner'
 import { deleteProject } from './actions'
 import type { Project } from '../server'
+import { useConnection } from '../ConnectionContext'
 
 interface ProjectDetailModalProps {
   projectData: {
@@ -89,6 +90,7 @@ interface ProjectDetailModalProps {
 }
 
 export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, onClose, onExpand, onProjectUpdate, onProjectDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailModalProps) {
+  const { isDisconnected } = useConnection()
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   
@@ -160,7 +162,7 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {variant === 'agency' && (
+                {!isDisconnected && variant === 'agency' && (
                   <>
                 <div className="border-t border-[var(--color-neutral-6)] my-1" />
                 <DropdownMenuItem 
@@ -225,6 +227,7 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
               activeUser={activeUser}
               initialComments={initialComments}
               onCommentsUpdate={onCommentsUpdate}
+              isDisconnected={isDisconnected}
             />
           </div>
         )}

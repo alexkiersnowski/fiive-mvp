@@ -20,6 +20,7 @@ import { updateTaskAssignee, updateTaskStatus, deleteTask, fetchProjectsForConne
 import { sortTasksWithPinnedFirst, type TaskSortMode } from './taskSort'
 import type { Task } from '../server'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import { useConnection } from '../ConnectionContext'
 
 interface TasksTableProps {
   userAvatar?: string
@@ -59,6 +60,7 @@ interface TasksTableProps {
 }
 
 export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onTaskDeleted, sortMode = 'status' }: TasksTableProps) {
+  const { isDisconnected } = useConnection()
   const pathname = usePathname()
   const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -377,7 +379,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
               }
             </span>
           </div>
-          {onNewTask && (
+          {onNewTask && !isDisconnected && (
             <Button 
               variant="outline" 
               size="sm" 
@@ -469,7 +471,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
               <SortAscending size={16} />
               {currentSortLabel}
             </Button>
-            {isAgency && (
+            {isAgency && !isDisconnected && (
               <Button
                 variant="default"
                 size="lg"
@@ -566,7 +568,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                 </TableCell>
 
                 {(() => {
-                  const canEditStatus = isAgency || (task.assignee ? clientEditableMembers.idSet.has(task.assignee.id) : false)
+                  const canEditStatus = !isDisconnected && (isAgency || (task.assignee ? clientEditableMembers.idSet.has(task.assignee.id) : false))
                   if (canEditStatus) {
                     return (
                       <TableCell 
@@ -598,7 +600,10 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                     )
                   }
                   return (
-                    <TableCell className="w-[18.75%] py-0">
+                    <TableCell 
+                      className="w-[18.75%] py-0"
+                      onClick={isDisconnected ? undefined : (e) => e.stopPropagation()}
+                    >
                       <TaskBadge 
                         variant={task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done'} 
                         size="sm" 
@@ -611,7 +616,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
 
                 <TableCell 
                   className="w-[18.75%] py-0"
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                  onClick={isDisconnected ? undefined : (e: React.MouseEvent) => e.stopPropagation()}
                 >
                   {isAgency ? (
                     <ListRow
@@ -627,12 +632,13 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                       onClick={() => {
                         // Assignee click handled by combobox
                       }}
-                      comboboxOptions={comboboxOptions}
-                      onComboboxSelect={(memberId) => handleAssigneeSelect(task.id, memberId)}
-                      comboboxPlaceholder="Search members..."
-                      comboboxWidth="280px"
-                      clearable={!!task.assignee}
-                      onClear={() => handleClearAssignee(task.id)}
+                      comboboxOptions={isDisconnected ? undefined : comboboxOptions}
+                      onComboboxSelect={isDisconnected ? undefined : (memberId) => handleAssigneeSelect(task.id, memberId)}
+                      comboboxPlaceholder={isDisconnected ? undefined : "Search members..."}
+                      comboboxWidth={isDisconnected ? undefined : "280px"}
+                      clearable={isDisconnected ? false : !!task.assignee}
+                      onClear={isDisconnected ? undefined : () => handleClearAssignee(task.id)}
+                      nonInteractive={isDisconnected}
                     />
                   ) : (
                     (() => {
@@ -650,11 +656,12 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                             variant="stacked"
                             className="min-w-0 min-h-[32px]"
                             comboboxSelectedValue={task.assignee?.id ?? null}
-                            comboboxOptions={clientEditableMembers.options}
-                            onComboboxSelect={(memberId) => handleAssigneeSelect(task.id, memberId)}
-                            comboboxPlaceholder="Search members..."
-                            comboboxWidth="280px"
+                            comboboxOptions={isDisconnected ? undefined : clientEditableMembers.options}
+                            onComboboxSelect={isDisconnected ? undefined : (memberId) => handleAssigneeSelect(task.id, memberId)}
+                            comboboxPlaceholder={isDisconnected ? undefined : "Search members..."}
+                            comboboxWidth={isDisconnected ? undefined : "280px"}
                             clearable={false}
+                            nonInteractive={isDisconnected}
                           />
                         )
                       }
@@ -669,8 +676,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                           variant="stacked"
                           className="min-w-0"
                           comboboxSelectedValue={task.assignee?.id ?? null}
-                          nonInteractive={!task.assignee}
-                          onClick={task.assignee ? () => {
+                          nonInteractive={isDisconnected || !task.assignee}
+                          onClick={task.assignee && !isDisconnected ? () => {
                             const nameParts = task.assignee!.name.split(' ')
                             const assigneeMember = agencyMembers.find(member => member.id === task.assignee!.id)
                             handleContactClick({
@@ -775,7 +782,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                           <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                           Copy link
                         </DropdownMenuItem>
-                        {isAgency && (
+                        {!isDisconnected && isAgency && (
                           <>
                             <div className="border-t border-[var(--color-neutral-6)] my-1" />
                             <DropdownMenuItem 

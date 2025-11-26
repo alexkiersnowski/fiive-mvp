@@ -17,10 +17,12 @@ export const getHealthCounts = cache(async (context: EnhancedModeContext): Promi
     return { healthy: 0, atRisk: 0, critical: 0, unassigned: 0 };
   }
   
+  // Exclude disconnected connections (frozen/read-only)
   const { data: connections, error } = await supabase
     .from('connections')
     .select('health_status')
-    .eq('agency_id', context.orgId);
+    .eq('agency_id', context.orgId)
+    .neq('connection_status', 'disconnected');
   
   if (error) {
     console.error('Error fetching health counts:', error);
@@ -72,10 +74,12 @@ export const getContractsEndingCount = cache(async (context: EnhancedModeContext
   const todayStr = today.toISOString().split('T')[0];
   const ninetyDaysStr = ninetyDaysFromNow.toISOString().split('T')[0];
   
+  // Exclude disconnected connections (frozen/read-only)
   const { data: connections, error } = await supabase
     .from('connections')
     .select('contract_end_on')
     .eq('agency_id', context.orgId)
+    .neq('connection_status', 'disconnected')
     .not('contract_end_on', 'is', null)
     .gte('contract_end_on', todayStr)
     .lte('contract_end_on', ninetyDaysStr);
@@ -94,15 +98,18 @@ export const getTasksDueSoonCount = cache(async (context: EnhancedModeContext): 
   // Get all connection IDs that belong to this organization
   // Agency: connections where agency_id = orgId
   // Client: connections where client_id = orgId
+  // Exclude disconnected connections (frozen/read-only)
   const connectionQuery = context.variant === 'agency'
     ? supabase
         .from('connections')
         .select('id')
         .eq('agency_id', context.orgId)
+        .neq('connection_status', 'disconnected')
     : supabase
         .from('connections')
         .select('id')
-        .eq('client_id', context.orgId);
+        .eq('client_id', context.orgId)
+        .neq('connection_status', 'disconnected');
 
   const { data: connections, error: connectionQueryError } = await connectionQuery;
 
@@ -204,6 +211,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
   
   if (context.variant !== 'agency') {
     // For clients, we need to fetch agencies instead
+    // Exclude disconnected connections (frozen/read-only)
     const { data: connections, error } = await supabase
       .from('connections')
       .select(`
@@ -219,6 +227,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
         )
       `)
       .eq('client_id', context.orgId)
+      .neq('connection_status', 'disconnected')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -260,6 +269,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
   // For agencies, fetch all connection data in one query
   // Note: We fetch all connections for accurate health counts and contract ending counts
   // For large datasets, consider implementing a separate aggregation query
+  // Exclude disconnected connections (frozen/read-only)
   const { data: connections, error } = await supabase
     .from('connections')
     .select(`
@@ -275,6 +285,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
       )
     `)
     .eq('agency_id', context.orgId)
+    .neq('connection_status', 'disconnected')
     .order('created_at', { ascending: false });
 
   if (error) {

@@ -23,6 +23,11 @@ export interface Organization {
   logo_url?: string
   created_at: string
   updated_at: string
+  stripe_customer_id?: string
+  stripe_subscription_id?: string
+  stripe_price_id?: string
+  billing_status?: 'free' | 'active' | 'canceled_pending' | 'past_due'
+  current_period_end?: string
 }
 
 export interface OrganizationMembership {

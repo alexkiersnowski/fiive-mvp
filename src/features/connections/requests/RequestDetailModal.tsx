@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
+import { useConnection } from '../ConnectionContext'
 
 interface RequestDetailModalProps {
   requestData: {
@@ -109,6 +110,7 @@ export function RequestDetailModal({
   onConvertToTask,
   isGlobalView = false,
 }: RequestDetailModalProps) {
+  const { isDisconnected } = useConnection()
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // Determine if the request is locked for editing based on view context and organization type
@@ -214,7 +216,7 @@ export function RequestDetailModal({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                {variant === 'agency' && (
+                {!isDisconnected && variant === 'agency' && (
                   <DropdownMenuItem
                     onClick={() => {
                       setIsActionsDropdownOpen(false)
@@ -234,7 +236,7 @@ export function RequestDetailModal({
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {!isLocked && (
+                {!isDisconnected && !isLocked && (
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 
@@ -318,6 +320,7 @@ export function RequestDetailModal({
                 })
               }}
               isGlobalView={isGlobalView}
+              isDisconnected={isDisconnected}
             />
           </div>
         )}

@@ -1,5 +1,5 @@
 import { RequestDetailContent } from '@/features/connections/requests/RequestDetailContent'
-import { getRequestById, getAgencyMembersForConnection, getConnectionPartnerName, getCommentsForRequest, getProjectsForConnection } from '@/features/connections/server'
+import { getRequestById, getAgencyMembersForConnection, getConnectionPartnerName, getCommentsForRequest, getProjectsForConnection, getConnectionStatus } from '@/features/connections/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { notFound } from 'next/navigation'
 
@@ -10,7 +10,7 @@ export default async function AgencyRequestDetailPage({
 }) {
   const { connectionId, requestId } = await params
   
-  // Fetch request data, comments, agency members, projects, and context in parallel
+  // Fetch request data, comments, agency members, projects, context, and connection status in parallel
   const [request, comments, agencyMembers, projectsData, context] = await Promise.all([
     getRequestById(requestId, connectionId),
     getCommentsForRequest(requestId),
@@ -18,6 +18,10 @@ export default async function AgencyRequestDetailPage({
     getProjectsForConnection(connectionId, { limit: 1000, offset: 0 }),
     getActiveContext()
   ])
+  
+  // Get connection status to determine if disconnected
+  const connectionStatus = context ? await getConnectionStatus(connectionId, context) : null
+  const isDisconnected = connectionStatus === 'disconnected'
   
   if (!context) {
     notFound()
@@ -61,6 +65,7 @@ export default async function AgencyRequestDetailPage({
         avatarUrl: context.user.avatarUrl
       } : undefined}
       initialComments={comments}
+      isDisconnected={isDisconnected}
     />
   )
 }

@@ -7,6 +7,7 @@ import { TaskDetailContent } from './TaskDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { useConnection } from '../ConnectionContext'
 
 interface TaskDetailModalProps {
   taskData: {
@@ -105,6 +106,7 @@ interface TaskDetailModalProps {
 }
 
 export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false }: TaskDetailModalProps) {
+  const { isDisconnected } = useConnection()
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // All fields are editable (no restrictions)
@@ -195,19 +197,21 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                <>
-                  <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                  <DropdownMenuItem 
-                    onClick={() => {
-                      handleDeleteTask()
-                      setIsActionsDropdownOpen(false)
-                    }}
-                    style={{ color: 'var(--color-red-11)' }}
-                  >
-                    <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                    Delete task
-                  </DropdownMenuItem>
-                </>
+                {!isDisconnected && (
+                  <>
+                    <div className="border-t border-[var(--color-neutral-6)] my-1" />
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        handleDeleteTask()
+                        setIsActionsDropdownOpen(false)
+                      }}
+                      style={{ color: 'var(--color-red-11)' }}
+                    >
+                      <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
+                      Delete task
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button 
@@ -267,6 +271,7 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
               initialComments={initialComments}
               onCommentsUpdate={onCommentsUpdate}
               isGlobalView={isGlobalView}
+              isDisconnected={isDisconnected}
             />
           </div>
         )}

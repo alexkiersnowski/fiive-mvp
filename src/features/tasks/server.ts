@@ -102,15 +102,18 @@ export const getTasksSnapshot = cache(async (
   // Get all connection IDs that belong to this organization
   // Agency: connections where agency_id = orgId
   // Client: connections where client_id = orgId
+  // Exclude disconnected connections (frozen/read-only)
   const connectionQuery = context.variant === 'agency'
     ? supabase
         .from('connections')
         .select('id')
         .eq('agency_id', context.orgId)
+        .neq('connection_status', 'disconnected')
     : supabase
         .from('connections')
         .select('id')
-        .eq('client_id', context.orgId);
+        .eq('client_id', context.orgId)
+        .neq('connection_status', 'disconnected');
 
   const { data: connections, error: connectionQueryError } = await connectionQuery;
 
@@ -1180,6 +1183,7 @@ export const getConnectionsForGlobalView = cache(async (
   
   if (context.variant === 'agency') {
     // Agency viewing clients - get all client connections
+    // Exclude disconnected connections (frozen/read-only)
     const { data: connections, error } = await supabase
       .from('connections')
       .select(`
@@ -1191,6 +1195,7 @@ export const getConnectionsForGlobalView = cache(async (
         )
       `)
       .eq('agency_id', context.orgId)
+      .neq('connection_status', 'disconnected')
       .order('created_at', { ascending: false });
     
     if (error || !connections) {
@@ -1207,6 +1212,7 @@ export const getConnectionsForGlobalView = cache(async (
       }));
   } else {
     // Client viewing agencies - get all agency connections
+    // Exclude disconnected connections (frozen/read-only)
     const { data: connections, error } = await supabase
       .from('connections')
       .select(`
@@ -1218,6 +1224,7 @@ export const getConnectionsForGlobalView = cache(async (
         )
       `)
       .eq('client_id', context.orgId)
+      .neq('connection_status', 'disconnected')
       .order('created_at', { ascending: false });
     
     if (error || !connections) {
@@ -1263,11 +1270,13 @@ export const getMembersForAllConnections = cache(async (
   // Fetch all connections with their agency_id and client_id
   // For agencies: get connections where agency_id = orgId
   // For clients: get connections where client_id = orgId
+  // Exclude disconnected connections (frozen/read-only)
   const { data: connections, error: connectionsError } = await supabase
     .from('connections')
     .select('id, agency_id, client_id')
     .in('id', connectionIds)
-    .eq(context.variant === 'agency' ? 'agency_id' : 'client_id', context.orgId);
+    .eq(context.variant === 'agency' ? 'agency_id' : 'client_id', context.orgId)
+    .neq('connection_status', 'disconnected');
 
   if (connectionsError || !connections) {
     if (process.env.NODE_ENV !== 'production') {
@@ -1446,10 +1455,12 @@ export const getGlobalAssignedTasksCount = cache(async (
   const supabase = await createClient();
   
   // Get all connection IDs where this client is the client-side org
+  // Exclude disconnected connections (frozen/read-only)
   const { data: connections, error: connectionQueryError } = await supabase
     .from('connections')
     .select('id')
-    .eq('client_id', context.orgId);
+    .eq('client_id', context.orgId)
+    .neq('connection_status', 'disconnected');
 
   if (connectionQueryError || !connections) {
     console.error('Error fetching connections for assigned tasks count:', connectionQueryError);

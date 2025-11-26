@@ -1,5 +1,5 @@
 import { TaskDetailContent } from '@/features/connections/tasks/TaskDetailContent'
-import { getTaskById, getConnectionMembers, getConnectionPartnerName, getCommentsForTask, getProjectsForConnection } from '@/features/connections/server'
+import { getTaskById, getConnectionMembers, getConnectionPartnerName, getCommentsForTask, getProjectsForConnection, getConnectionStatus } from '@/features/connections/server'
 import { sortMembersWithActiveFirst } from '@/features/connections/utils/memberSorting'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { notFound } from 'next/navigation'
@@ -34,6 +34,10 @@ export default async function ClientTaskDetailPage({
   
   // Fetch partner name for breadcrumbs
   const partnerName = await getConnectionPartnerName(connectionId, context)
+  
+  // Get connection status to determine if disconnected
+  const connectionStatus = await getConnectionStatus(connectionId, context)
+  const isDisconnected = connectionStatus === 'disconnected'
   
   if (!task) {
     notFound()
@@ -76,6 +80,7 @@ export default async function ClientTaskDetailPage({
         avatarUrl: context.user.avatarUrl
       } : undefined}
       initialComments={comments}
+      isDisconnected={isDisconnected}
     />
   )
 }

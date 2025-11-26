@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Input } from '@/components/ui/input'
 import { ImageUpload } from '@/components/ui/image-upload'
-import { Combobox, ComboboxOption } from '@/components/ui/combobox'
+import { ComboboxOption } from '@/components/ui/combobox'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/connection-badge'
@@ -408,7 +408,7 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
         </label>
         <Textarea
           value={partnerOrganization.description || ""}
-          placeholder={isAgency ? "Tell clients about your agency..." : "Tell agencies about your company…"}
+          placeholder="No description added"
           className="h-[120px] resize-none"
           readOnly={true}
           style={readOnlyStyle}
@@ -421,15 +421,13 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
         <label className="text-sm font-medium block mb-2" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
           {isAgency ? 'Agency type' : 'Industry'}
         </label>
-        <Combobox
-          options={isAgency ? agencyTypes : industryTypes}
+        <Input
           value={partnerOrganization.industry || ""}
-          onValueChange={() => {}} // No-op for read-only
-          placeholder={isAgency ? "Select agency type..." : "Select industry..."}
-          searchPlaceholder={isAgency ? "Search agency types..." : "Search industries..."}
-          emptyText={isAgency ? "No agency type found." : "No industry found."}
-          hasError={false}
+          placeholder="No industry selected"
+          className="h-10 px-4 py-2 text-sm"
           readOnly={true}
+          style={readOnlyStyle}
+          onFocus={handleReadOnlyFocus}
         />
       </div>
 
@@ -440,7 +438,7 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
         </label>
         <Input
           value={displayWebsite(partnerOrganization.website)}
-          placeholder={isAgency ? "exastudio.com" : "example.com"}
+          placeholder="No website added"
           className="h-10 px-4 py-2 text-sm"
           readOnly={true}
           style={readOnlyStyle}

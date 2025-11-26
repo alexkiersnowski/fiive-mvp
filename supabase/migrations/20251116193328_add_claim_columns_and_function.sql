@@ -135,7 +135,7 @@ BEGIN
       invite_token = NULL,
       updated_at = NOW()
   WHERE id = p_connection_id
-    AND connection_status IN ('draft', 'invited');
+    AND connection_status IN ('internal', 'invited');
 
   GET DIAGNOSTICS v_conn_rows = ROW_COUNT;
   IF v_conn_rows = 0 THEN

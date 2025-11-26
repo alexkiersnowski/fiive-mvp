@@ -10,7 +10,7 @@ import { ListRow } from '@/components/ui/list-row'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
-import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, Eye, EyeSlash, ChatCentered, ArrowSquareOut } from '@phosphor-icons/react'
+import { Check, CaretDown, DotsThree, LinkSimple, Trash, Eye, EyeSlash, ChatCentered, ArrowSquareOut } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
@@ -120,9 +120,10 @@ interface TaskDetailContentProps {
     }
   }) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean
 }
 
-export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick, isGlobalView: propIsGlobalView }: TaskDetailContentProps) {
+export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick, isGlobalView: propIsGlobalView, isDisconnected = false }: TaskDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -871,12 +872,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               </Button>
             </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                {variant === 'agency' && (
-                  <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
-                    <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                    Convert to task
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={() => {
                   handleCopyLink()
                   setIsActionsDropdownOpen(false)
@@ -884,7 +879,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {variant === 'agency' && (
+                {!isDisconnected && variant === 'agency' && (
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 
@@ -912,7 +907,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         <div className="flex-shrink-0 pb-4 pr-8">
           <div className="flex items-start gap-3">
             <div data-inline-edit="title" className="flex-1 min-w-0">
-              {isClientVariant ? (
+              {isClientVariant || isDisconnected ? (
                 <p className="display-7-medium text-primary px-0">
                   {titleValue}
                 </p>
@@ -939,7 +934,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                   <EyeSlash size={20} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} className="mt-1.5" />
                 )
               )}
-              {(variant === 'agency' || (isClientVariant && canClientEditStatusOrAssignee)) ? (
+              {!isDisconnected && (variant === 'agency' || (isClientVariant && canClientEditStatusOrAssignee)) ? (
                 <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
                   <PopoverTrigger asChild>
             <TaskStatusButton variant={statusValue as 'to_do' | 'in_progress' | 'on_hold' | 'done'} className="mt-1.5">
@@ -988,7 +983,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
           <div className="flex flex-col gap-5">
             <div data-inline-edit="description">
-            {isClientVariant ? (
+            {isClientVariant || isDisconnected ? (
               <div className="text-md-regular px-0 whitespace-pre-wrap" style={{ fontSize: '15px', lineHeight: '22px' }}>
                 {descriptionValue || <span className="text-sm-regular text-secondary">No description</span>}
               </div>
@@ -1054,11 +1049,13 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         <>
           <h4 className="text-md-medium text-primary mt-5">Comments</h4>
             
-            {/* Comment Input */}
-            <CommentInput 
-              activeUser={activeUser}
-              onCommentSubmit={handleCommentSubmit}
-            />
+            {/* Comment Input - Hide when disconnected */}
+            {!isDisconnected && (
+              <CommentInput 
+                activeUser={activeUser}
+                onCommentSubmit={handleCommentSubmit}
+              />
+            )}
 
             {/* Comments List */}
             {comments.map((comment) => (
@@ -1072,6 +1069,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                 createdByUserId={comment.userId}
                 activeUserId={activeUser?.id}
                 onDelete={handleCommentDelete}
+                hideActions={isDisconnected}
               />
             ))}
           </>
@@ -1129,7 +1127,11 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
+              {isDisconnected ? (
+                <span className="text-sm-regular text-tertiary ml-1">
+                  {taskProject ? taskProject.name : 'None (account task)'}
+                </span>
+              ) : variant === 'agency' ? (
                 <InlineEdit
                   type="badge"
                   value={taskProject ? taskProject.id : ''}
@@ -1159,7 +1161,17 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               </p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
+              {isDisconnected ? (
+                <ListRow
+                  avatar={true}
+                  avatarUrl={assigneeValue?.avatarUrl || null}
+                  text={assigneeValue ? assigneeValue.name : 'Unassigned'}
+                  textColor={assigneeValue ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
+                  variant="stacked"
+                  className="min-w-0"
+                  nonInteractive={true}
+                />
+              ) : variant === 'agency' ? (
                 <ListRow
                   avatar={true}
                   avatarUrl={assigneeValue?.avatarUrl || null}
@@ -1222,7 +1234,11 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               <p className="text-sm-regular text-secondary truncate">Due date</p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
+              {isDisconnected || variant !== 'agency' ? (
+                <span className="text-sm-regular text-tertiary ml-1">
+                  {dueDateValue || "No due date"}
+                </span>
+              ) : (
                 <InlineEdit
                   type="date"
                   value={dueDateValue}
@@ -1231,10 +1247,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                   onSave={handleDueDateSave}
                   className="h-[28px] cursor-pointer truncate"
                 />
-              ) : (
-                <span className="text-sm-regular text-tertiary ml-1">
-                  {dueDateValue || "No due date"}
-                </span>
               )}
             </div>
           </div>
@@ -1262,9 +1274,9 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                     return (
                       <Switch
                         checked={toggleValue}
-                        disabled={isToggleDisabled}
+                        disabled={isToggleDisabled || isDisconnected}
                         onCheckedChange={handleClientVisibleChange}
-                        className={isToggleDisabled ? '!cursor-default' : 'cursor-pointer'}
+                        className={isToggleDisabled || isDisconnected ? '!cursor-default' : 'cursor-pointer'}
                       />
                     );
                   })()}
