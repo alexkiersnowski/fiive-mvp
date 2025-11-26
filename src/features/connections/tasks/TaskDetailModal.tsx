@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext'
+import type { Task } from '../server'
 
 interface TaskDetailModalProps {
   taskData: {
@@ -75,7 +76,7 @@ interface TaskDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
+  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
   onTaskDeleted?: (taskId: string) => void
   connectionId: string
   currentOrgId: string

@@ -164,7 +164,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       const currentVisibility = currentTask?.clientVisible ?? false;
       
       // Build update object
-      const updates: { assignee: any; clientVisible?: boolean; clientVisibilityLocked?: boolean } = {
+      const updates: { assignee: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean } = {
         assignee: newAssignee
       };
       

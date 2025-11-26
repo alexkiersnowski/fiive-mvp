@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { updateTaskTitle, updateTaskDescription, updateTaskStatus, updateTaskAssignee, updateTaskProject, updateTaskDueDate, updateTaskClientVisible, deleteTask, createComment, deleteComment, fetchCommentsForTask, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
+import type { Task } from '../server'
 
 interface Comment {
   id: string
@@ -90,7 +91,7 @@ interface TaskDetailContentProps {
     createdByName?: string
   } | null
   mode?: 'modal' | 'page'
-  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
+  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -620,7 +621,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     if (isClientVariant && !canClientEditStatusOrAssignee) return
 
     const validStatuses = ['to_do', 'in_progress', 'on_hold', 'done'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       console.error('Invalid status:', newStatus)
       return
     }

@@ -372,8 +372,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'projects', filter: `connection_id=eq.${connectionId}` },
-        async (payload: RealtimePostgresChangesPayload<Project>) => {
-          const newId = payload?.new?.id
+        async (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; title: string | null; status: string; created_at: string | null }>) => {
+          const newId = (payload?.new as { id: string } | undefined)?.id
           if (!newId) return
           try {
             const proj = await fetchProjectById(connectionId, newId)
@@ -398,8 +398,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'projects', filter: `connection_id=eq.${connectionId}` },
-        async (payload: RealtimePostgresChangesPayload<Project>) => {
-          const updated = payload?.new
+        async (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; title: string | null; status: string; created_at: string | null; deleted_at: string | null }>) => {
+          const updated = (payload?.new as { id: string; deleted_at: string | null } | undefined)
           if (!updated) return
           
           // Handle soft delete locally

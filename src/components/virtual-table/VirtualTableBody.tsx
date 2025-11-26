@@ -6,7 +6,7 @@ import type { VirtualItem } from '@tanstack/react-virtual'
 
 interface VirtualTableBodyProps<T> {
   items: T[]
-  virtualItems: { index: number; start: number; end: number; size: number; measureElement: (el: HTMLElement | null) => void }[]
+  virtualItems: VirtualItem[]
   rowVirtualizer: { measureElement: (el: HTMLElement | null) => void; getTotalSize: () => number }
   renderRow: (item: T, index: number, virtualRow: VirtualItem) => React.ReactNode
   emptyState?: React.ReactNode

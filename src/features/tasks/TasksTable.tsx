@@ -18,6 +18,7 @@ import { toast } from 'sonner'
 import { updateTaskAssignee, updateTaskStatus } from '@/features/connections/tasks/actions'
 import type { Task } from './types'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import type { VirtualItem } from '@tanstack/react-virtual'
 import { dispatchTaskAssignedChanged } from '@/features/home/cards/stats/TasksAssignedCard'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { VirtualItem } from '@tanstack/react-virtual'
@@ -180,7 +181,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       const oldCompletedAt = currentTask?.completedAtRaw ?? null;
       
       // Build update object
-      const updates: { assignee: any; clientVisible?: boolean; clientVisibilityLocked?: boolean } = {
+      const updates: { assignee: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean } = {
         assignee: newAssignee
       };
       

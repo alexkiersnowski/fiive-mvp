@@ -8,6 +8,7 @@ import { ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { StatsCardProps } from '../../types'
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext'
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
 // Custom event types for cross-component communication
 const REQUEST_IN_REVIEW_STATUS_CHANGED_EVENT = 'request-in-review-status-changed'
@@ -102,14 +103,14 @@ function RequestsInReviewCardClient({ initialCount, context }: RequestsInReviewC
     }
 
     // Use window.addEventListener for custom events
-    window.addEventListener(REQUEST_IN_REVIEW_STATUS_CHANGED_EVENT as any, handleStatusChanged as EventListener)
-    window.addEventListener(REQUEST_IN_REVIEW_DELETED_EVENT as any, handleDeleted as EventListener)
-    window.addEventListener(REQUEST_IN_REVIEW_CREATED_EVENT as any, handleCreated as EventListener)
+    window.addEventListener(REQUEST_IN_REVIEW_STATUS_CHANGED_EVENT, handleStatusChanged as EventListener)
+    window.addEventListener(REQUEST_IN_REVIEW_DELETED_EVENT, handleDeleted as EventListener)
+    window.addEventListener(REQUEST_IN_REVIEW_CREATED_EVENT, handleCreated as EventListener)
 
     return () => {
-      window.removeEventListener(REQUEST_IN_REVIEW_STATUS_CHANGED_EVENT as any, handleStatusChanged as EventListener)
-      window.removeEventListener(REQUEST_IN_REVIEW_DELETED_EVENT as any, handleDeleted as EventListener)
-      window.removeEventListener(REQUEST_IN_REVIEW_CREATED_EVENT as any, handleCreated as EventListener)
+      window.removeEventListener(REQUEST_IN_REVIEW_STATUS_CHANGED_EVENT, handleStatusChanged as EventListener)
+      window.removeEventListener(REQUEST_IN_REVIEW_DELETED_EVENT, handleDeleted as EventListener)
+      window.removeEventListener(REQUEST_IN_REVIEW_CREATED_EVENT, handleCreated as EventListener)
     }
   }, [applyOptimisticUpdate])
 
@@ -169,8 +170,8 @@ function RequestsInReviewCardClient({ initialCount, context }: RequestsInReviewC
             schema: 'public',
             table: 'requests',
           },
-          (payload: any) => {
-            const newRequest = payload?.new
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; status: string; deleted_at: string | null }>) => {
+            const newRequest = payload?.new as { id: string; connection_id: string; status: string; deleted_at: string | null } | undefined
             if (!newRequest || newRequest.deleted_at) return
 
             // Filter by connection ID client-side
@@ -196,9 +197,9 @@ function RequestsInReviewCardClient({ initialCount, context }: RequestsInReviewC
             schema: 'public',
             table: 'requests',
           },
-          (payload: any) => {
-            const oldRequest = payload?.old
-            const newRequest = payload?.new
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; status: string; deleted_at: string | null }>) => {
+            const oldRequest = payload?.old as { id: string; status: string; deleted_at: string | null } | undefined
+            const newRequest = payload?.new as { id: string; connection_id: string; status: string; deleted_at: string | null } | undefined
 
             if (!oldRequest || !newRequest) return
 
@@ -252,8 +253,8 @@ function RequestsInReviewCardClient({ initialCount, context }: RequestsInReviewC
             schema: 'public',
             table: 'requests',
           },
-          (payload: any) => {
-            const deletedRequest = payload?.old
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; status: string; deleted_at: string | null }>) => {
+            const deletedRequest = payload?.old as { id: string; connection_id: string; status: string } | undefined
             if (!deletedRequest) return
 
             // Filter by connection ID client-side

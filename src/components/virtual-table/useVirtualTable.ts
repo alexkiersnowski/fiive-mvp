@@ -13,7 +13,7 @@ interface UseVirtualTableOptions<T> {
 
 interface UseVirtualTableReturn<T> {
   containerRef: React.RefObject<HTMLDivElement | null>
-  rowVirtualizer: ReturnType<typeof useVirtualizer>
+  rowVirtualizer: { measureElement: (el: HTMLElement | null) => void; getTotalSize: () => number; scrollToIndex: (index: number) => void; measure: () => void; getVirtualItems: () => VirtualItem[] }
   virtualItems: VirtualItem[]
   isNearEnd: boolean
 }

@@ -203,7 +203,7 @@ export async function updateTaskAssignee(taskId: string, assigneeUserId: string 
     }
   }
 
-  const updates: Record<string, any> = {
+  const updates: Record<string, unknown> = {
     assignee_user_id: assigneeUserId,
     updated_at: new Date().toISOString()
   };
@@ -256,7 +256,7 @@ export async function updateTaskStatus(
     throw new Error('Failed to update task status');
   }
 
-  const updates: Record<string, any> = {
+  const updates: Record<string, unknown> = {
     status,
     updated_at: now
   };

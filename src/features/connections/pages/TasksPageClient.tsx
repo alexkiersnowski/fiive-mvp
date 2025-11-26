@@ -499,8 +499,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'tasks', filter: `connection_id=eq.${connectionId}` },
-        async (payload: RealtimePostgresChangesPayload<Task>) => {
-          const newId = payload?.new?.id
+        async (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string }>) => {
+          const newId = (payload?.new as { id: string } | undefined)?.id
           if (!newId) return
           try {
             const task = await fetchTaskById(connectionId, newId)
@@ -525,8 +525,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tasks', filter: `connection_id=eq.${connectionId}` },
-        async (payload: RealtimePostgresChangesPayload<Task>) => {
-          const updated = payload?.new
+        async (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; deleted_at: string | null }>) => {
+          const updated = (payload?.new as { id: string; deleted_at: string | null } | undefined)
           if (!updated) return
           
           // Handle soft delete locally
