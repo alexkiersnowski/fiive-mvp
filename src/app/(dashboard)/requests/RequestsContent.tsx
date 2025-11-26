@@ -1,14 +1,13 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef, useMemo, useTransition } from 'react';
+import { useState, useCallback, useEffect, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import RequestsTable from '@/features/requests/RequestsTable';
 import { RequestsHeader } from '@/features/requests/RequestsHeader';
 import { RequestDetailModal } from '@/features/connections/requests/RequestDetailModal';
 import { NewRequestModal } from '@/features/connections/requests/NewRequestModal';
-import { fetchMoreRequests, refreshRequestsData, fetchRequestByIdGlobal, fetchCommentsForRequestGlobal } from '@/features/requests/actions';
-import { createRequest } from '@/features/connections/requests/actions';
+import { fetchMoreRequests, fetchRequestByIdGlobal, fetchCommentsForRequestGlobal } from '@/features/requests/actions';
 import { fetchProjectsForConnection } from '@/features/connections/requests/actions';
 import type { RequestsSnapshot, Request } from '@/features/requests/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
@@ -68,7 +67,7 @@ export function RequestsContent({
   const [sortValue, setSortValue] = useState(initialSortValue || 'created');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   
   // Modal state
   const [isRequestDetailModalOpen, setIsRequestDetailModalOpen] = useState(false);

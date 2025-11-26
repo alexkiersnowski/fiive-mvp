@@ -181,7 +181,7 @@ export default function MembersContent({
     return () => {
       // No-op. The ref check prevents stale updates.
     }
-  }, [debouncedSearchQuery, organizationId])
+  }, [debouncedSearchQuery, organizationId, initialMembers, initialInvitations, initialHasNextPage])
   
   // Sync local state when props change (e.g., when new members/invitations are added)
   // Only sync when there's no active search to avoid interfering with search results

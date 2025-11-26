@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef, useMemo, useTransition } from 'react';
+import { useState, useCallback, useEffect, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, Link } from '@phosphor-icons/react/ssr';
@@ -56,7 +56,7 @@ export function ClientsContent({
   const [sortValue, setSortValue] = useState(initialSortValue || 'newest-first');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
   const [isAddNewClientDialogOpen, setIsAddNewClientDialogOpen] = useState(false);
   const [isConnectToClientDialogOpen, setIsConnectToClientDialogOpen] = useState(false);

@@ -181,9 +181,17 @@ export const getRequestsSnapshot = cache(async (
     // Process connection/org search results
     const { data: connectionsForOrgSearch, error: connectionsForOrgSearchError } = connectionsForOrgSearchResult;
     if (!connectionsForOrgSearchError && connectionsForOrgSearch) {
-      const orgIdsToSearch = context.variant === 'agency'
-        ? (connectionsForOrgSearch || []).map((c: { client_id: string | null }) => c.client_id).filter((id): id is string => id !== null)
-        : (connectionsForOrgSearch || []).map((c: { agency_id: string | null }) => c.agency_id).filter((id): id is string => id !== null);
+      let orgIdsToSearch: string[] = [];
+      
+      if (context.variant === 'agency') {
+        orgIdsToSearch = (connectionsForOrgSearch as Array<{ client_id: string | null }>)
+          .map((c) => c.client_id)
+          .filter((id): id is string => id !== null);
+      } else {
+        orgIdsToSearch = (connectionsForOrgSearch as Array<{ agency_id: string | null }>)
+          .map((c) => c.agency_id)
+          .filter((id): id is string => id !== null);
+      }
       
       if (orgIdsToSearch.length > 0) {
         const { data: matchingOrgs, error: orgsError } = await supabase

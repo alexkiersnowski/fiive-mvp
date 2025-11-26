@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, Link } from '@phosphor-icons/react/ssr';
 import { SearchInput } from '@/components/ui/search-input';
@@ -47,9 +46,7 @@ export function AgenciesContent({
   context,
   initialSearchValue = '' 
 }: AgenciesContentProps) {
-  const router = useRouter();
   const [agencies, setAgencies] = useState(snapshot.agencies);
-  const [totalCount, setTotalCount] = useState(snapshot.total);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [isAddAgencyDialogOpen, setIsAddAgencyDialogOpen] = useState(false);
   const [isAddNewAgencyDialogOpen, setIsAddNewAgencyDialogOpen] = useState(false);

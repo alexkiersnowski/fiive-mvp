@@ -84,7 +84,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
       // Optimistic assign: server now has a value, clear optimistic state
       setOptimisticAgencyContact(null);
     }
-  }, [snapshot.connection.clientPrimaryContact, snapshot.connection.agencyPrimaryContact]);
+  }, [snapshot.connection.clientPrimaryContact, snapshot.connection.agencyPrimaryContact, optimisticPrimaryContact, optimisticAgencyContact]);
   
   const handleContactClick = (contact: {
     id: string;

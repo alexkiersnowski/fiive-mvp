@@ -2,7 +2,6 @@ import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { validateOrgContext } from '@/lib/mode/validateContext'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { headers } from 'next/headers'
 import DashboardLayout from '@/components/layouts/DashboardLayout'
 
 export default async function Layout({

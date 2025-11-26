@@ -162,10 +162,16 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       console.error(errorMessage);
       
       // Log to Sentry if available (works in both server and client contexts)
+      // Use runtime-constructed module path to prevent Turbopack from statically analyzing the import
       try {
-        // Try dynamic import for Sentry (works in server-side Next.js)
-        const Sentry = await import('@sentry/nextjs').catch(() => null);
-        if (Sentry) {
+        // Construct module path at runtime to avoid build-time resolution
+        const sentryModulePath = '@' + 'sentry/nextjs';
+        // @ts-expect-error - Sentry is optional dependency, may not be installed
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const Sentry = await import(sentryModulePath).catch(() => null);
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+        if (Sentry && typeof Sentry.captureException === 'function') {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
           Sentry.captureException(new Error(errorMessage), {
             tags: { type: 'draft_org_context_violation' },
             extra: { 
@@ -178,7 +184,10 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         }
       } catch (sentryError) {
         // Sentry not available or failed to import - continue with console logging
-        console.error('Failed to log to Sentry:', sentryError);
+        // Suppress error in production to avoid noise
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to log to Sentry:', sentryError);
+        }
       }
       
       return null;

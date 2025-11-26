@@ -184,7 +184,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           }
         })
     }
-  }, [])
+  }, [initialProjects, fetchCommentsForProjects])
 
   // Helper to merge arrays by id while preserving order and uniqueness
   function mergeUniqueById<T extends { id: string }>(base: T[], incoming: T[]): T[] {
