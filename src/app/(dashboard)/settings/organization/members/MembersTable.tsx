@@ -1,17 +1,14 @@
 "use client"
 
 import { useState, useMemo, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
-import { ListRow } from '@/components/ui/list-row'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { SearchInput } from '@/components/ui/search-input'
 import { DotsThree, UserMinus, PaperPlaneTilt, XCircle, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateMemberRole, removeMember, validateAndInviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
@@ -159,11 +156,10 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   headerOffset = 0,
   searchQuery: externalSearchQuery = '',
   onSearchChange,
-  onInviteClick: externalOnInviteClick
+  onInviteClick: _externalOnInviteClick
 }, ref) {
   const [internalSearchQuery, setInternalSearchQuery] = useState('')
   const searchQuery = externalSearchQuery || internalSearchQuery
-  const setSearchQuery = onSearchChange || setInternalSearchQuery
   const [localMembers, setLocalMembers] = useState(members)
   const [localInvitations, setLocalInvitations] = useState(invitations)
   
@@ -208,8 +204,6 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
     // Members first, then invitations at the bottom
     return [...memberItems, ...invitationItems]
   }, [localMembers, localInvitations])
-  
-  const memberCount = unifiedItems.length
   
   // Determine if current user can manage roles (only owners can)
   const canManageRoles = currentUserRole === 'owner'

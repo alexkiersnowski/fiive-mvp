@@ -47,7 +47,7 @@ export function AgenciesContent({
   initialSearchValue = '' 
 }: AgenciesContentProps) {
   const [agencies, setAgencies] = useState(snapshot.agencies);
-  const [_totalCount, setTotalCount] = useState(snapshot.total);
+  const [, setTotalCount] = useState(snapshot.total);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [isAddAgencyDialogOpen, setIsAddAgencyDialogOpen] = useState(false);
   const [isAddNewAgencyDialogOpen, setIsAddNewAgencyDialogOpen] = useState(false);

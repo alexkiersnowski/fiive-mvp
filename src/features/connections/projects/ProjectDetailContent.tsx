@@ -244,6 +244,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       document.removeEventListener('focusin', handleFocus, true)
       document.removeEventListener('keydown', handleKeyDown, true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleValue, descriptionValue])
 
   const handleTitleSave = async (value: string) => {

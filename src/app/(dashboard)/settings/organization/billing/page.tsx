@@ -9,7 +9,7 @@ import BillingContent from './BillingContent'
  * Check if an organization has any real connections (non-draft status)
  * Real connections are those with status: 'invited', 'connected', or 'disconnected'
  */
-const hasRealConnections = cache(async (
+const _hasRealConnections = cache(async (
   orgId: string,
   variant: 'agency' | 'client'
 ): Promise<boolean> => {

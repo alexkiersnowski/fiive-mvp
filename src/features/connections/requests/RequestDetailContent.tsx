@@ -313,7 +313,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       console.error('Failed to convert request to task:', error)
       toast.error('Failed to convert request')
     }
-  }, [closeInternalConvertModal, connectionId, onRequestUpdate, requestId, router])
+  }, [closeInternalConvertModal, connectionId, onRequestUpdate, requestId])
 
   const handleConvertClick = useCallback(() => {
     setIsActionsDropdownOpen(false)
@@ -563,6 +563,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       document.removeEventListener('focusin', handleFocus, true)
       document.removeEventListener('keydown', handleKeyDown, true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleValue, descriptionValue])
 
   const handleTitleSave = async (value: string) => {

@@ -1027,7 +1027,7 @@ export async function removeMember(data: {
     }
 
     // Step 1: Soft-delete the profile (keep email for audit trail)
-    const { error: profileError, data: profileUpdateData } = await adminSupabase
+    const { error: profileError } = await adminSupabase
       .from("profiles")
       .update({ 
         deleted_at: new Date().toISOString(),
@@ -1294,7 +1294,7 @@ export async function validateAndInviteMembers(data: {
 
     // All emails are valid - proceed with invites
     // Get existing invitations to handle expired ones
-    const { data: existingInvitations, error: existingError } = await supabase
+    const { data: existingInvitations } = await supabase
       .from("membership_invitations")
       .select("invited_email, status, expires_at")
       .eq("org_id", data.organizationId)
@@ -1449,7 +1449,7 @@ export async function validateAndInviteMembers(data: {
   }
 
   // Fetch organization name for email template
-  const { data: organization, error: orgError } = await supabase
+  const { data: organization } = await supabase
     .from('organizations')
     .select('name')
     .eq('id', data.organizationId)
@@ -1592,7 +1592,6 @@ export async function resendInvitation(data: {
   }
 
   const supabase = await createClient()
-  const adminSupabase = createAdminClient()
 
   // Get the invitation details first (including updated_at for rate limiting)
   const { data: invitation, error: invitationError } = await supabase

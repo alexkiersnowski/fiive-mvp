@@ -381,6 +381,7 @@ export function ConvertToTaskModal({
     dueDateRaw,
     onSubmit,
     projectValue,
+    request,
     statusValue,
     titleValue,
   ])

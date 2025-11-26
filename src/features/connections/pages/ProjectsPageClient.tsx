@@ -854,7 +854,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     setUnfilteredTotalCount(c => c + 1)
     
     // Projects don't track "new" status - badge count logic removed
-  }, [connectionId, context.user, context.organization, snapshot.partner, context.variant])
+  }, [connectionId, context.user, context.organization, snapshot.partner])
 
   async function handleProjectCreated({ projectId, tempId }: { projectId: string; tempId?: string }) {
     try {

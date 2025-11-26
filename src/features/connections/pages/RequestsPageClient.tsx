@@ -331,7 +331,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
 
     fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, startTransition])
+  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, context.variant, setNewRequestsCount, startTransition])
   
   // Prefetch next batch of requests with timeout protection
   const prefetchNext = useCallback(async (offset: number) => {
@@ -437,7 +437,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       }
       inFlightRequests.current.delete(offset)
     }
-  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id])
+  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, setNewRequestsCount])
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {
@@ -658,7 +658,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       isLoadingMore.current = false
       inFlightRequests.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id])
+  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, setNewRequestsCount])
 
   // Toggle handler and URL sync for Assigned to me
   const handleToggleAssignedToMe = useCallback(() => {

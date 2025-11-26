@@ -266,7 +266,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       }
       toast.error('Failed to convert request');
     }
-  }, [convertRequest, connectionId, handleConvertModalClose, handleRequestUpdate, router]);
+  }, [connectionId, handleConvertModalClose, handleRequestUpdate]);
 
   const handleModalExpand = useCallback(() => {
     if (!selectedRequestId) {

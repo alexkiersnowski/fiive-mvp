@@ -107,7 +107,7 @@ export default function MembersContent({
   }, [isLoading, hasMore, currentOffset, organizationId, debouncedSearchQuery])
   
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((virtualRows: VirtualItem[]) => {
+  const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
     loadMore()
   }, [loadMore])
   

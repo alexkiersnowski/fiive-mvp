@@ -314,7 +314,6 @@ export function RequestsContent({
       
       // Replace temp row if present; otherwise prepend and increment count
       setRequests(prev => {
-        const hadTemp = tempId ? prev.some(r => r.id === tempId) : false;
         const without = prev.filter(r => r.id !== tempId && r.id !== request.id);
         const next = [request, ...without];
         return next;

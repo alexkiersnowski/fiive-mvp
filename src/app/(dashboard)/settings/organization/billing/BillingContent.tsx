@@ -14,7 +14,6 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { PlanCard } from '@/components/ui/plan-card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { StarFour } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 
@@ -56,10 +55,6 @@ const AGENCY_PRO_FEATURES = [
   { text: 'Directly influence the future of Fiive' },
   { text: 'Founding member rate locked for life' }
 ]
-
-const AGENCY_PREMIUM_FEATURES = [
-  { text: 'Unlimited clients' },
-  { text: 'Unlimited live connections' },
   { text: 'Unlimited team members' },
   { text: 'Full client & relationship visibility' },
   { text: 'Requests, projects & task management' },
@@ -176,7 +171,6 @@ interface BillingContentProps {
 }
 
 export default function BillingContent({ variant, billingStatus, sessionId: initialSessionId, shouldShowDialog: initialShouldShowDialog, stripePriceId, monthlyPriceId, annualPriceId, currentPeriodEnd }: BillingContentProps) {
-  const isAgency = variant === 'agency'
   const searchParams = useSearchParams()
   const router = useRouter()
   const [isCreatingCheckout, setIsCreatingCheckout] = React.useState(false)

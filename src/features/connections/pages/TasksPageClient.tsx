@@ -385,7 +385,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     }
 
     fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, context.variant, startTransition, clientTeamMemberIds])
+  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, context.variant, sortTasksWithMode, startTransition, clientTeamMemberIds])
   
   // Prefetch next batch of tasks with timeout protection
   const prefetchNext = useCallback(async (offset: number) => {
@@ -734,7 +734,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       isLoadingMore.current = false
       inFlightTasks.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, sortMode, clientTeamMemberIds])
+  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, sortMode, clientTeamMemberIds, mergeUniqueTasks])
 
   // Toggle handler and URL sync for Assigned to me
   const handleToggleAssignedToMe = useCallback(() => {
@@ -1050,7 +1050,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     //   setNewTasksCount(prev => (prev || 0) + 1)
     // }
     registerPinnedTask(payload.tempId)
-  }, [connectionId, context.user, context.organization, snapshot.partner, context.variant, sortTasksWithMode, sortedMembers])
+  }, [connectionId, context.user, context.organization, snapshot.partner, context.variant, sortTasksWithMode, sortedMembers, registerPinnedTask])
 
   async function handleTaskCreated({ taskId, tempId }: { taskId: string; tempId?: string }) {
     try {

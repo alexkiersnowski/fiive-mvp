@@ -157,10 +157,6 @@ export function ClientsContent({
     { value: 'status-critical-first', label: 'Health (critical first)', buttonLabel: 'Health' }
   ];
 
-  const getCurrentSortLabel = () => {
-    return sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Newest first';
-  };
-
   const loadMore = useCallback(async () => {
     if (!hasNextPage || isLoading || !cursor) return;
     

@@ -317,7 +317,8 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       console.error('Error fetching fresh task comments:', error)
       return null
     }
-  }, [fetchCommentsForTask, mergeComments, normalizeComments, onCommentsUpdate, taskId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergeComments, normalizeComments, onCommentsUpdate, taskId])
 
   useEffect(() => {
     // Only reset comments and clear optimistic metadata when taskId actually changes
@@ -524,6 +525,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       document.removeEventListener('focusin', handleFocus, true)
       document.removeEventListener('keydown', handleKeyDown, true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleValue, descriptionValue])
 
   const handleTitleSave = async (value: string) => {

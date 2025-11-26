@@ -8,7 +8,6 @@ import { TasksHeader } from '@/features/tasks/TasksHeader';
 import { TaskDetailModal } from '@/features/connections/tasks/TaskDetailModal';
 import { NewTaskModal } from '@/features/connections/tasks/NewTaskModal';
 import { fetchMoreTasks, refreshTasksData, fetchTaskByIdGlobal, fetchCommentsForTaskGlobal } from '@/features/tasks/actions';
-import { createTask } from '@/features/connections/tasks/actions';
 import { fetchProjectsForConnection } from '@/features/connections/tasks/actions';
 import type { TasksSnapshot, Task } from '@/features/tasks/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
@@ -86,7 +85,7 @@ export function TasksContent({
   const [sortValue, setSortValue] = useState(initialSortValue || 'due_date');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   
   // Modal state
   const [isTaskDetailModalOpen, setIsTaskDetailModalOpen] = useState(false);
@@ -394,7 +393,6 @@ export function TasksContent({
       
       // Replace temp row if present; otherwise prepend and increment count
       setTasks(prev => {
-        const hadTemp = tempId ? prev.some(t => t.id === tempId) : false;
         const without = prev.filter(t => t.id !== tempId && t.id !== task.id);
         const next = [task, ...without];
         return next;
@@ -554,10 +552,6 @@ export function TasksContent({
   
   const isAgency = context.variant === 'agency';
 
-  // Find selected connection for NewTaskModal
-  const selectedConnection = selectedConnectionId 
-    ? connections.find(c => c.id === selectedConnectionId)
-    : null;
 
   return (
     <div ref={rootRef} className="flex flex-col" style={{ padding: '0 16px 24px 24px' }}>
