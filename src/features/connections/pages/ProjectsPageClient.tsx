@@ -158,13 +158,15 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   // Cleanup on unmount - cancel in-flight projects and timeouts
   useEffect(() => {
     isMountedRef.current = true
+    const inFlightProjectsRef = inFlightProjects.current
+    const prefetchTimeoutsRef = prefetchTimeouts.current
     return () => {
       isMountedRef.current = false
-      inFlightProjects.current.clear()
+      inFlightProjectsRef.clear()
       isLoadingMore.current = false
       // Clear all prefetch timeouts
-      prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-      prefetchTimeouts.current.clear()
+      prefetchTimeoutsRef.forEach(timeout => clearTimeout(timeout))
+      prefetchTimeoutsRef.clear()
     }
   }, [])
 

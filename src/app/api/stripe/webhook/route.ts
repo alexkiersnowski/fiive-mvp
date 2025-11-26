@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
               : null
             
             // Update organization
-            const { data, error } = await supabase
+            const { data: _data, error } = await supabase
               .from('organizations')
               .update({
                 stripe_customer_id: customerId,
@@ -222,7 +222,7 @@ export async function POST(request: NextRequest) {
           }
           
           // Update organization - ALWAYS sync all Stripe fields (webhook is source of truth)
-          const { data, error } = await supabase
+          const { data: _data, error } = await supabase
             .from('organizations')
             .update({
               stripe_customer_id: customerId,  // CRITICAL: Always update - IDs can change/rotate

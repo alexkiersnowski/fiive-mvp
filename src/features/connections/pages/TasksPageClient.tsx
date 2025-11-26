@@ -228,13 +228,15 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // Cleanup on unmount - cancel in-flight tasks and timeouts
   useEffect(() => {
     isMountedRef.current = true
+    const inFlightTasksRef = inFlightTasks.current
+    const prefetchTimeoutsRef = prefetchTimeouts.current
     return () => {
       isMountedRef.current = false
-      inFlightTasks.current.clear()
+      inFlightTasksRef.clear()
       isLoadingMore.current = false
       // Clear all prefetch timeouts
-      prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-      prefetchTimeouts.current.clear()
+      prefetchTimeoutsRef.forEach(timeout => clearTimeout(timeout))
+      prefetchTimeoutsRef.clear()
     }
   }, [])
 
@@ -263,7 +265,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   }, [initialCommentsByTask])
 
   // Helper to merge arrays by id while preserving order and uniqueness
-  function mergeUniqueTasks(base: Task[], incoming: Task[]): Task[] {
+  const mergeUniqueTasks = useCallback((base: Task[], incoming: Task[]): Task[] => {
     const seen = new Set(base.map(i => i.id))
     const merged = [...base]
     let changed = false
@@ -278,7 +280,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       return base
     }
     return sortTasksWithMode(merged)
-  }
+  }, [sortTasksWithMode])
 
   // Debounce search query (150ms delay for faster responsiveness)
   useEffect(() => {
@@ -1050,7 +1052,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     //   setNewTasksCount(prev => (prev || 0) + 1)
     // }
     registerPinnedTask(payload.tempId)
-  }, [connectionId, context.user, context.organization, snapshot.partner, context.variant, sortTasksWithMode, sortedMembers, registerPinnedTask])
+  }, [connectionId, context.user, context.organization, snapshot.partner, sortTasksWithMode, sortedMembers, registerPinnedTask])
 
   async function handleTaskCreated({ taskId, tempId }: { taskId: string; tempId?: string }) {
     try {

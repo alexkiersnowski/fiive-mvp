@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { deleteLogoFolder } from '@/lib/supabase/storage';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';

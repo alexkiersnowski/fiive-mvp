@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       if (body.billingPeriod && (body.billingPeriod === 'monthly' || body.billingPeriod === 'annual')) {
         billingPeriod = body.billingPeriod
       }
-    } catch (error) {
+    } catch (_error) {
       // If body parsing fails, default to monthly
       console.warn('Failed to parse request body, defaulting to monthly billing')
     }

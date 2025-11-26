@@ -6,7 +6,6 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ListRow } from '@/components/ui/list-row';
 import { Plus, ArrowRight, EyeSlash } from '@phosphor-icons/react/dist/ssr';
 import type { StatsCardProps } from '../types';

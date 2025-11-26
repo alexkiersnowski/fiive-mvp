@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -272,11 +273,14 @@ export default function ResourcesCardClient({ context, initialResources }: Resou
                   key={resource.id}
                   iconStart={
                     faviconUrl ? (
-                      <img
+                      <Image
                         src={faviconUrl}
                         alt=""
-                        className="h-4 w-4 rounded-xs"
+                        width={16}
+                        height={16}
+                        className="rounded-xs"
                         referrerPolicy="no-referrer"
+                        unoptimized
                         onError={(event) => {
                           event.currentTarget.style.display = 'none';
                         }}

@@ -1,5 +1,3 @@
-import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
-
 export type Agency = {
   id: string
   connectionId: string // Connection ID from connections table

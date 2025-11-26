@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { User } from '@supabase/supabase-js'
 
 /**
  * Optimized data fetching for onboarding pages

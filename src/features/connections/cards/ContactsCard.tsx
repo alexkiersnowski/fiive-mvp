@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ListRow } from '@/components/ui/list-row';
 import { ProfileCard } from '@/components/ui/profile-card';
-import { StatusBadge } from '@/components/ui/connection-badge';
 import { Eye, ArrowsClockwise, UserMinus, User, Users } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 import { handleContactSelect, handleUnassignContact, handleAgencyContactSelect, handleUnassignAgencyContact } from '../client-actions';

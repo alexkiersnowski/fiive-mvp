@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { getStripeInstance, mapSubscriptionStatusToBillingStatus } from '@/lib/stripe/server'
 import { createAdminClient } from '@/lib/supabase/server'
@@ -37,7 +36,7 @@ export async function POST(request: NextRequest) {
         )
       }
       sessionId = body.session_id
-    } catch (error) {
+    } catch (_error) {
       return NextResponse.json(
         { error: 'Invalid request body' },
         { status: 400 }
@@ -158,7 +157,7 @@ export async function POST(request: NextRequest) {
         })
       }
       
-      const { data: updatedOrg, error: updateError } = await supabase
+      const { data: _updatedOrg, error: updateError } = await supabase
         .from('organizations')
         .update({
           stripe_customer_id: session.customer as string,

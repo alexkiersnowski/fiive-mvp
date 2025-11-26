@@ -1,20 +1,19 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
 import { TaskBadge } from '@/components/ui/task-badge'
 import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye, EyeSlash, LockSimple, ClipboardText } from '@phosphor-icons/react'
+import { Plus, SortAscending, DotsThree, MagnifyingGlass, LinkSimple, Trash, User, Eye, EyeSlash, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateTaskAssignee, updateTaskStatus, deleteTask, fetchProjectsForConnection } from './actions'
 import { sortTasksWithPinnedFirst, type TaskSortMode } from './taskSort'
@@ -70,10 +69,10 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
   // Client-side sorting function (applied to tasks prop)
-  const orderTasks = (list: Task[]) => sortTasksWithPinnedFirst(list, sortMode)
+  const orderTasks = useCallback((list: Task[]) => sortTasksWithPinnedFirst(list, sortMode), [sortMode])
   
   // Apply sorting to tasks prop
-  const orderedTasks = useMemo(() => orderTasks(tasks), [tasks, sortMode])
+  const orderedTasks = useMemo(() => orderTasks(tasks), [tasks, orderTasks])
   
   const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   

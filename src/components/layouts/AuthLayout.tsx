@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { useEffect } from "react"
 import { z } from "zod"
+import Image from "next/image"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -81,14 +82,14 @@ export default function AuthLayout({
         paddingTop: '24px', 
         paddingBottom: '24px' 
       }}>
-        <img 
+        <Image 
           src="/logos/fiive-logo.svg" 
           alt="Fiive" 
           width={96}
           height={24}
           style={{ height: '24px' }}
           draggable={false}
-          loading="eager"
+          priority
         />
       </div>
 
@@ -207,7 +208,7 @@ export default function AuthLayout({
       <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
         <div className="w-full h-full p-2">
           <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
-            <img 
+            <Image 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
               width={240}

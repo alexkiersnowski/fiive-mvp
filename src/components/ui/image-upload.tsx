@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { Dropzone, DropzoneContent, DropzoneEmptyState } from '@/components/ui/shadcn-io/dropzone'
 import { UploadIcon } from 'lucide-react'
 
@@ -142,10 +143,12 @@ export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl
             <div className="relative">
               <div className="rounded-full border border-gray-200 bg-[var(--color-base-surface-page-background)] flex items-center justify-center overflow-hidden" style={sizeStyle}>
                 {logoPreview ? (
-                  <img
+                  <Image
                     src={logoPreview}
                     alt="Organization logo"
-                    className="h-full w-full object-cover"
+                    fill
+                    className="object-cover"
+                    unoptimized
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center">
@@ -200,10 +203,12 @@ export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl
             {/* Image Preview Overlay */}
             {logoPreview && (
               <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none">
-                <img
+                <Image
                   src={logoPreview}
                   alt="Image preview"
-                  className="h-full w-full object-cover"
+                  fill
+                  className="object-cover"
+                  unoptimized
                 />
               </div>
             )}

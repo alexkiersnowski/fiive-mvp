@@ -199,13 +199,15 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   // Cleanup on unmount - cancel in-flight requests and timeouts
   useEffect(() => {
     isMountedRef.current = true
+    const inFlightRequestsRef = inFlightRequests.current
+    const prefetchTimeoutsRef = prefetchTimeouts.current
     return () => {
       isMountedRef.current = false
-      inFlightRequests.current.clear()
+      inFlightRequestsRef.clear()
       isLoadingMore.current = false
       // Clear all prefetch timeouts
-      prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-      prefetchTimeouts.current.clear()
+      prefetchTimeoutsRef.forEach(timeout => clearTimeout(timeout))
+      prefetchTimeoutsRef.clear()
     }
   }, [])
 

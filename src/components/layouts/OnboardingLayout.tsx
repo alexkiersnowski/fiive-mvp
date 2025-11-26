@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import React, { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
-// Removed Next.js Image import to use regular img tag
+import Image from "next/image"
 import { z } from "zod"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { RadioCards, RadioCard, AgencyIcon, ClientIcon } from '@/components/ui/radio-cards'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
-import { ImageUpload } from '@/components/ui/image-upload'
 import { ArrowLeft } from '@phosphor-icons/react'
 import {
   Form,
@@ -402,14 +401,14 @@ export default function OnboardingLayout({
       <div className="flex-1 overflow-y-auto" style={{ width: '66.67%' }}>
         {/* Navigation - Sticky */}
         <div className="sticky top-0 py-5 px-10" style={{ backgroundColor: 'var(--color-neutral-1)', zIndex: 10 }}>
-          <img 
+          <Image 
             src="/logos/fiive-logo.svg" 
             alt="Fiive" 
             width={96}
             height={24}
             style={{ height: '24px' }}
             draggable={false}
-            loading="eager"
+            priority
           />
         </div>
 
@@ -826,14 +825,14 @@ export default function OnboardingLayout({
       <div className="flex items-center justify-center overflow-hidden" style={{ width: '33.33%', height: '100vh' }}>
         <div className="w-full h-full p-2">
           <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
-            <img 
+            <Image 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
               width={240}
               height={240}
               className="max-w-full h-60 object-contain"
               draggable={false}
-              loading="eager"
+              priority
             />
           </div>
         </div>

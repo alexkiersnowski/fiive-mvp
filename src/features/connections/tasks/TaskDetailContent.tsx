@@ -13,13 +13,12 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@
 import { Check, CaretDown, DotsThree, LinkSimple, Trash, Eye, EyeSlash, ChatCentered, ArrowSquareOut } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { CommentInput } from '@/components/ui/comment-input'
 import { CommentItem } from '@/components/ui/comment-item'
 import Link from 'next/link'
 import { updateTaskTitle, updateTaskDescription, updateTaskStatus, updateTaskAssignee, updateTaskProject, updateTaskDueDate, updateTaskClientVisible, deleteTask, createComment, deleteComment, fetchCommentsForTask, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
 import type { Task } from '../server'
 
 interface Comment {
@@ -272,7 +271,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     } else {
       setTaskProject(null)
     }
-  }, [project?.id, project?.name])
+  }, [project])
   
   // Update projects list when initialProjects prop changes (e.g., when modal opens with fresh data)
   useEffect(() => {

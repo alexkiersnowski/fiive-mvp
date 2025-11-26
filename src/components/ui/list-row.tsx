@@ -2,12 +2,12 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { CheckCircle, SquaresFour, DotsThree, User, XCircle, Check } from "@phosphor-icons/react"
+import { SquaresFour, DotsThree, User, XCircle, Check } from "@phosphor-icons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { Button } from "./button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "./popover"
-import { Combobox, ComboboxOption } from "./combobox"
+import { ComboboxOption } from "./combobox"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './command'
 
 export interface ListRowProps {

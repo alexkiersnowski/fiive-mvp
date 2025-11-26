@@ -1,5 +1,3 @@
-import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
-
 // Request type matches the one from connections/server.ts but includes connection info
 export type Request = {
   id: string

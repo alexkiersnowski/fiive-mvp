@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 export type Client = {
   id: string

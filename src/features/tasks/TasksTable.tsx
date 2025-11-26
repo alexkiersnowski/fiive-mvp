@@ -2,7 +2,7 @@
 
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'

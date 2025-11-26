@@ -1,5 +1,3 @@
-import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
-
 // Task type matches the one from connections/server.ts but includes connection info for global view
 export type Task = {
   id: string
