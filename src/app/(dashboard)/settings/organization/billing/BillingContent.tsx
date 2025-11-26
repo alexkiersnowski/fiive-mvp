@@ -161,7 +161,7 @@ interface BillingContentProps {
   currentPeriodEnd?: string | null
 }
 
-export default function BillingContent({ variant, billingStatus, sessionId: initialSessionId, shouldShowDialog: initialShouldShowDialog, stripePriceId, monthlyPriceId, annualPriceId, currentPeriodEnd }: BillingContentProps) {
+export default function BillingContent({ variant: _variant, billingStatus, sessionId: initialSessionId, shouldShowDialog: initialShouldShowDialog, stripePriceId, monthlyPriceId, annualPriceId, currentPeriodEnd }: BillingContentProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [isCreatingCheckout, setIsCreatingCheckout] = React.useState(false)

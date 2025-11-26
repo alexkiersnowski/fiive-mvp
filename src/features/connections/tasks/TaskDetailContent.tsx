@@ -317,7 +317,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       console.error('Error fetching fresh task comments:', error)
       return null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergeComments, normalizeComments, onCommentsUpdate, taskId])
 
   useEffect(() => {

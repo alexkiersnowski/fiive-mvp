@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
+import { ListRow } from '@/components/ui/list-row'
 import { DotsThree, UserMinus, PaperPlaneTilt, XCircle, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateMemberRole, removeMember, validateAndInviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
