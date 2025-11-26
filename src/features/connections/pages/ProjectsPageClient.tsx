@@ -184,7 +184,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           }
         })
     }
-  }, [initialProjects, fetchCommentsForProjects])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialProjects])
 
   // Helper to merge arrays by id while preserving order and uniqueness
   function mergeUniqueById<T extends { id: string }>(base: T[], incoming: T[]): T[] {

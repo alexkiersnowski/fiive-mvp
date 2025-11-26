@@ -161,10 +161,8 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       const errorMessage = `SECURITY VIOLATION: Attempted to use draft organization as active context. Org ID: ${organization.id}, User ID: ${user.id}, Org Name: ${organization.name}`;
       console.error(errorMessage);
       
-      // Log error (Sentry integration removed to avoid build-time module resolution issues)
-      // Error is logged to console for debugging purposes
-      // If Sentry is needed in the future, it should be installed as a dependency
-      console.error(errorMessage);
+      // Log security violation (Sentry integration removed to avoid build warnings)
+      // If Sentry is needed in the future, install @sentry/nextjs and uncomment the import
       
       return null;
     }
