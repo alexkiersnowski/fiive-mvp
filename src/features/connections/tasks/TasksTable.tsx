@@ -100,7 +100,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [_isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
+  const [isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)

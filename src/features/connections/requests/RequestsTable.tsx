@@ -69,7 +69,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [_isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
+  const [isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
