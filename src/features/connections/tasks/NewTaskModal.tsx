@@ -208,6 +208,12 @@ export function NewTaskModal({
   // Check if create button should be enabled (title is required, and connection if global)
   const canCreate = title.trim().length > 0 && (!isGlobal || selectedConnectionId.length > 0)
   
+  // In global mode: use connectionMembers if connection selected, otherwise use agencyMembers (active org members)
+  // In connection-specific mode: use agencyMembers
+  const membersToUse = isGlobal 
+    ? (selectedConnectionId ? connectionMembers : agencyMembers)
+    : agencyMembers
+  
   // Handle create task
   const handleCreateTask = useCallback(async () => {
     if (!canCreate) return
@@ -269,7 +275,7 @@ export function NewTaskModal({
       console.error('Error creating task:', error)
       toast.error('Failed to create task')
     }
-  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, membersToUse, onTaskCreated, onTaskOptimistic, onClose])
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, connectionMembers, agencyMembers, onTaskCreated, onTaskOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -290,11 +296,6 @@ export function NewTaskModal({
   }, [isOpen, canCreate, handleCreateTask])
   
   // Get selected assignee
-  // In global mode: use connectionMembers if connection selected, otherwise use agencyMembers (active org members)
-  // In connection-specific mode: use agencyMembers
-  const membersToUse = isGlobal 
-    ? (selectedConnectionId ? connectionMembers : agencyMembers)
-    : agencyMembers
   const selectedAssignee = assigneeUserId 
     ? membersToUse.find(m => m.id === assigneeUserId) 
     : null
