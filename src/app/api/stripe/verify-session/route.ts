@@ -141,21 +141,21 @@ export async function POST(request: NextRequest) {
       }
       
       // Update organization with subscription details
-      // Use mapping function to determine correct billing status (respects cancel_at_period_end)
+      // Use mapping function to determine correct billing status (checks cancel_at for Flexible Billing)
       const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
       
-      // Access current_period_end with type safety
-      const currentPeriodEnd = 'current_period_end' in subscription && typeof subscription.current_period_end === 'number'
-        ? subscription.current_period_end
-        : null
+      // Extract current_period_end: use cancel_at if present (cancelled), otherwise use current_period_end
+      // Under Flexible Billing, cancel_at === current_period_end when cancelled
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const topLevelEnd = (subscription as any).current_period_end as number | null | undefined
+      const itemEnd = subscription.items?.data?.[0]?.current_period_end ?? null
+      const cancelAtUnix = subscription.cancel_at ?? null
       
-      if (!currentPeriodEnd) {
-        return NextResponse.json({
-          success: false,
-          message: 'Subscription missing current_period_end',
-          subscriptionId
-        })
-      }
+      // Use cancel_at if present (cancelled), otherwise fallback to current_period_end
+      const currentPeriodEndUnix = cancelAtUnix ?? topLevelEnd ?? itemEnd ?? null
+      const currentPeriodEndIso = currentPeriodEndUnix
+        ? new Date(currentPeriodEndUnix * 1000).toISOString()
+        : null
       
       const { data: _updatedOrg, error: updateError } = await supabase
         .from('organizations')
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
           stripe_subscription_id: subscriptionId,
           stripe_price_id: priceId,
           billing_status: billingStatus,
-          current_period_end: new Date(currentPeriodEnd * 1000).toISOString(),
+          current_period_end: currentPeriodEndIso,
         })
         .eq('id', context.orgId)
         .select()
@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
         subscriptionId,
         priceId,
         billingStatus,
-        cancel_at_period_end: subscription.cancel_at_period_end
+        cancel_at: subscription.cancel_at
       })
       
       return NextResponse.json({

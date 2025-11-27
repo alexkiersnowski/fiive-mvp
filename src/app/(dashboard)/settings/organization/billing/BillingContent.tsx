@@ -403,7 +403,7 @@ export default function BillingContent({ variant: _variant, billingStatus, sessi
             
             // Format renewal date if billing is active or past_due and date exists
             // Format cancellation date if billing is canceled_pending and date exists
-            // Show cancellation date in renewalDate field when canceled_pending
+            // Under Flexible Billing, current_period_end equals cancel_at when cancelled
             const renewalDate = (effectiveBillingStatus === 'active' || effectiveBillingStatus === 'past_due') && currentPeriodEnd
               ? formatRenewalDate(currentPeriodEnd)
               : null

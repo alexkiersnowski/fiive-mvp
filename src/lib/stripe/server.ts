@@ -82,44 +82,21 @@ export async function getOrCreateCustomer(
 
 /**
  * Map Stripe subscription status to our billing_status enum
- * Checks cancel_at_period_end to determine if subscription is cancelling but still active
+ * For Flexible Billing: checks cancel_at to determine if subscription is cancelling but still active
  */
 export function mapSubscriptionStatusToBillingStatus(
   subscription: Stripe.Subscription
 ): 'free' | 'active' | 'canceled_pending' | 'past_due' {
-  const status = subscription.status
-  const cancelAtPeriodEnd = subscription.cancel_at_period_end
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const currentPeriodEnd = (subscription as any).current_period_end as number | null | undefined
-  const now = Math.floor(Date.now() / 1000)
-  
-  // CRITICAL: Check cancel_at_period_end FIRST before checking status
-  // If subscription is active but set to cancel at period end, it's cancelling
-  // Use explicit boolean check - Stripe should always send boolean, but be defensive
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isCancelling = cancelAtPeriodEnd === true || (cancelAtPeriodEnd as any) === 1 || (cancelAtPeriodEnd as any) === 'true'
-  
-  if (status === 'active' && isCancelling) {
-    return 'canceled_pending'
-  }
-  
-  // If subscription is active and not cancelling, it's active
-  if (status === 'active' || status === 'trialing') {
-    return 'active'
-  }
-  
-  // If subscription is canceled or period has ended, it's free
-  if (status === 'canceled' || status === 'incomplete_expired' || (currentPeriodEnd && currentPeriodEnd < now)) {
-    return 'free'
-  }
-  
-  // If subscription is past due or unpaid, it's past_due
-  if (status === 'past_due' || status === 'unpaid') {
-    return 'past_due'
-  }
-  
-  // Default fallback: incomplete, paused, etc. - treat as free
-  return 'free'
+  const { status, cancel_at } = subscription;
+
+  // Pending cancellation (still paid until cancel_at)
+  if (cancel_at) return 'canceled_pending';
+
+  if (status === 'active' || status === 'trialing') return 'active';
+  if (status === 'past_due' || status === 'unpaid') return 'past_due';
+  if (status === 'canceled' || status === 'incomplete_expired') return 'free';
+
+  return 'free';
 }
 
 /**

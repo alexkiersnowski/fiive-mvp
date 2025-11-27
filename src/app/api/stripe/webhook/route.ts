@@ -105,9 +105,17 @@ export async function POST(request: NextRequest) {
             // Use mapping function to determine correct billing status
             const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
             
-            // Access current_period_end with type safety
-            const currentPeriodEnd = 'current_period_end' in subscription && typeof subscription.current_period_end === 'number'
-              ? subscription.current_period_end
+            // Extract current_period_end: use cancel_at if present (cancelled), otherwise use current_period_end
+            // Under Flexible Billing, cancel_at === current_period_end when cancelled
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const topLevelEnd = (subscription as any).current_period_end as number | null | undefined
+            const itemEnd = subscription.items?.data?.[0]?.current_period_end ?? null
+            const cancelAtUnix = subscription.cancel_at ?? null
+            
+            // Use cancel_at if present (cancelled), otherwise fallback to current_period_end
+            const currentPeriodEndUnix = cancelAtUnix ?? topLevelEnd ?? itemEnd ?? null
+            const currentPeriodEndIso = currentPeriodEndUnix
+              ? new Date(currentPeriodEndUnix * 1000).toISOString()
               : null
             
             // Update organization
@@ -118,7 +126,7 @@ export async function POST(request: NextRequest) {
                 stripe_subscription_id: subscriptionId,
                 stripe_price_id: priceId,
                 billing_status: billingStatus,
-                current_period_end: currentPeriodEnd ? new Date(currentPeriodEnd * 1000).toISOString() : null,
+                current_period_end: currentPeriodEndIso,
               })
               .eq('id', organizationId)
               .select()
@@ -173,9 +181,17 @@ export async function POST(request: NextRequest) {
           
           const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
           
-          // Access current_period_end with type safety
-          const currentPeriodEnd = 'current_period_end' in subscription && typeof subscription.current_period_end === 'number'
-            ? subscription.current_period_end
+          // Extract current_period_end: use cancel_at if present (cancelled), otherwise use current_period_end
+          // Under Flexible Billing, cancel_at === current_period_end when cancelled
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const topLevelEnd = (subscription as any).current_period_end as number | null | undefined
+          const itemEnd = subscription.items?.data?.[0]?.current_period_end ?? null
+          const cancelAtUnix = subscription.cancel_at ?? null
+          
+          // Use cancel_at if present (cancelled), otherwise fallback to current_period_end
+          const currentPeriodEndUnix = cancelAtUnix ?? topLevelEnd ?? itemEnd ?? null
+          const currentPeriodEndIso = currentPeriodEndUnix
+            ? new Date(currentPeriodEndUnix * 1000).toISOString()
             : null
           
           // Find organization by subscription ID first (most reliable - unique per subscription)
@@ -229,7 +245,7 @@ export async function POST(request: NextRequest) {
               stripe_subscription_id: subscription.id,
               stripe_price_id: priceId,
               billing_status: billingStatus,
-              current_period_end: currentPeriodEnd ? new Date(currentPeriodEnd * 1000).toISOString() : null,
+              current_period_end: currentPeriodEndIso,
             })
             .eq('id', organization.id)
             .select('id, billing_status, stripe_subscription_id, stripe_customer_id')
@@ -265,6 +281,7 @@ export async function POST(request: NextRequest) {
             .from('organizations')
             .update({
               billing_status: 'free',
+              current_period_end: null, // Clean up when subscription is deleted
             })
             .eq('id', org.id)
           
@@ -304,9 +321,17 @@ export async function POST(request: NextRequest) {
           // This ensures we don't override 'canceled_pending' if subscription is still cancelling
           const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
           
-          // Access current_period_end with type safety
-          const currentPeriodEnd = 'current_period_end' in subscription && typeof subscription.current_period_end === 'number'
-            ? subscription.current_period_end
+          // Extract current_period_end: use cancel_at if present (cancelled), otherwise use current_period_end
+          // Under Flexible Billing, cancel_at === current_period_end when cancelled
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const topLevelEnd = (subscription as any).current_period_end as number | null | undefined
+          const itemEnd = subscription.items?.data?.[0]?.current_period_end ?? null
+          const cancelAtUnix = subscription.cancel_at ?? null
+          
+          // Use cancel_at if present (cancelled), otherwise fallback to current_period_end
+          const currentPeriodEndUnix = cancelAtUnix ?? topLevelEnd ?? itemEnd ?? null
+          const currentPeriodEndIso = currentPeriodEndUnix
+            ? new Date(currentPeriodEndUnix * 1000).toISOString()
             : null
           
           // Find organization by subscription ID first (most reliable)
@@ -338,7 +363,7 @@ export async function POST(request: NextRequest) {
                 stripe_subscription_id: subscriptionId,
                 stripe_price_id: priceId,
                 billing_status: billingStatus,
-                current_period_end: currentPeriodEnd ? new Date(currentPeriodEnd * 1000).toISOString() : null,
+                current_period_end: currentPeriodEndIso,
               })
               .eq('id', org.id)
             
