@@ -122,7 +122,8 @@ BEGIN
     invited_at,
     invite_token,
     connected_at,
-    disconnected_at
+    disconnected_at,
+    created_by_org_id
   )
   VALUES (
     p_agency_id,
@@ -138,7 +139,8 @@ BEGIN
     NULL,
     NULL,
     NULL,
-    NULL
+    NULL,
+    p_agency_id
   )
   RETURNING id INTO v_connection_id;
 

@@ -75,6 +75,9 @@ interface ClientsTableProps {
   context: EnhancedModeContext;
   onClientDeleted?: () => void; // Callback to refresh data after deletion
   onClientDeleteOptimistic?: (clientId: string) => void; // Callback for optimistic removal
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
+  billingStatus?: string;
+  onPaywallTrigger?: () => void;
 }
 
 // Extract column components for better readability and reusability
@@ -237,17 +240,39 @@ const HealthCell = React.memo(function HealthCell({ client }: { client: Client }
 const ActionsCell = React.memo(function ActionsCell({ 
   client, 
   context: _context, 
-  onDeleteClick 
+  onDeleteClick,
+  allowedConnectionIds,
+  billingStatus,
+  onPaywallTrigger,
 }: { 
   client: Client; 
   context: EnhancedModeContext;
   onDeleteClick: (clientId: string, clientName: string) => void;
+  allowedConnectionIds?: string[] | null;
+  billingStatus?: string;
+  onPaywallTrigger?: () => void;
 }) {
+  const router = useRouter();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
   const isDraft = client.is_draft === true;
   const isInvited = client.status === 'invited';
+
+  const handleConnectionSettingsClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDropdownOpen(false);
+    
+    // Check if access is blocked (free plan only)
+    if (billingStatus === 'free' && allowedConnectionIds !== null) {
+      if (!allowedConnectionIds.includes(client.id)) {
+        onPaywallTrigger?.();
+        return;
+      }
+    }
+    
+    router.push(`/clients/${client.id}/settings`);
+  };
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -324,7 +349,7 @@ const ActionsCell = React.memo(function ActionsCell({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={handleConnectionSettingsClick}>
             <Link size={16} style={{ color: 'var(--color-base-text-primary)' }} />
             Connection settings
           </DropdownMenuItem>
@@ -386,6 +411,9 @@ export function ClientsTable({
   context,
   onClientDeleted,
   onClientDeleteOptimistic,
+  allowedConnectionIds,
+  billingStatus,
+  onPaywallTrigger,
 }: ClientsTableProps) {
   const router = useRouter();
   const [selectedAccountManager, setSelectedAccountManager] = useState<Client['accountManager'] | null>(null);
@@ -464,9 +492,19 @@ export function ClientsTable({
 
   const handleRowClick = useCallback(
     (client: Client) => {
+      // Check if this is an allowed workspace (free plan only)
+      // allowedConnectionIds is null for paid plans (no limit)
+      // allowedConnectionIds is array for free plans (check if client.id is in array)
+      if (billingStatus === 'free' && allowedConnectionIds !== null) {
+        if (!allowedConnectionIds.includes(client.id)) {
+          onPaywallTrigger?.();
+          return; // Prevent navigation
+        }
+      }
+      
       router.push(`/clients/${client.id}/overview`);
     },
-    [router],
+    [router, billingStatus, allowedConnectionIds, onPaywallTrigger],
   );
 
   // Empty state logic: ONLY show empty state when no connections exist at all
@@ -629,7 +667,14 @@ export function ClientsTable({
                 <StatusCell client={client} />
                 <ContractEndCell client={client} />
                 <HealthCell client={client} />
-                <ActionsCell client={client} context={context} onDeleteClick={handleDeleteClick} />
+                <ActionsCell 
+                  client={client} 
+                  context={context} 
+                  onDeleteClick={handleDeleteClick}
+                  allowedConnectionIds={allowedConnectionIds}
+                  billingStatus={billingStatus}
+                  onPaywallTrigger={onPaywallTrigger}
+                />
               </>
             )}
           />

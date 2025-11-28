@@ -6,6 +6,7 @@ import { deleteLogoFolder } from '@/lib/supabase/storage';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionResult, NewClientResult, NewClientPayload, DeleteClientResult, ClientsSnapshot } from './types';
 import { getClientsSnapshot } from './server';
+import { checkPaywall, countInternalConnections } from '@/lib/paywall/checkConnectionLimit';
 
 /**
  * Creates a draft client organization and linked connection for an agency member.
@@ -56,6 +57,36 @@ export async function createNewClient(
       return {
         success: false,
         error: 'Unable to determine organization owner. Please refresh the page and try again.',
+      };
+    }
+
+    // Check paywall before proceeding
+    const billingStatus = context.organization.billing_status || 'free';
+    const internalCount = await countInternalConnections(context.orgId);
+    
+    const paywallCheck = await checkPaywall({
+      billingStatus,
+      isAgencyInitiated: true, // Agency is creating the client
+      isClientInitiated: false,
+      isInternal: true, // This is an internal connection (agency creates client)
+      internalCount,
+      clientInitiatedCount: 0, // Not relevant for this action
+    });
+
+    if (!paywallCheck.allowed) {
+      console.log('[Paywall] Blocked createNewClient:', {
+        agencyId: context.orgId,
+        billingStatus,
+        internalCount,
+        reason: paywallCheck.reason,
+        actionType: 'internal',
+      });
+      return {
+        success: false,
+        error: paywallCheck.reason === 'internal_limit' 
+          ? 'You\'ve reached the limit for free accounts. Upgrade to Agency Pro to add more clients.'
+          : 'This action requires an Agency Pro subscription.',
+        paywall: true,
       };
     }
 
@@ -222,7 +253,33 @@ export async function connectToExistingClient(
       };
     }
     
-    // 4. Create connection record
+    // 4. Check paywall before creating connection (agency-initiated via connection code)
+    const billingStatus = context.organization.billing_status || 'free';
+    const paywallCheck = await checkPaywall({
+      billingStatus,
+      isAgencyInitiated: true, // Agency is using client's connection code
+      isClientInitiated: false,
+      isInternal: false, // This is connection code, not internal
+      internalCount: 0, // Not relevant for connection code
+      clientInitiatedCount: 0, // Not relevant for connection code
+    });
+
+    if (!paywallCheck.allowed) {
+      console.log('[Paywall] Blocked connectToExistingClient:', {
+        agencyId: context.orgId,
+        clientId: targetOrg.id,
+        billingStatus,
+        reason: paywallCheck.reason,
+        actionType: 'connection_code',
+      });
+      return {
+        success: false,
+        error: 'This action requires an Agency Pro subscription. Upgrade to connect to clients via connection code.',
+        paywall: true,
+      };
+    }
+    
+    // 5. Create connection record
     const now = new Date().toISOString();
     const { data: newConnection, error: connectionError } = await supabase
       .from('connections')
@@ -242,7 +299,8 @@ export async function connectToExistingClient(
         connected_at: now,
         disconnected_at: null,
         created_at: now,
-        updated_at: now
+        updated_at: now,
+        created_by_org_id: context.orgId // Agency initiated via connection code
       })
       .select()
       .single();

@@ -265,7 +265,7 @@ export async function connectToExistingAgency(
     // 1. Look up organization by connection code
     const { data: targetOrg, error: orgError } = await supabase
       .from('organizations')
-      .select('id, name, type, logo_url, connection_code')
+      .select('id, name, type, logo_url, connection_code, billing_status')
       .eq('connection_code', connectionCode)
       .is('deleted_at', null) // Only active organizations
       .single();
@@ -286,7 +286,21 @@ export async function connectToExistingAgency(
       };
     }
     
-    // 3. Check if connection already exists
+    // 3. Check if target agency has reached free plan limit
+    const targetBillingStatus = targetOrg.billing_status || 'free';
+    if (targetBillingStatus === 'free') {
+      const { countClientInitiatedConnectionsForAgency } = await import('@/lib/paywall/checkConnectionLimit');
+      const clientInitiatedCount = await countClientInitiatedConnectionsForAgency(targetOrg.id);
+      
+      if (clientInitiatedCount >= 1) {
+        return {
+          success: false,
+          error: 'This agency needs to upgrade to connect to more than one client.'
+        };
+      }
+    }
+    
+    // 4. Check if connection already exists
     const { data: existingConnection, error: connectionCheckError } = await supabase
       .from('connections')
       .select('id')
@@ -310,7 +324,7 @@ export async function connectToExistingAgency(
       };
     }
     
-    // 4. Create connection record
+    // 5. Create connection record
     const now = new Date().toISOString();
     const { data: newConnection, error: connectionError } = await supabase
       .from('connections')
@@ -330,7 +344,8 @@ export async function connectToExistingAgency(
         connected_at: now,
         disconnected_at: null,
         created_at: now,
-        updated_at: now
+        updated_at: now,
+        created_by_org_id: context.orgId // Client initiated via connection code
       })
       .select()
       .single();

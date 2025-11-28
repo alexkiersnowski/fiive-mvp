@@ -73,6 +73,7 @@ export type ConnectionResult = {
   clientName?: string;
   clientLogo?: string;
   error?: string;
+  paywall?: boolean;
 };
 
 export interface NewClientPayload {
@@ -88,7 +89,7 @@ export interface NewClientPayload {
 
 export type NewClientResult =
   | { success: true; data: NewClientPayload }
-  | { success: false; error: string };
+  | { success: false; error: string; paywall?: boolean };
 
 export type DeleteClientResult =
   | { success: true }

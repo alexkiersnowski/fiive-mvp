@@ -13,6 +13,9 @@ import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import { ClientsTable } from '@/features/clients/ClientsTable';
 import { ClientsHeader } from '@/features/clients/ClientsHeader';
 import { createNewClient, connectToExistingClient, refreshClientsData, fetchMoreClients } from '@/features/clients/actions';
+import { PaywallModal } from '@/components/ui/paywall-modal';
+import { countInternalConnections, checkPaywall } from '@/lib/paywall/checkConnectionLimit';
+import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { 
   accountTypeSchema, 
   addNewClientSchema, 
@@ -65,6 +68,31 @@ export function ClientsContent({
   const [connectedClientLogo, setConnectedClientLogo] = useState<string | undefined>(undefined);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCreatingClient, setIsCreatingClient] = useState(false);
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
+  const [allowedConnectionIds, setAllowedConnectionIds] = useState<string[] | null>(null);
+
+  // Fetch allowed connection IDs for workspace access gating
+  useEffect(() => {
+    const fetchAllowedIds = async () => {
+      const billingStatus = context.organization.billing_status || 'free';
+      const allowedIds = await getAllowedConnectionIds(context.orgId, billingStatus);
+      setAllowedConnectionIds(allowedIds);
+    };
+    fetchAllowedIds();
+  }, [context.orgId, context.organization.billing_status]);
+
+  // Handle paywall query param (from server-side redirect)
+  useEffect(() => {
+    const paywallParam = searchParams.get('paywall');
+    if (paywallParam === 'workspace') {
+      setIsPaywallModalOpen(true);
+      // Clear query param to prevent reopening on refresh
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('paywall');
+      const newUrl = params.toString() ? `/clients?${params.toString()}` : '/clients';
+      router.replace(newUrl, { scroll: false });
+    }
+  }, [searchParams, router]);
 
   // Sync local state with server snapshot when props change
   useEffect(() => {
@@ -200,6 +228,7 @@ export function ClientsContent({
   }, []);
 
   const handleAddClientClick = () => {
+    // Always open the initial modal - don't block here for onboarding UX
     setIsAddClientDialogOpen(true);
     selectionForm.reset();
   };
@@ -237,11 +266,50 @@ export function ClientsContent({
     }, 300); // 300ms delay to allow modal close animation
   };
 
-  const handleSelectionSubmit = (data: AccountTypeFormData) => {
+  const handleSelectionSubmit = async (data: AccountTypeFormData) => {
     if (data.accountType === 'agency') {
+      // Check paywall for "Add a new client" option (internal connection)
+      const billingStatus = context.organization.billing_status || 'free';
+      if (billingStatus === 'free') {
+        const internalCount = await countInternalConnections(context.orgId);
+        const paywallCheck = await checkPaywall({
+          billingStatus,
+          isAgencyInitiated: true,
+          isClientInitiated: false,
+          isInternal: true, // This is an internal connection (agency creates client)
+          internalCount,
+          clientInitiatedCount: 0,
+        });
+
+        if (!paywallCheck.allowed && paywallCheck.reason === 'internal_limit') {
+          setIsAddClientDialogOpen(false);
+          setIsPaywallModalOpen(true);
+          return;
+        }
+      }
+      
       setIsAddClientDialogOpen(false);
       setIsAddNewClientDialogOpen(true);
     } else if (data.accountType === 'client') {
+      // Check paywall for "Connect to client" option (agency-initiated connection code)
+      const billingStatus = context.organization.billing_status || 'free';
+      if (billingStatus === 'free') {
+        const paywallCheck = await checkPaywall({
+          billingStatus,
+          isAgencyInitiated: true, // Agency using client's connection code
+          isClientInitiated: false,
+          isInternal: false, // This is connection code, not internal
+          internalCount: 0, // Not relevant for connection code
+          clientInitiatedCount: 0, // Not relevant for connection code
+        });
+
+        if (!paywallCheck.allowed) {
+          setIsAddClientDialogOpen(false);
+          setIsPaywallModalOpen(true);
+          return;
+        }
+      }
+      
       setIsAddClientDialogOpen(false);
       setIsConnectToClientDialogOpen(true);
     }
@@ -274,10 +342,16 @@ export function ClientsContent({
         // Close dialog only after everything is complete (spinner stops in finally)
         handleAddNewClientDialogClose();
       } else {
+        // Check if this is a paywall error
+        if (result.paywall) {
+          handleAddNewClientDialogClose();
+          setIsPaywallModalOpen(true);
+      } else {
         // Keep dialog open and show error - no optimistic updates to rollback
         addNewClientForm.setError('clientName', {
           message: result.error || 'Failed to create client. Please try again.'
         });
+        }
       }
     } catch (error) {
       console.error('Unexpected error creating client:', {
@@ -335,10 +409,16 @@ export function ClientsContent({
         // Show success modal
         setIsConnectSuccess(true);
       } else {
+        // Check if this is a paywall error
+        if (result.paywall) {
+          handleConnectToClientDialogClose();
+          setIsPaywallModalOpen(true);
+      } else {
         // Show error message in form
         connectToClientForm.setError('connectionCode', {
           message: result.error || 'Invalid connection code'
         });
+        }
       }
     } finally {
       setIsConnecting(false);
@@ -382,6 +462,9 @@ export function ClientsContent({
           parentRef={parentRef}
           headerOffset={headerOffset}
           context={context}
+          allowedConnectionIds={allowedConnectionIds}
+          billingStatus={context.organization.billing_status || 'free'}
+          onPaywallTrigger={() => setIsPaywallModalOpen(true)}
         onClientDeleteOptimistic={(clientId) => {
           // Optimistically remove client from UI immediately (synchronous for instant feedback)
           setClients(prev => prev.filter(client => client.clientId !== clientId));
@@ -633,6 +716,12 @@ export function ClientsContent({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
 
     </div>
   );
