@@ -60,6 +60,7 @@ type ActionResult<T = any> = {
   ok: boolean
   data?: T
   message?: string
+  paywall?: boolean
 }
 
 // Helper function for organization ownership verification
@@ -1144,6 +1145,41 @@ export async function validateAndInviteMembers(data: {
 
     const supabase = await createClient()
 
+    // Get billing status and organization type for paywall check
+    const { data: organization, error: orgError } = await supabase
+      .from("organizations")
+      .select("billing_status, type")
+      .eq("id", data.organizationId)
+      .single()
+
+    if (orgError || !organization) {
+      return {
+        ok: false,
+        message: "Organization not found"
+      }
+    }
+
+    const billingStatus = organization.billing_status || 'free'
+    const organizationType = (organization.type === 'agency' || organization.type === 'client') 
+      ? organization.type 
+      : 'agency' // Default to agency for safety
+
+    // Check member limit paywall (only applies to agencies)
+    const { checkMemberLimit } = await import('@/lib/paywall/checkMemberLimit')
+    const memberLimitCheck = await checkMemberLimit({
+      organizationId: data.organizationId,
+      billingStatus,
+      organizationType,
+    })
+
+    if (!memberLimitCheck.allowed) {
+      return {
+        ok: false,
+        paywall: true,
+        message: "Free organizations are limited to 2 members. Upgrade to invite more team members."
+      }
+    }
+
     // Validate emails exist
     if (!data.emails || data.emails.length === 0) {
       return {
@@ -1449,13 +1485,13 @@ export async function validateAndInviteMembers(data: {
   }
 
   // Fetch organization name for email template
-  const { data: organization } = await supabase
+  const { data: orgForEmail } = await supabase
     .from('organizations')
     .select('name')
     .eq('id', data.organizationId)
     .single()
 
-  const orgName = organization?.name || 'our organization'
+  const orgName = orgForEmail?.name || 'our organization'
 
   // Send Resend invite emails for all processed emails
   const allProcessedEmails = [...newEmails, ...expiredEmails, ...pendingEmails]

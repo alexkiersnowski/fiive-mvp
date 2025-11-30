@@ -30,8 +30,11 @@ export interface EnhancedModeContext extends ModeContext {
     billing_status?: string;
     stripe_price_id?: string;
     current_period_end?: string;
+    ownerName?: string; // Owner's full name for restricted member modal
+    ownerEmail?: string; // Owner's email for restricted member modal
   };
   currentUserRole: 'owner' | 'member';
+  isRestricted: boolean; // True if user is restricted due to member limit (3rd+ member on free plan)
 }
 
 // Cache this function so it only runs once per request, even if called multiple times
@@ -177,6 +180,39 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
     const variant: Variant = organization.type; // Now type-safe!
     const capabilities = deriveCapabilities(variant, isOwner);
 
+    // Check member access restriction (only for free agencies)
+    let isRestricted = false
+    const billingStatus = organization.billing_status || 'free'
+    const organizationType = organization.type as 'agency' | 'client'
+    let ownerName: string | undefined
+    let ownerEmail: string | undefined
+    
+    if (organizationType === 'agency' && billingStatus === 'free') {
+      const { checkMemberAccess } = await import('@/lib/paywall/checkMemberAccess')
+      const accessResult = await checkMemberAccess({
+        organizationId: organization.id,
+        userId: user.id,
+        billingStatus,
+        organizationType,
+        ownerId: organization.owner_id,
+      })
+      isRestricted = accessResult.isRestricted
+      
+      // Fetch owner profile info for restricted member modal (only if restricted)
+      if (isRestricted && organization.owner_id !== user.id) {
+        const { data: ownerProfile } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, email')
+          .eq('id', organization.owner_id)
+          .single()
+        
+        if (ownerProfile) {
+          ownerName = `${ownerProfile.first_name || ''} ${ownerProfile.last_name || ''}`.trim() || undefined
+          ownerEmail = ownerProfile.email || undefined
+        }
+      }
+    }
+
     const enhancedContextData = {
       // ModeContext fields
       userId: user.id,
@@ -208,9 +244,12 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         is_draft: organization.is_draft || false, // Should always be false for active contexts
         billing_status: organization.billing_status || undefined,
         stripe_price_id: organization.stripe_price_id || undefined,
-        current_period_end: organization.current_period_end || undefined
+        current_period_end: organization.current_period_end || undefined,
+        ownerName,
+        ownerEmail
       },
-      currentUserRole: (isOwner ? 'owner' : 'member') as 'owner' | 'member'
+      currentUserRole: (isOwner ? 'owner' : 'member') as 'owner' | 'member',
+      isRestricted
     };
 
     const totalTime = performance.now() - startTime;

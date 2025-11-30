@@ -330,6 +330,11 @@ export function ClientsContent({
           sort: sortValue
         });
 
+        // Refresh allowed connection IDs to include the newly created client
+        const billingStatus = context.organization.billing_status || 'free';
+        const allowedIds = await getAllowedConnectionIds(context.orgId, billingStatus);
+        setAllowedConnectionIds(allowedIds);
+
         // Update table with server response
         startTransition(() => {
           setClients(refreshedSnapshot.clients);
@@ -395,6 +400,12 @@ export function ClientsContent({
             search: debouncedSearchValue,
             sort: sortValue
           });
+          
+          // Refresh allowed connection IDs to include the newly connected client
+          const billingStatus = context.organization.billing_status || 'free';
+          const allowedIds = await getAllowedConnectionIds(context.orgId, billingStatus);
+          setAllowedConnectionIds(allowedIds);
+          
         startTransition(() => {
           setClients(refreshedSnapshot.clients);
           setTotalCount(refreshedSnapshot.total);

@@ -140,16 +140,18 @@ export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl
         <div className="flex items-center gap-6">
           {/* Read-only Logo Preview */}
           <div className="flex-shrink-0">
-            <div className="relative">
+            <div className="relative" style={sizeStyle}>
               <div className="rounded-full border border-gray-200 bg-[var(--color-base-surface-page-background)] flex items-center justify-center overflow-hidden" style={sizeStyle}>
                 {logoPreview ? (
-                  <Image
-                    src={logoPreview}
-                    alt="Organization logo"
-                    fill
-                    className="object-cover"
-                    unoptimized
-                  />
+                  <div className="absolute inset-0 rounded-full overflow-hidden">
+                    <Image
+                      src={logoPreview}
+                      alt="Organization logo"
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center">
                     <UploadIcon style={{ width: `${calculatedIconSize}px`, height: `${calculatedIconSize}px` }} className="text-gray-400" />

@@ -1,7 +1,7 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { cache, Suspense } from 'react'
+import { cache } from 'react'
 import { verifyCheckoutSessionAndGetBillingStatus } from '@/lib/stripe/server'
 import BillingContent from './BillingContent'
 
@@ -74,18 +74,16 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
   // If canceled, just show current status
   if (canceled === 'true') {
     return (
-      <Suspense fallback={<div>Loading...</div>}>
-        <BillingContent 
-          variant={context.variant} 
-          billingStatus={context.organization.billing_status}
-          sessionId={null}
-          shouldShowDialog={false}
-          stripePriceId={context.organization.stripe_price_id}
-          monthlyPriceId={monthlyPriceId}
-          annualPriceId={annualPriceId}
-          currentPeriodEnd={context.organization.current_period_end}
-        />
-      </Suspense>
+      <BillingContent 
+        variant={context.variant} 
+        billingStatus={context.organization.billing_status}
+        sessionId={null}
+        shouldShowDialog={false}
+        stripePriceId={context.organization.stripe_price_id}
+        monthlyPriceId={monthlyPriceId}
+        annualPriceId={annualPriceId}
+        currentPeriodEnd={context.organization.current_period_end}
+      />
     )
   }
 
@@ -108,17 +106,15 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
   }
 
   return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <BillingContent 
-        variant={context.variant} 
-        billingStatus={billingStatus}
-        sessionId={sessionId || null}
-        shouldShowDialog={shouldShowDialog}
-        stripePriceId={context.organization.stripe_price_id}
-        monthlyPriceId={monthlyPriceId}
-        annualPriceId={annualPriceId}
-        currentPeriodEnd={context.organization.current_period_end}
-      />
-    </Suspense>
+    <BillingContent 
+      variant={context.variant} 
+      billingStatus={billingStatus}
+      sessionId={sessionId || null}
+      shouldShowDialog={shouldShowDialog}
+      stripePriceId={context.organization.stripe_price_id}
+      monthlyPriceId={monthlyPriceId}
+      annualPriceId={annualPriceId}
+      currentPeriodEnd={context.organization.current_period_end}
+    />
   )
 }

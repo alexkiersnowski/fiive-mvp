@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import Topbar from '@/components/ui/topbar'
 import SidebarComponent from '@/components/ui/sidebar'
 import { PastDueBanner } from '@/components/ui/past-due-banner'
+import { MemberLimitModal } from '@/components/ui/member-limit-modal'
 import { EnhancedModeContext } from '@/lib/mode/getActiveContext'
 import { toast } from 'sonner'
 
@@ -81,6 +82,9 @@ export default function DashboardLayout({ data, context, children, initialIsColl
   // Only show to organization owners (same restriction as billing settings)
   const showPastDueBanner = context.organization.billing_status === 'past_due' && data.currentUserRole === 'owner'
   
+  // Check if user is restricted due to member limit
+  const isRestricted = context.isRestricted || false
+  
   // Handle portal session creation
   const handleManagePayment = async () => {
     try {
@@ -153,7 +157,8 @@ export default function DashboardLayout({ data, context, children, initialIsColl
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        padding: isFullWidthPage ? '0' : '16px 16px 24px 16px'
+        padding: isFullWidthPage ? '0' : '16px 16px 24px 16px',
+        position: 'relative'
       }}>
         <div 
           style={{
@@ -165,12 +170,23 @@ export default function DashboardLayout({ data, context, children, initialIsColl
             padding: isFullWidthPage ? '0' : ((isSettingsPage || isConnectionSettingsPage) ? (isMembersPage ? '0 64px 40px 64px' : '40px 64px 40px 64px') : isDetailPage ? '24px 32px 0px 32px' : '24px 32px 0px 32px'),
             overflow: isFullWidthPage ? 'visible' : ((isSettingsPage || isConnectionSettingsPage) ? 'auto' : 'hidden'),
             display: isFullWidthPage ? 'block' : 'flex',
-            flexDirection: 'column'
+            flexDirection: 'column',
+            pointerEvents: isRestricted ? 'none' : 'auto',
+            opacity: isRestricted ? 0.5 : 1
           }}
         >
           {children}
         </div>
       </main>
+      
+      {/* Member Limit Modal - blocks access when user is restricted */}
+      {isRestricted && (
+        <MemberLimitModal 
+          open={true}
+          ownerName={data.organization.ownerName}
+          ownerEmail={data.organization.ownerEmail}
+        />
+      )}
     </div>
   )
 }

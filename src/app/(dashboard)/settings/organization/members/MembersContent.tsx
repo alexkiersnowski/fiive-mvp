@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/search-input'
+import { PaywallModal } from '@/components/ui/paywall-modal'
 import MembersTable from './MembersTable'
 import { OrganizationMember, OrganizationInvitation, getOrganizationMembers, getOrganizationInvitations } from '../../actions'
 import type { VirtualItem } from '@tanstack/react-virtual'
@@ -16,6 +17,9 @@ interface MembersContentProps {
   currentUserRole: 'owner' | 'member'
   unfilteredTotalCount: number
   initialHasNextPage: boolean
+  billingStatus: string
+  organizationType: 'agency' | 'client'
+  canInviteMembers: boolean
 }
 
 export default function MembersContent({
@@ -24,7 +28,10 @@ export default function MembersContent({
   organizationId,
   currentUserRole,
   unfilteredTotalCount,
-  initialHasNextPage
+  initialHasNextPage,
+  billingStatus,
+  organizationType,
+  canInviteMembers: initialCanInviteMembers
 }: MembersContentProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
@@ -43,10 +50,30 @@ export default function MembersContent({
   const [hasMore, setHasMore] = useState(initialHasNextPage)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const [isBootstrapping, setIsBootstrapping] = useState(false)
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
+  const [canInviteMembers, setCanInviteMembers] = useState(initialCanInviteMembers)
   
   const memberCount = members.length + invitations.length
 
+  // Update canInviteMembers when members/invitations change (e.g., after successful invite)
+  useEffect(() => {
+    // For agencies on free tier, check if we've hit the limit
+    if (organizationType === 'agency' && billingStatus === 'free') {
+      const totalCount = members.length + invitations.length
+      setCanInviteMembers(totalCount < 2)
+    } else {
+      // Clients and paid agencies can always invite
+      setCanInviteMembers(true)
+    }
+  }, [members.length, invitations.length, organizationType, billingStatus])
+
   const handleInviteClick = () => {
+    // Use prefetched server-side check result for instant validation
+    if (!canInviteMembers) {
+      setIsPaywallModalOpen(true)
+      return
+    }
+
     membersTableRef.current?.openInviteDialog()
   }
   
@@ -268,8 +295,17 @@ export default function MembersContent({
           hasNextPage={hasMore}
           isLoading={isLoading}
           isBootstrapping={isBootstrapping}
+          billingStatus={billingStatus}
+          organizationType={organizationType}
+          onPaywallTrigger={() => setIsPaywallModalOpen(true)}
         />
       </div>
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   )
 }

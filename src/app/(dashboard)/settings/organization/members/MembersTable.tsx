@@ -10,7 +10,7 @@ import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { ListRow } from '@/components/ui/list-row'
-import { DotsThree, UserMinus, PaperPlaneTilt, XCircle, Plus } from '@phosphor-icons/react'
+import { DotsThree, UserMinus, PaperPlaneTilt, XCircle, Plus, Lock } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateMemberRole, removeMember, validateAndInviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -141,6 +141,9 @@ interface MembersTableProps {
   searchQuery?: string
   onSearchChange?: (query: string) => void
   onInviteClick?: () => void
+  billingStatus?: string
+  organizationType?: 'agency' | 'client'
+  onPaywallTrigger?: () => void
 }
 
 const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTableProps>(function MembersTable({ 
@@ -157,7 +160,10 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   headerOffset = 0,
   searchQuery: externalSearchQuery = '',
   onSearchChange: _onSearchChange,
-  onInviteClick: _externalOnInviteClick
+  onInviteClick: _externalOnInviteClick,
+  billingStatus = 'free',
+  organizationType = 'agency',
+  onPaywallTrigger
 }, ref) {
   const [_internalSearchQuery, _setInternalSearchQuery] = useState('')
   const searchQuery = externalSearchQuery || _internalSearchQuery
@@ -208,6 +214,51 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   
   // Determine if current user can manage roles (only owners can)
   const canManageRoles = currentUserRole === 'owner'
+  
+  // Helper function to check if a member is restricted
+  // Only applies to free agencies
+  // Allowed: Owner (always) + First non-owner member (by created_at) = 2 total
+  const isMemberRestricted = useCallback((member: OrganizationMember, allMembers: OrganizationMember[]): boolean => {
+    // Only check for free agencies
+    if (billingStatus !== 'free' || organizationType !== 'agency') {
+      return false
+    }
+    
+    // Owner is never restricted
+    if (member.effective_role === 'owner') {
+      return false
+    }
+    
+    // Get owner ID from organization (first member with effective_role === 'owner')
+    const owner = allMembers.find(m => m.effective_role === 'owner')
+    if (!owner) {
+      // No owner found - shouldn't happen, but don't restrict
+      return false
+    }
+    
+    // Filter out owner and sort non-owner members by created_at (ascending)
+    const nonOwnerMembers = allMembers
+      .filter(m => m.effective_role !== 'owner')
+      .sort((a, b) => {
+        const dateA = new Date(a.created_at).getTime()
+        const dateB = new Date(b.created_at).getTime()
+        if (dateA !== dateB) {
+          return dateA - dateB
+        }
+        // Tiebreaker: use membership_id
+        return a.membership_id.localeCompare(b.membership_id)
+      })
+    
+    // First non-owner member (index 0) is allowed, rest (index 1+) are restricted
+    const firstNonOwnerMember = nonOwnerMembers[0]
+    if (!firstNonOwnerMember) {
+      // No non-owner members - shouldn't happen, but don't restrict
+      return false
+    }
+    
+    // Member is restricted if they are NOT the first non-owner member
+    return member.membership_id !== firstNonOwnerMember.membership_id
+  }, [billingStatus, organizationType])
   
   // Guarded load more callback
   const guardedLoadMore = useCallback(
@@ -514,15 +565,23 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
           console.error('Failed to refresh invitations:', error)
         }
       } else {
-        // Keep dialog open and show errors
-        if (result.errors) {
-          // Per-email errors
-          setEmailErrors(result.errors)
-        } else if (result.message) {
-          // General error (like rate limit) - show inline in dialog
-          setGeneralError(result.message)
+        // Check if this is a paywall error
+        if (result.paywall) {
+          setInviteDialogOpen(false)
+          setEmailErrors({})
+          setGeneralError('')
+          onPaywallTrigger?.()
         } else {
-          toast.error('Failed to send invitations')
+          // Keep dialog open and show errors
+          if (result.errors) {
+            // Per-email errors
+            setEmailErrors(result.errors)
+          } else if (result.message) {
+            // General error (like rate limit) - show inline in dialog
+            setGeneralError(result.message)
+          } else {
+            toast.error('Failed to send invitations')
+          }
         }
       }
     } catch (error) {
@@ -539,6 +598,7 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
       const member = item
       const fullName = `${member.first_name} ${member.last_name}`
       const isOwner = member.effective_role === 'owner'
+      const isRestricted = isMemberRestricted(member, localMembers)
       
       return (
         <>
@@ -553,21 +613,38 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
             />
           </TableCell>
           <TableCell className="w-[33.33%] py-0">
-            <div className="flex items-center">
+            <div className="flex items-center gap-3">
               <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
                 {member.email}
               </span>
+              {isRestricted && (
+                <Badge 
+                  variant="outline" 
+                  className="text-xs border-0"
+                  style={{
+                    borderRadius: 'var(--radius-1-max)',
+                    backgroundColor: 'var(--color-semantic-warning-3)',
+                    color: 'var(--color-semantic-warning-11)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <Lock size={12} weight="fill" />
+                  Starter limit
+                </Badge>
+              )}
             </div>
           </TableCell>
           <TableCell className="w-[33.33%] py-0 pointer-events-auto">
             <Combobox
-              options={isOwner ? [{ value: "owner", label: "Owner" }] : roleOptions}
+              options={isOwner ? [{ value: "owner", label: "Owner" }] : isRestricted ? [{ value: "member", label: "Member" }] : roleOptions}
               value={member.effective_role}
               onValueChange={(value) => handleRoleChange(member.membership_id, value)}
               placeholder="Select role..."
               searchPlaceholder=""
               emptyText="No role found."
-              readOnly={isOwner || isUpdating || !canManageRoles}
+              readOnly={isOwner || isRestricted || isUpdating || !canManageRoles}
               className="w-full"
               style={{ 
                 height: '32px',
