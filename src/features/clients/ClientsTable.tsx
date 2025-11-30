@@ -264,7 +264,7 @@ const ActionsCell = React.memo(function ActionsCell({
     setIsDropdownOpen(false);
     
     // Check if access is blocked (free plan only)
-    if (billingStatus === 'free' && allowedConnectionIds !== null) {
+    if (billingStatus === 'free' && allowedConnectionIds != null) {
       if (!allowedConnectionIds.includes(client.id)) {
         onPaywallTrigger?.();
         return;
@@ -495,7 +495,7 @@ export function ClientsTable({
       // Check if this is an allowed workspace (free plan only)
       // allowedConnectionIds is null for paid plans (no limit)
       // allowedConnectionIds is array for free plans (check if client.id is in array)
-      if (billingStatus === 'free' && allowedConnectionIds !== null) {
+      if (billingStatus === 'free' && allowedConnectionIds != null) {
         if (!allowedConnectionIds.includes(client.id)) {
           onPaywallTrigger?.();
           return; // Prevent navigation

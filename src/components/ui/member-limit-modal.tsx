@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from 'next/navigation'
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { signOut } from '@/app/(dashboard)/settings/actions'
@@ -13,7 +13,7 @@ interface MemberLimitModalProps {
   ownerEmail?: string
 }
 
-export function MemberLimitModal({ open, ownerName, ownerEmail }: MemberLimitModalProps) {
+export function MemberLimitModal({ open, ownerEmail, ownerName: _ownerName }: MemberLimitModalProps) {
   const router = useRouter()
   const [isSigningOut, setIsSigningOut] = React.useState(false)
 

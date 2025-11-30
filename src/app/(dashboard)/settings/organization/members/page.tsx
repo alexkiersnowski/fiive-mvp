@@ -41,7 +41,7 @@ export default async function UserManagementPage() {
   // Prefetch member limit check in parallel with data fetches for optimal performance
   // Only check for agencies (clients have no limits)
   const billingStatus = organization.billing_status || 'free'
-  const organizationType = organization.type || 'agency'
+  const organizationType = (organization.type || 'agency') as 'agency' | 'client'
   
   // Run all fetches in parallel - member limit check uses fast count queries (head: true, no data transfer)
   const [membersResult, invitationsResult, memberLimitCheckResult] = await Promise.allSettled([
