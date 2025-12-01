@@ -17,18 +17,18 @@ const REQUEST_CREATED_EVENT = 'request-created'
 
 interface RequestStatusChangedEventDetail {
   requestId: string
-  oldStatus: 'new' | 'in_review' | 'accepted' | 'canceled'
-  newStatus: 'new' | 'in_review' | 'accepted' | 'canceled'
+  oldStatus: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
+  newStatus: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
 }
 
 interface RequestDeletedEventDetail {
   requestId: string
-  status: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
 }
 
 interface RequestCreatedEventDetail {
   requestId: string
-  status: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
 }
 
 // Server component wrapper - passes initial count to client component

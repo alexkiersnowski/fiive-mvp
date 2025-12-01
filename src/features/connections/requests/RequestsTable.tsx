@@ -229,7 +229,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         new: 'New',
         in_review: 'In review',
         accepted: 'Accepted',
-        canceled: 'Canceled'
+        canceled: 'Canceled',
+        closed: 'Closed'
       }
       toast.success(`Status updated to ${statusLabels[typedStatus]}`)
       // Real-time subscription will handle UI updates

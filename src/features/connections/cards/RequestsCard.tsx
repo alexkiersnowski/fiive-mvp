@@ -67,7 +67,7 @@ type PrefetchedRequest = {
       id: string;
       name: string;
     } | null;
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled';
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed';
     createdAt?: string;
     createdByOrgId?: string;
     createdByOrgType?: 'agency' | 'client';

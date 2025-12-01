@@ -50,7 +50,7 @@ type RequestDetailPayload = {
   submittedBy?: { id: string; name: string; email: string; avatarUrl?: string };
   assignee?: { id: string; name: string; email: string; avatarUrl?: string } | null;
   project?: { id: string; name: string } | null;
-  status?: 'new' | 'in_review' | 'accepted' | 'canceled';
+  status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed';
   createdAt?: string;
   createdByOrgId?: string;
   createdByOrgType?: 'agency' | 'client';
@@ -144,11 +144,11 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
   const handleRequestUpdate = useCallback((requestId: string, updates: {
     title?: string;
     description?: string;
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled';
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed';
     assignee?: Request['assignee'];
     project?: { id: string; name: string } | null;
   }) => {
-    let previousStatus: 'new' | 'in_review' | 'accepted' | 'canceled' | undefined;
+    let previousStatus: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed' | undefined;
 
     setPrefetchedRequests((prev) => prev.map((item) => {
       if (item.id !== requestId) {
