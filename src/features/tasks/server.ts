@@ -615,7 +615,7 @@ export const getTasksSnapshot = cache(async (
 
   // Fetch profiles for request creators if we don't already have them
   const missingCreatorIds = Array.from(requestCreatorUserIds).filter(id => !userIds.has(id));
-  let requestCreatorProfilesMap: Record<string, ProfileRow> = {};
+  const requestCreatorProfilesMap: Record<string, ProfileRow> = {};
   if (missingCreatorIds.length > 0) {
     const { data: creatorProfilesData } = await supabase
       .from('profiles')

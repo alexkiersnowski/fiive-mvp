@@ -123,7 +123,7 @@ interface TaskDetailContentProps {
   isDisconnected?: boolean
 }
 
-export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick, isGlobalView: propIsGlobalView, isDisconnected = false }: TaskDetailContentProps) {
+export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy: _submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt: _createdAt, clientVisible = false, clientVisibilityLocked: _clientVisibilityLocked = false, sourceRequestId: _sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId: _createdByOrgId, createdByOrgType: _createdByOrgType, currentOrgId: _currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick: _onContactClick, isGlobalView: propIsGlobalView, isDisconnected = false }: TaskDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -179,7 +179,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
 
   const isClientVariant = variant === 'client'
   const canClientEditStatusOrAssignee = Boolean(clientAssignee)
-  const isAgencyOwnedForClient = isClientVariant && !canClientEditStatusOrAssignee
+  const _isAgencyOwnedForClient = isClientVariant && !canClientEditStatusOrAssignee
 
   const [titleValue, setTitleValue] = useState(title)
   const [descriptionValue, setDescriptionValue] = useState(description)

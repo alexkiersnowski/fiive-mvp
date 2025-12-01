@@ -133,7 +133,7 @@ interface RequestDetailContentProps {
 
 type ConvertRequest = NonNullable<ConvertToTaskModalProps['request']>
 
-export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView, isDisconnected = false }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId: _currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView, isDisconnected = false }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -207,7 +207,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   }
   
   // Get just the status suffix (Submitted to your agency/Client submitted or Created by your agency/Agency created)
-  const getRequestStatusText = () => {
+  const _getRequestStatusText = () => {
     if (!createdByOrgType) return ''
     
     if (createdByOrgType === 'agency') {
