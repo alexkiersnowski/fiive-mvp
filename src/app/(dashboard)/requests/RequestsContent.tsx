@@ -9,6 +9,8 @@ import { RequestDetailModal } from '@/features/connections/requests/RequestDetai
 import { NewRequestModal } from '@/features/connections/requests/NewRequestModal';
 import { fetchMoreRequests, fetchRequestByIdGlobal, fetchCommentsForRequestGlobal } from '@/features/requests/actions';
 import { fetchProjectsForConnection } from '@/features/connections/requests/actions';
+import { ConvertToTaskModal, type ConvertToTaskModalValues } from '@/features/connections/tasks/ConvertToTaskModal';
+import { convertRequestToTask } from '@/features/connections/tasks/actions';
 import type { RequestsSnapshot, Request } from '@/features/requests/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { Comment } from '@/features/connections/server';
@@ -75,6 +77,12 @@ export function RequestsContent({
   const [isNewRequestModalOpen, setIsNewRequestModalOpen] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [projectsForConnection, setProjectsForConnection] = useState<Array<{ id: string; name: string }>>([]);
+  
+  // Convert to task modal state
+  const [convertRequest, setConvertRequest] = useState<Request | null>(null);
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
+  const [projectsForConvert, setProjectsForConvert] = useState<Array<{ id: string; name: string }>>([]);
   
   // Comments map keyed by requestId for instant lookup
   // Initialize with server-fetched comments for instant availability
@@ -420,7 +428,7 @@ export function RequestsContent({
     }
   }, [selectedRequest, context.variant]);
 
-  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => {
+  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => {
     // Optimistic update
     setRequests(prev => prev.map(r => 
       r.id === requestId 
@@ -468,6 +476,68 @@ export function RequestsContent({
       toast.error('Failed to delete request');
     }
   }, [requests, selectedRequest]);
+
+  const handleConvertModalClose = useCallback(() => {
+    setIsConvertModalOpen(false);
+    setTimeout(() => {
+      setConvertRequest(null);
+      setProjectsForConvert([]);
+    }, 300);
+  }, []);
+
+  const handleRequestConvertToTask = useCallback((request: Request) => {
+    setConvertRequest(request);
+    
+    // Fetch projects in the background (modal will show immediately when opened)
+    // ConvertToTaskModal also has fallback logic to fetch projects if not provided
+    fetchProjectsForConnection(request.connectionId)
+      .then(projects => {
+        setProjectsForConvert(projects);
+      })
+      .catch(error => {
+        console.error('Error fetching projects for convert modal:', error);
+        // Don't set empty array - let modal handle fetching if needed
+      });
+    
+    // When called from RequestDetailModal, it already has a 175ms delay before calling this handler
+    // Add a small additional delay to ensure the RequestDetailModal close animation completes
+    // before opening the convert modal. This matches the smooth transition pattern.
+    // When called from table dropdown, this small delay is negligible.
+    setTimeout(() => {
+      setIsConvertModalOpen(true);
+    }, 50);
+  }, []);
+
+  const handleConvertSubmit = useCallback(async (values: ConvertToTaskModalValues) => {
+    if (!convertRequest) {
+      toast.error('Request unavailable for conversion');
+      return;
+    }
+
+    setIsConverting(true);
+    
+    try {
+      await convertRequestToTask(values.requestId, {
+        connectionId: convertRequest.connectionId,
+        title: values.title,
+        description: values.description,
+        status: values.status,
+        projectId: values.project?.id ?? null,
+        assigneeUserId: values.assignee?.id ?? null,
+        dueDateRaw: values.dueDateRaw,
+        clientVisible: values.clientVisible,
+      });
+
+      toast.success('Task created from request');
+      handleRequestUpdate(values.requestId, { status: 'accepted' });
+      handleConvertModalClose();
+    } catch (error) {
+      console.error('Failed to convert request to task:', error);
+      toast.error('Failed to convert request');
+    } finally {
+      setIsConverting(false);
+    }
+  }, [convertRequest, handleRequestUpdate, handleConvertModalClose]);
 
   const handleToggleAssignedToMe = useCallback(() => {
     setAssignedToMe(prev => !prev);
@@ -521,6 +591,7 @@ export function RequestsContent({
           sortOptions={sortOptions}
           sortValue={sortValue}
           onSortChange={handleSortChange}
+          onConvertToTask={handleRequestConvertToTask}
         />
       </div>
 
@@ -570,6 +641,55 @@ export function RequestsContent({
               [selectedRequest.id]: comments
             }));
           }}
+          isDisconnected={false}
+          isGlobalView={true}
+          onConvertToTask={(request) => {
+            if (!request || !selectedRequest) return
+            // RequestDetailModal already handles closing with animation and 175ms delay
+            // before calling this callback, so we can open convert modal immediately
+            handleRequestConvertToTask(selectedRequest)
+          }}
+        />
+      )}
+
+      {/* Convert to Task Modal */}
+      {convertRequest && (
+        <ConvertToTaskModal
+          isOpen={isConvertModalOpen}
+          onClose={handleConvertModalClose}
+          onSubmit={handleConvertSubmit}
+          isSubmitting={isConverting}
+          connectionId={convertRequest.connectionId}
+          variant={context.variant}
+          request={{
+            requestId: convertRequest.id,
+            title: convertRequest.title,
+            description: convertRequest.description ?? '',
+            client: convertRequest.client,
+            agency: convertRequest.agency,
+            submittedBy: convertRequest.submittedBy
+              ? {
+                  id: convertRequest.submittedBy.id,
+                  name: convertRequest.submittedBy.name,
+                  email: convertRequest.submittedBy.email,
+                  avatarUrl: convertRequest.submittedBy.avatarUrl,
+                }
+              : undefined,
+            assignee: convertRequest.assignee
+              ? {
+                  id: convertRequest.assignee.id,
+                  name: convertRequest.assignee.name,
+                  email: convertRequest.assignee.email,
+                  avatarUrl: convertRequest.assignee.avatarUrl,
+                }
+              : null,
+            project: convertRequest.project,
+            createdAt: convertRequest.createdAt,
+            createdByOrgId: convertRequest.createdByOrgId,
+            createdByOrgType: convertRequest.createdByOrgType,
+          }}
+          agencyMembers={agencyMembers}
+          projects={projectsForConvert}
         />
       )}
 

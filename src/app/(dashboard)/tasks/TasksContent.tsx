@@ -69,6 +69,7 @@ export function TasksContent({
   const rootRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement | null>(null);
   const headerWrapperRef = useRef<HTMLDivElement>(null);
+  const isNavigatingRef = useRef(false);
   const [headerOffset, setHeaderOffset] = useState(0);
   const initiallyAssigned = (() => {
     try { return searchParams.get('assigned') === 'me' } catch { return false }
@@ -167,23 +168,39 @@ export function TasksContent({
       return;
     }
     
-    if (debouncedSearchValue !== currentSearchParam || sortValue !== currentSortParam || assignedToMe !== currentAssignedParam) {
-      setIsFetchingServerResults(true);
-      const params = new URLSearchParams(searchParams.toString());
-      if (debouncedSearchValue.trim()) {
-        params.set('search', debouncedSearchValue.trim());
-      } else {
-        params.delete('search');
-      }
-      params.set('sort', sortValue);
-      if (assignedToMe) {
-        params.set('assigned', 'me');
-      } else {
-        params.delete('assigned');
-      }
-      router.push(`/tasks?${params.toString()}`, { scroll: false });
+    // Check if values match - if so, reset navigation flag and return early
+    const valuesMatch = debouncedSearchValue === currentSearchParam && 
+                       sortValue === currentSortParam && 
+                       assignedToMe === currentAssignedParam;
+    
+    if (valuesMatch) {
+      isNavigatingRef.current = false;
+      return;
     }
-  }, [debouncedSearchValue, sortValue, assignedToMe, router, searchParams, context.variant, clientTeamMemberIds]);
+    
+    // Prevent duplicate navigations
+    if (isNavigatingRef.current) {
+      return;
+    }
+    
+    // Only navigate if values actually differ
+    isNavigatingRef.current = true;
+    setIsFetchingServerResults(true);
+    const params = new URLSearchParams(searchParams.toString());
+    if (debouncedSearchValue.trim()) {
+      params.set('search', debouncedSearchValue.trim());
+    } else {
+      params.delete('search');
+    }
+    params.set('sort', sortValue);
+    if (assignedToMe) {
+      params.set('assigned', 'me');
+    } else {
+      params.delete('assigned');
+    }
+    router.push(`/tasks?${params.toString()}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchValue, sortValue, assignedToMe, context.variant, clientTeamMemberIds]);
   
   // Fetch filtered data when assignedToMe is true for clients (after clientTeamMemberIds is available)
   // This runs when assignedToMe changes or when clientTeamMemberIds becomes available
@@ -649,6 +666,8 @@ export function TasksContent({
               [selectedTask.id]: comments
             }));
           }}
+          isDisconnected={false}
+          isGlobalView={true}
         />
       )}
 

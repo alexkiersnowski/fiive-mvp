@@ -145,6 +145,33 @@ export async function createNewAgencyAndInvite(
       };
     }
 
+    // Validation: Check if this email has already been invited for this client
+    const { data: existingInvite, error: inviteCheckError } = await supabase
+      .from('connections')
+      .select('id, invited_email, connection_status')
+      .eq('client_id', context.orgId)
+      .eq('invited_email', trimmedEmail)
+      .in('connection_status', ['invited', 'internal'])
+      .maybeSingle();
+
+    if (inviteCheckError && inviteCheckError.code !== 'PGRST116') {
+      // PGRST116 = no rows found, which is fine
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error checking existing invites:', inviteCheckError);
+      }
+      return {
+        success: false,
+        error: 'Failed to validate email address',
+      };
+    }
+
+    if (existingInvite) {
+      return {
+        success: false,
+        error: `You've already invited ${trimmedEmail}`,
+      };
+    }
+
     // Call RPC to create draft agency org + connection (status='invited', but no token yet)
     const { data: rpcResult, error: rpcError } = await supabase.rpc('create_draft_agency_connection', {
       p_client_id: context.orgId,
@@ -475,4 +502,103 @@ export async function deleteAgency(
   console.log('Deleting agency:', { agencyId, context });
   
   revalidatePath('/agencies');
+}
+
+export type CancelAgencyInvitationResult =
+  | { success: true }
+  | { success: false; error: string };
+
+/**
+ * Cancels an agency invitation by hard deleting the draft agency organization.
+ * Only works for invited draft agencies that have not been claimed yet.
+ */
+export async function cancelAgencyInvitation(
+  data: {
+    connectionId: string;
+    agencyId: string;
+  },
+  context: EnhancedModeContext
+): Promise<CancelAgencyInvitationResult> {
+  try {
+    // Only clients can cancel agency invitations
+    if (context.variant !== 'client') {
+      return {
+        success: false,
+        error: 'Only clients can cancel agency invitations',
+      };
+    }
+
+    const supabase = await createClient();
+
+    // Verify connection exists and status is 'invited'
+    const { data: connection, error: connectionError } = await supabase
+      .from('connections')
+      .select('id, connection_status, agency_id, client_id')
+      .eq('id', data.connectionId)
+      .eq('client_id', context.orgId)
+      .single();
+
+    if (connectionError || !connection) {
+      return {
+        success: false,
+        error: 'Connection not found or access denied',
+      };
+    }
+
+    // CRITICAL: Only allow cancel for invited connections
+    if (connection.connection_status !== 'invited') {
+      return {
+        success: false,
+        error: 'Can only cancel invitations for invited connections',
+      };
+    }
+
+    // Verify the agency ID matches
+    if (connection.agency_id !== data.agencyId) {
+      return {
+        success: false,
+        error: 'Agency ID mismatch',
+      };
+    }
+
+    // Call the RPC function to delete the draft agency (deletes organization and all related data)
+    const { error } = await supabase.rpc('delete_draft_agency', {
+      p_agency_id: data.agencyId,
+      p_client_id: context.orgId,
+      p_user_id: context.userId,
+    });
+
+    if (error) {
+      console.error('Error deleting draft agency:', {
+        error,
+        agencyId: data.agencyId,
+        clientId: context.orgId,
+        userId: context.userId,
+      });
+
+      const message =
+        (error && ('message' in error ? error.message : undefined)) ||
+        (error && ('details' in error ? (error as { details?: string }).details : undefined)) ||
+        (error && ('hint' in error ? (error as { hint?: string }).hint : undefined)) ||
+        'Failed to cancel invitation. Please try again.';
+
+      return {
+        success: false,
+        error: message,
+      };
+    }
+
+    // Revalidate the agencies page to reflect the deletion
+    revalidatePath('/agencies');
+
+    return {
+      success: true,
+    };
+  } catch (error) {
+    console.error('Error canceling agency invitation:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to cancel invitation. Please try again.',
+    };
+  }
 }

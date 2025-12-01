@@ -3,9 +3,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ListRow } from '@/components/ui/list-row';
 import { StatusBadge, StatusVariant } from '@/components/ui/connection-badge';
 import { ProfileCard } from '@/components/ui/profile-card';
-import { User } from '@phosphor-icons/react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { User, DotsThree, XCircle } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { cancelAgencyInvitation } from './actions';
+import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 interface AgencyCardProps {
   agencyId: string;
@@ -15,6 +20,7 @@ interface AgencyCardProps {
   avatarUrl?: string;
   avatarFallback?: string;
   status?: StatusVariant;
+  invitedEmail?: string;
   accountManager?: {
     id: string;
     name: string;
@@ -22,6 +28,8 @@ interface AgencyCardProps {
     email?: string;
     jobTitle?: string;
   };
+  context: EnhancedModeContext;
+  onAgencyDeleted?: () => void;
 }
 
 export function AgencyCard({ 
@@ -32,7 +40,10 @@ export function AgencyCard({
   avatarUrl, 
   avatarFallback,
   status,
-  accountManager
+  invitedEmail,
+  accountManager,
+  context,
+  onAgencyDeleted
 }: AgencyCardProps) {
   const router = useRouter();
   const [selectedAccountManager, setSelectedAccountManager] = useState<{
@@ -49,6 +60,8 @@ export function AgencyCard({
     };
   } | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isCanceling, setIsCanceling] = useState(false);
   
   const isAccessible = status === 'connected' || status === 'disconnected';
   const isInvited = status === 'invited';
@@ -83,13 +96,38 @@ export function AgencyCard({
     }
   };
 
+  const handleCancelClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDropdownOpen(false);
+    setIsCanceling(true);
+    
+    try {
+      const result = await cancelAgencyInvitation({
+        connectionId,
+        agencyId
+      }, context);
+
+      if (result.success) {
+        toast.success('Invitation canceled');
+        onAgencyDeleted?.();
+      } else {
+        toast.error(result.error || 'Failed to cancel invitation');
+      }
+    } catch (error) {
+      console.error('Error canceling invitation:', error);
+      toast.error('Failed to cancel invitation');
+    } finally {
+      setIsCanceling(false);
+    }
+  };
+
   return (
     <>
       <Card 
         className={`relative h-45 transition-colors duration-75 ${isAccessible ? 'cursor-pointer' : ''}`}
         style={{
           backgroundColor: 'var(--color-base-surface-page-background)',
-          pointerEvents: isAccessible ? 'auto' : 'none'
+          pointerEvents: (isAccessible || isInvited) ? 'auto' : 'none'
         }}
         onMouseEnter={isAccessible ? (e) => {
           e.currentTarget.style.backgroundColor = 'var(--color-neutral-3)';
@@ -100,10 +138,40 @@ export function AgencyCard({
         onClick={isAccessible ? handleCardClick : undefined}
       >
       <CardContent className="py-5 px-5 h-full">
-        {/* Connection Badge - Top Right */}
+        {/* Connection Badge and Actions - Top Right */}
         {status && (
-          <div className="absolute top-5 right-5">
+          <div className="absolute top-5 right-5 flex items-center gap-2">
             <StatusBadge variant={status} showText={true} />
+            {isInvited && (
+              <DropdownMenu modal={false} open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={`p-0 cursor-pointer transition-colors duration-75 ${
+                      isDropdownOpen 
+                        ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]' 
+                        : 'hover:bg-[var(--color-interactive-surface-hover)]'
+                    }`}
+                    style={{ height: '24px', width: '24px' }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <DotsThree size={16} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={handleCancelClick}
+                    disabled={isCanceling}
+                    className="focus:bg-red-50"
+                  >
+                    <XCircle size={16} style={{ color: 'var(--color-red-11)' }} />
+                    <span style={{ color: 'var(--color-red-11)' }}>
+                      {isCanceling ? 'Canceling...' : 'Cancel invitation'}
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         )}
         
@@ -122,18 +190,31 @@ export function AgencyCard({
               <h3 className="display-5-medium text-base-text-primary line-clamp-2" title={agencyName}>
                 {agencyName}
               </h3>
-              {agencyType && (
+              {isInvited ? (
+                <p className="text-sm-regular line-clamp-2" style={{ color: 'var(--color-base-text-tertiary)' }}>
+                  Awaiting agency set up…
+                </p>
+              ) : agencyType && (
                 <p className="text-sm-regular text-base-text-secondary line-clamp-2" title={agencyType}>
                   {agencyType}
                 </p>
               )}
             </div>
           </div>
-          {isInvited ? (
+          {isInvited && invitedEmail ? (
             <div className="flex-shrink-0 min-w-0 w-1/3">
-              <span className="text-sm-regular ml-1 truncate block" style={{ color: 'var(--color-base-text-tertiary)' }}>
-                Waiting to connect…
-              </span>
+              <ListRow
+                avatar={true}
+                avatarUrl={undefined}
+                avatarFallback={<User size={16} weight="fill" className="text-white" />}
+                text={invitedEmail}
+                textColor="var(--color-base-text-tertiary)"
+                actions={false}
+                iconButtonEnd={false}
+                dropdownItems={undefined}
+                variant="stacked"
+                nonInteractive={true}
+              />
             </div>
           ) : accountManager && (
             <div className="flex-shrink-0 min-w-0 w-1/3">

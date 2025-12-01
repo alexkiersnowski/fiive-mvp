@@ -14,7 +14,6 @@ import { ClientsTable } from '@/features/clients/ClientsTable';
 import { ClientsHeader } from '@/features/clients/ClientsHeader';
 import { createNewClient, connectToExistingClient, refreshClientsData, fetchMoreClients } from '@/features/clients/actions';
 import { PaywallModal } from '@/components/ui/paywall-modal';
-import { countInternalConnections, checkPaywall } from '@/lib/paywall/checkConnectionLimit';
 import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { 
   accountTypeSchema, 
@@ -35,13 +34,17 @@ interface ClientsContentProps {
   context: EnhancedModeContext;
   initialSearchValue?: string;
   initialSortValue?: string;
+  canAddNewClient?: boolean;
+  canConnectToClient?: boolean;
 }
 
 export function ClientsContent({ 
   snapshot, 
   context, 
   initialSearchValue = '', 
-  initialSortValue = 'newest-first' 
+  initialSortValue = 'newest-first',
+  canAddNewClient = true,
+  canConnectToClient = true
 }: ClientsContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -266,48 +269,23 @@ export function ClientsContent({
     }, 300); // 300ms delay to allow modal close animation
   };
 
-  const handleSelectionSubmit = async (data: AccountTypeFormData) => {
+  const handleSelectionSubmit = (data: AccountTypeFormData) => {
     if (data.accountType === 'agency') {
-      // Check paywall for "Add a new client" option (internal connection)
-      const billingStatus = context.organization.billing_status || 'free';
-      if (billingStatus === 'free') {
-        const internalCount = await countInternalConnections(context.orgId);
-        const paywallCheck = await checkPaywall({
-          billingStatus,
-          isAgencyInitiated: true,
-          isClientInitiated: false,
-          isInternal: true, // This is an internal connection (agency creates client)
-          internalCount,
-          clientInitiatedCount: 0,
-        });
-
-        if (!paywallCheck.allowed && paywallCheck.reason === 'internal_limit') {
-          setIsAddClientDialogOpen(false);
-          setIsPaywallModalOpen(true);
-          return;
-        }
+      // Use pre-fetched paywall check for "Add a new client" option (internal connection)
+      if (!canAddNewClient) {
+        setIsAddClientDialogOpen(false);
+        setIsPaywallModalOpen(true);
+        return;
       }
       
       setIsAddClientDialogOpen(false);
       setIsAddNewClientDialogOpen(true);
     } else if (data.accountType === 'client') {
-      // Check paywall for "Connect to client" option (agency-initiated connection code)
-      const billingStatus = context.organization.billing_status || 'free';
-      if (billingStatus === 'free') {
-        const paywallCheck = await checkPaywall({
-          billingStatus,
-          isAgencyInitiated: true, // Agency using client's connection code
-          isClientInitiated: false,
-          isInternal: false, // This is connection code, not internal
-          internalCount: 0, // Not relevant for connection code
-          clientInitiatedCount: 0, // Not relevant for connection code
-        });
-
-        if (!paywallCheck.allowed) {
-          setIsAddClientDialogOpen(false);
-          setIsPaywallModalOpen(true);
-          return;
-        }
+      // Use pre-fetched paywall check for "Connect to client" option (agency-initiated connection code)
+      if (!canConnectToClient) {
+        setIsAddClientDialogOpen(false);
+        setIsPaywallModalOpen(true);
+        return;
       }
       
       setIsAddClientDialogOpen(false);

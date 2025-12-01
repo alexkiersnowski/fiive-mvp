@@ -588,7 +588,11 @@ export async function deleteTask(taskId: string) {
     if (isDev()) {
       console.error('Failed to delete task:', error);
     }
-    throw new Error('Failed to delete task');
+    // Include error details in dev mode for debugging
+    const errorMessage = isDev() 
+      ? `Failed to delete task: ${error.message || JSON.stringify(error)}`
+      : 'Failed to delete task';
+    throw new Error(errorMessage);
   }
 
   return data;

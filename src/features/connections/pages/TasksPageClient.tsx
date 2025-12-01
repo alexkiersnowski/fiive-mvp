@@ -81,7 +81,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     pinnedTaskIdsRef.current.add(taskId)
   }, [])
 
-  const _unregisterPinnedTask = useCallback((taskId: string) => {
+  const unregisterPinnedTask = useCallback((taskId: string) => {
     pinnedTaskIdsRef.current.delete(taskId)
   }, [])
 
@@ -111,6 +111,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_isPending, startTransition] = useTransition()
   
   // Loading state lock to prevent concurrent loadMore calls
@@ -763,7 +764,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   }, [hasMore, isPrefetching, prefetchedTasks.length, currentOffset, tasks.length])
 
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
+  const handleLoadMore = useCallback((virtualRows: VirtualItem[]) => {
     // Virtual scroll triggers loadMore in TasksTable based on scroll position
     // This handler is called when user scrolls near the end
             loadMore()
@@ -849,7 +850,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
 
   function handleTaskUpdate(taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) {
     // Get the original task to compare status changes
-    const _originalTask = tasks.find(r => r.id === taskId)
+    const originalTask = tasks.find(r => r.id === taskId)
 
     const sanitizedUpdates = Object.fromEntries(
       Object.entries(updates).filter(([, value]) => value !== undefined)
@@ -925,7 +926,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
 
   function handleTableTaskDeleted(taskId: string) {
     // Get the deleted task to check if it was 'new' status
-    const _deletedTask = tasks.find(r => r.id === taskId)
+    const deletedTask = tasks.find(r => r.id === taskId)
     
     // Optimistically remove task from table
     setTasks(prev => prev.filter(r => r.id !== taskId))
@@ -1059,7 +1060,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       if (!task) return
       // Replace temp row if present; otherwise prepend and increment count
       setTasks(prev => {
-        const _hadTemp = tempId ? prev.some(r => r.id === tempId) : false
+        const hadTemp = tempId ? prev.some(r => r.id === tempId) : false
         const without = prev.filter(r => r.id !== tempId && r.id !== task.id)
         const pinnedSource = tempId ? pinnedTaskIdsRef.current.has(tempId) : pinnedTaskIdsRef.current.has(task.id)
         if (tempId) {
@@ -1148,7 +1149,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         }}
         onTaskDeleted={(taskId) => {
           // Get the deleted task to check if it was 'new' status
-          const _deletedTask = tasks.find(r => r.id === taskId)
+          const deletedTask = tasks.find(r => r.id === taskId)
           
           // Optimistically remove task from table
           setTasks(prev => prev.filter(r => r.id !== taskId))

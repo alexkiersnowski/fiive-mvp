@@ -73,10 +73,10 @@ interface RequestDetailContentProps {
     id: string
     name: string
   } | null
-  status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
   createdAt?: string
   mode?: 'modal' | 'page'
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -122,7 +122,7 @@ interface RequestDetailContentProps {
       id: string
       name: string
     } | null
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
     createdAt?: string
     createdByOrgId?: string
     createdByOrgType?: 'agency' | 'client'
@@ -133,7 +133,7 @@ interface RequestDetailContentProps {
 
 type ConvertRequest = NonNullable<ConvertToTaskModalProps['request']>
 
-export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId: _currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView, isDisconnected = false }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView, isDisconnected = false }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -207,7 +207,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   }
   
   // Get just the status suffix (Submitted to your agency/Client submitted or Created by your agency/Agency created)
-  const _getRequestStatusText = () => {
+  const getRequestStatusText = () => {
     if (!createdByOrgType) return ''
     
     if (createdByOrgType === 'agency') {
@@ -657,8 +657,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   }
 
   const handleStatusChange = async (newStatus: string) => {
-    const validStatus = ['new', 'in_review', 'accepted', 'canceled'].includes(newStatus) 
-      ? newStatus as 'new' | 'in_review' | 'accepted' | 'canceled'
+    const validStatus = ['new', 'in_review', 'accepted', 'canceled', 'closed'].includes(newStatus) 
+      ? newStatus as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
       : 'new'
     
     // Optimistic update
@@ -743,11 +743,12 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     }
   }
 
-  const statusOptions: { value: 'new' | 'in_review' | 'accepted' | 'canceled', label: string }[] = [
+  const statusOptions: { value: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed', label: string }[] = [
     { value: 'new', label: 'New' },
     { value: 'in_review', label: 'In review' },
     { value: 'accepted', label: 'Accepted' },
-    { value: 'canceled', label: 'Canceled' }
+    { value: 'canceled', label: 'Canceled' },
+    { value: 'closed', label: 'Closed' }
   ]
 
   return (

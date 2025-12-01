@@ -153,7 +153,7 @@ export default function RequestsCardClient({
     }
   }, [selectedRequest, context.variant]);
 
-  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => {
+  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => {
     // Find the original request to check status change
     const originalRequest = localRequests.find(r => r.id === requestId);
     const oldStatus = originalRequest?.status;

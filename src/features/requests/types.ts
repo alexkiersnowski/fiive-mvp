@@ -4,7 +4,7 @@ export type Request = {
   connectionId: string
   title: string
   description: string
-  status: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
   project: {
     id: string
     name: string

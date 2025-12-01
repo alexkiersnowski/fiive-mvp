@@ -100,7 +100,7 @@ export async function updateRequestAssignee(requestId: string, assigneeUserId: s
  */
 export async function updateRequestStatus(
   requestId: string, 
-  status: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
 ) {
   const supabase = await createClient();
   

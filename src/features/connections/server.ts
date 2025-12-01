@@ -487,7 +487,7 @@ export interface Request {
   connectionId: string
   title: string
   description: string
-  status: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
   project: {
     id: string
     name: string
@@ -699,7 +699,7 @@ export const getRequestsForConnection = cache(async (
   // Normalize search query for status matching
   const normalizeStatusQuery = (query: string): string | null => {
     const normalized = query.toLowerCase().trim();
-    const STATUS_KEYWORDS: Record<string, 'new' | 'in_review' | 'accepted' | 'canceled'> = {
+    const STATUS_KEYWORDS: Record<string, 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'> = {
       open: 'new',
       new: 'new',
       'in review': 'in_review',
@@ -712,7 +712,10 @@ export const getRequestsForConnection = cache(async (
       accept: 'accepted',
       canceled: 'canceled',
       cancelled: 'canceled',
-      cancel: 'canceled'
+      cancel: 'canceled',
+      closed: 'closed',
+      close: 'closed',
+      completed: 'closed'
     };
     return STATUS_KEYWORDS[normalized] ?? null;
   };
@@ -1042,7 +1045,7 @@ export const getRequestsForConnection = cache(async (
       connectionId: connectionId,
       title: request.title,
       description: request.description || '',
-      status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled',
+      status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed',
       project: project || null,
       submittedBy: formatters.buildSubmittedBy(
         request.created_by_user_id,

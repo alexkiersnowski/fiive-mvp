@@ -35,7 +35,7 @@ interface RequestsTableProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee'] }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee'] }) => void
   currentOrgId: string
   onLoadMore?: (virtualRows: VirtualItem[]) => void
   onSearchChange?: (query: string) => void
@@ -194,7 +194,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     // Prevent rapid-fire mutations
     if (isMutingStatus.current) return
     
-    const validStatuses = ['new', 'in_review', 'accepted', 'canceled'] as const
+    const validStatuses = ['new', 'in_review', 'accepted', 'canceled', 'closed'] as const
     if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Invalid status:', newStatus)
@@ -202,7 +202,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       return
     }
     
-    const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled'
+    const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
     
     // Notify parent for bidirectional updates (table → modal)
     if (onRequestUpdate) {
@@ -552,6 +552,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         { value: 'in_review', label: 'In review' },
                         { value: 'accepted', label: 'Accepted' },
                         { value: 'canceled', label: 'Canceled' },
+                        { value: 'closed', label: 'Closed' },
                       ]}
                       onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
                       badgeComponent="request"

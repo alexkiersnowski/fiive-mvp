@@ -456,14 +456,17 @@ export const getTasksSnapshot = cache(async (
   // Extract unique connection IDs and user IDs for parallel lookups
   const uniqueConnectionIds = [...new Set(tasksData.map(t => t.connection_id))];
   const userIds = new Set<string>();
+  const requestIds = new Set<string>();
   tasksData.forEach(task => {
     if (task.created_by_user_id) userIds.add(task.created_by_user_id);
     if (task.assignee_user_id) userIds.add(task.assignee_user_id);
+    if (task.source_request_id) requestIds.add(task.source_request_id);
   });
 
-  // Fetch profiles, organizations, memberships, and projects in parallel
+  // Fetch profiles, organizations, memberships, projects, and linked requests in parallel
   const userIdArray = Array.from(userIds);
-  const [profilesResult, connectionsResult, membershipsResult, projectsResult] = await Promise.all([
+  const requestIdArray = Array.from(requestIds);
+  const [profilesResult, connectionsResult, membershipsResult, projectsResult, requestsResult] = await Promise.all([
     // Fetch profiles for submitted_by and assignee
     userIdArray.length > 0
       ? supabase
@@ -496,13 +499,22 @@ export const getTasksSnapshot = cache(async (
       .from('projects')
       .select('id, name, connection_id')
       .in('connection_id', uniqueConnectionIds)
-      .is('deleted_at', null)
+      .is('deleted_at', null),
+    // Fetch linked requests
+    requestIdArray.length > 0
+      ? supabase
+          .from('requests')
+          .select('id, title, created_by_user_id, created_at')
+          .in('id', requestIdArray)
+          .is('deleted_at', null)
+      : Promise.resolve({ data: null, error: null })
   ]);
 
   const { data: profilesData, error: profilesError } = profilesResult;
   const { data: connectionsData, error: connectionsError } = connectionsResult;
   const { data: membershipsData, error: membershipsError } = membershipsResult;
   const { data: projectsData, error: projectsError } = projectsResult;
+  const { data: requestsData, error: requestsError } = requestsResult;
 
   // Build profiles map
   const profilesMap: Record<string, ProfileRow> = {};
@@ -589,6 +601,41 @@ export const getTasksSnapshot = cache(async (
     });
   }
 
+  // Build requests map and collect request creator user IDs
+  const requestMap: Record<string, { id: string; title: string | null; created_by_user_id: string | null; created_at: string | null }> = {};
+  const requestCreatorUserIds = new Set<string>();
+  if (!requestsError && requestsData) {
+    requestsData.forEach(request => {
+      requestMap[request.id] = request;
+      if (request.created_by_user_id) {
+        requestCreatorUserIds.add(request.created_by_user_id);
+      }
+    });
+  }
+
+  // Fetch profiles for request creators if we don't already have them
+  const missingCreatorIds = Array.from(requestCreatorUserIds).filter(id => !userIds.has(id));
+  let requestCreatorProfilesMap: Record<string, ProfileRow> = {};
+  if (missingCreatorIds.length > 0) {
+    const { data: creatorProfilesData } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, avatar_url, job_title')
+      .in('id', missingCreatorIds);
+    
+    if (creatorProfilesData) {
+      creatorProfilesData.forEach(profile => {
+        requestCreatorProfilesMap[profile.id] = {
+          id: profile.id,
+          first_name: profile.first_name || '',
+          last_name: profile.last_name || '',
+          email: profile.email || '',
+          avatar_url: profile.avatar_url || undefined,
+          job_title: profile.job_title || undefined
+        };
+      });
+    }
+  }
+
   // Transform tasks to Task[] format using joined data and fetched maps
   // Preserve original created_at, due_date, and completed_at for sorting
   const tasksWithTimestamps: Array<{ task: Task; originalCreatedAt: number; originalDueDate: number | null; originalCompletedAt: number | null }> = tasksData
@@ -659,7 +706,31 @@ export const getTasksSnapshot = cache(async (
           clientVisible: Boolean(taskRow.client_visible),
           clientVisibilityLocked: false, // Will be calculated if needed
           sourceRequestId: taskRow.source_request_id ?? null,
-          linkedRequest: null, // Can be hydrated if needed
+          linkedRequest: (() => {
+            if (!taskRow.source_request_id) return null;
+            const requestData = requestMap[taskRow.source_request_id];
+            if (!requestData) return null;
+            
+            // Get creator profile (check both maps)
+            const creatorProfile = requestData.created_by_user_id
+              ? (profilesMap[requestData.created_by_user_id] || requestCreatorProfilesMap[requestData.created_by_user_id])
+              : undefined;
+            
+            const creatorNameRaw = creatorProfile
+              ? `${creatorProfile.first_name || ''} ${creatorProfile.last_name || ''}`.trim()
+              : undefined;
+            const creatorName = creatorNameRaw && creatorNameRaw.length > 0
+              ? creatorNameRaw
+              : creatorProfile?.email;
+            
+            return {
+              id: requestData.id,
+              title: (requestData.title || '').trim() || 'Untitled request',
+              createdAt: requestData.created_at ? formatters.formatRequestDate(requestData.created_at) : '',
+              createdByUserId: requestData.created_by_user_id ?? undefined,
+              createdByName: creatorName,
+            };
+          })(),
         } as Task,
         originalCreatedAt: new Date(taskRow.created_at).getTime(),
         originalDueDate: taskRow.due_date ? new Date(taskRow.due_date).getTime() : null,
@@ -888,9 +959,9 @@ export async function getTaskByIdGlobalUncached(
   if (task.created_by_user_id) userIds.add(task.created_by_user_id);
   if (task.assignee_user_id) userIds.add(task.assignee_user_id);
 
-  // Fetch user profiles, memberships, and project in parallel
+  // Fetch user profiles, memberships, project, and linked request in parallel
   const userIdArray = Array.from(userIds);
-  const [profilesResult, membershipsResult, projectResult] = await Promise.all([
+  const [profilesResult, membershipsResult, projectResult, requestResult] = await Promise.all([
     userIdArray.length > 0
       ? supabase
           .from('profiles')
@@ -916,6 +987,14 @@ export async function getTaskByIdGlobalUncached(
           .from('projects')
           .select('id, name')
           .eq('id', task.project_id)
+          .is('deleted_at', null)
+          .single()
+      : Promise.resolve({ data: null, error: null }),
+    task.source_request_id
+      ? supabase
+          .from('requests')
+          .select('id, title, created_by_user_id, created_at')
+          .eq('id', task.source_request_id)
           .is('deleted_at', null)
           .single()
       : Promise.resolve({ data: null, error: null })
@@ -978,6 +1057,52 @@ export async function getTaskByIdGlobalUncached(
   const submittedByProfile = task.created_by_user_id ? profilesMap[task.created_by_user_id] : null;
   const assigneeProfile = task.assignee_user_id ? profilesMap[task.assignee_user_id] : null;
 
+  // Build linkedRequest if source_request_id exists
+  let linkedRequest = null;
+  if (task.source_request_id && !requestResult.error && requestResult.data) {
+    const requestData = requestResult.data;
+    // Fetch request creator profile if not already fetched
+    let requestCreatorProfile: ProfileRow | undefined;
+    if (requestData.created_by_user_id) {
+      if (profilesMap[requestData.created_by_user_id]) {
+        requestCreatorProfile = profilesMap[requestData.created_by_user_id];
+      } else {
+        // Fetch creator profile if not already in map
+        const { data: creatorProfileData } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email, avatar_url, job_title')
+          .eq('id', requestData.created_by_user_id)
+          .single();
+        
+        if (creatorProfileData) {
+          requestCreatorProfile = {
+            id: creatorProfileData.id,
+            first_name: creatorProfileData.first_name || '',
+            last_name: creatorProfileData.last_name || '',
+            email: creatorProfileData.email || '',
+            avatar_url: creatorProfileData.avatar_url || undefined,
+            job_title: creatorProfileData.job_title || undefined
+          };
+        }
+      }
+    }
+    
+    const creatorNameRaw = requestCreatorProfile
+      ? `${requestCreatorProfile.first_name || ''} ${requestCreatorProfile.last_name || ''}`.trim()
+      : undefined;
+    const creatorName = creatorNameRaw && creatorNameRaw.length > 0
+      ? creatorNameRaw
+      : requestCreatorProfile?.email;
+    
+    linkedRequest = {
+      id: requestData.id,
+      title: (requestData.title || '').trim() || 'Untitled request',
+      createdAt: requestData.created_at ? formatters.formatRequestDate(requestData.created_at) : '',
+      createdByUserId: requestData.created_by_user_id ?? undefined,
+      createdByName: creatorName,
+    };
+  }
+
   return {
     id: task.id,
     connectionId: task.connection_id,
@@ -1016,7 +1141,7 @@ export async function getTaskByIdGlobalUncached(
     clientVisible: Boolean(task.client_visible),
     clientVisibilityLocked: false, // Can be calculated if needed
     sourceRequestId: task.source_request_id ?? null,
-    linkedRequest: null, // Can be hydrated if needed
+    linkedRequest,
   };
 }
 

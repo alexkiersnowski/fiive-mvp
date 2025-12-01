@@ -22,9 +22,14 @@ const accountTypeSchema = z.object({
   accountType: z.string().min(1, "Please make a selection")
 });
 
-const addNewAgencySchema = z.object({
+const createAddNewAgencySchema = (existingInvitedEmails: string[]) => z.object({
   agencyName: z.string().min(1, "Agency name is required"),
-  primaryContactEmail: z.string().email("Please enter a valid email address")
+  primaryContactEmail: z.string()
+    .email("Please enter a valid email address")
+    .refine(
+      (email) => !existingInvitedEmails.includes(email.toLowerCase().trim()),
+      "You've already invited this email"
+    )
 });
 
 const connectToAgencySchema = z.object({
@@ -32,7 +37,6 @@ const connectToAgencySchema = z.object({
 });
 
 type AccountTypeFormData = z.infer<typeof accountTypeSchema>;
-type AddNewAgencyFormData = z.infer<typeof addNewAgencySchema>;
 type ConnectToAgencyFormData = z.infer<typeof connectToAgencySchema>;
 
 interface AgenciesContentProps {
@@ -91,13 +95,27 @@ export function AgenciesContent({
     mode: "onSubmit",
   });
 
+  // Get existing invited emails for validation
+  const existingInvitedEmails = useMemo(() => {
+    return agencies
+      .map(agency => agency.invitedEmail?.toLowerCase().trim())
+      .filter((email): email is string => !!email);
+  }, [agencies]);
+
+  const addNewAgencySchema = useMemo(
+    () => createAddNewAgencySchema(existingInvitedEmails),
+    [existingInvitedEmails]
+  );
+
+  type AddNewAgencyFormData = z.infer<typeof addNewAgencySchema>;
+
   const addNewAgencyForm = useForm<AddNewAgencyFormData>({
     resolver: zodResolver(addNewAgencySchema),
     defaultValues: {
       agencyName: "",
       primaryContactEmail: ""
     },
-    mode: "onSubmit",
+    mode: "onSubmit", // Only validate on submit (when Continue is clicked)
   });
 
   const connectToAgencyForm = useForm<ConnectToAgencyFormData>({
@@ -313,7 +331,15 @@ export function AgenciesContent({
                 agencyType={agency.industry}
                 avatarUrl={agency.logo}
                 status={agency.status}
+                invitedEmail={agency.invitedEmail}
                 accountManager={agency.accountManager}
+                context={context}
+                onAgencyDeleted={async () => {
+                  // Refresh agencies data after deletion
+                  const refreshedData = await refreshAgenciesData(context);
+                  setAgencies(refreshedData.agencies);
+                  setTotalCount(refreshedData.total);
+                }}
               />
             ))}
           </div>
@@ -449,7 +475,7 @@ export function AgenciesContent({
                   className="cursor-pointer relative"
                   disabled={isCreatingAgency}
                 >
-                  <span className={isCreatingAgency ? "invisible" : ""}>Continue</span>
+                  <span className={isCreatingAgency ? "invisible" : ""}>Invite</span>
                   {isCreatingAgency && (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <Spinner size={16} />

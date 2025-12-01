@@ -66,7 +66,7 @@ type ModalRequest = {
     id: string
     name: string
   } | null
-  status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
   createdAt?: string
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
@@ -728,7 +728,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     return requests.find(r => r.id === requestId)
   }
 
-  function handleRequestUpdate(requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; project?: { id: string; name: string } | null }) {
+  function handleRequestUpdate(requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; project?: { id: string; name: string } | null }) {
     // Get the original request to compare status changes
     const originalRequest = requests.find(r => r.id === requestId)
     

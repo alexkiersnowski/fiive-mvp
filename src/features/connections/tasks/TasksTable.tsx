@@ -375,11 +375,11 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
             <span className="text-sm-regular text-neutral-11">
               {isAgency 
                 ? 'Add action items for your team or client, and choose what stays client-visible.'
-                : 'Ask questions, share updates, or task new work directly from your agency.'
+                : 'Your agency manages all tasks. Submit a request to kick things off or share what you need next.'
               }
             </span>
           </div>
-          {onNewTask && !isDisconnected && (
+          {onNewTask && !isDisconnected && isAgency && (
             <Button 
               variant="outline" 
               size="sm" 
@@ -387,7 +387,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
               onClick={onNewTask}
             >
               <Plus size={16} weight="regular" />
-              {isAgency ? 'New task' : 'Submit task'}
+              New task
             </Button>
           )}
         </div>

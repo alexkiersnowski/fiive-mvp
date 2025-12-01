@@ -10,6 +10,16 @@ import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext'
 import type { Task } from '../server'
 
+// Helper hook to safely use connection context
+function useConnectionSafe() {
+  try {
+    return useConnection()
+  } catch {
+    // Return default values when not in ConnectionProvider context
+    return { isDisconnected: false }
+  }
+}
+
 interface TaskDetailModalProps {
   taskData: {
     taskId: string
@@ -104,10 +114,13 @@ interface TaskDetailModalProps {
     text: string
   }>) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean // Optional prop for when used outside ConnectionProvider
 }
 
-export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false }: TaskDetailModalProps) {
-  const { isDisconnected } = useConnection()
+export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false, isDisconnected: propIsDisconnected }: TaskDetailModalProps) {
+  // Use prop if provided, otherwise try to get from context
+  const connectionContext = useConnectionSafe()
+  const isDisconnected = propIsDisconnected !== undefined ? propIsDisconnected : connectionContext.isDisconnected
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // All fields are editable (no restrictions)

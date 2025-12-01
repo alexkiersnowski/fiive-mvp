@@ -2,10 +2,11 @@
 -- Migration: Add claim columns and atomic claim function
 -- Date: 2025-11-16
 -- Description: Adds claimed_at column to organizations, ensures connected_at exists,
---              and creates atomic claim_organization function for client claim flow.
---              The claim function generates a proper slug from the organization name
---              (replacing the random draft slug) following the same pattern as regular
---              organization creation: lowercase, hyphens for spaces, random suffix if conflict.
+--              and creates atomic claim_organization function for both agency and
+--              client invite flows. The claim function generates a proper slug from
+--              the organization name (replacing the random draft slug) following
+--              the same pattern as regular organization creation: lowercase, hyphens
+--              for spaces, random suffix if conflict.
 -- ============================================================================
 
 -- Add claimed_at column to organizations if it doesn't exist
@@ -36,10 +37,13 @@ BEGIN
   END IF;
 END $$;
 
+-- Drop existing function if it exists (needed to change parameter names)
+DROP FUNCTION IF EXISTS public.claim_organization(uuid, uuid, uuid);
+
 -- Create atomic claim function
 CREATE OR REPLACE FUNCTION public.claim_organization(
   p_connection_id uuid,
-  p_client_id uuid,
+  p_draft_org_id uuid,
   p_user_id uuid
 )
 RETURNS void
@@ -59,7 +63,7 @@ BEGIN
   -- Get organization name for slug generation
   SELECT name INTO v_org_name
   FROM public.organizations
-  WHERE id = p_client_id
+  WHERE id = p_draft_org_id
     AND is_draft = true;
 
   IF v_org_name IS NULL THEN
@@ -88,7 +92,7 @@ BEGIN
       SELECT 1
       FROM public.organizations
       WHERE slug = v_slug
-        AND id != p_client_id
+        AND id != p_draft_org_id
         AND is_draft = false
         AND deleted_at IS NULL
     );
@@ -112,7 +116,7 @@ BEGIN
       slug = v_slug,
       claimed_at = NOW(),
       updated_at = NOW()
-  WHERE id = p_client_id
+  WHERE id = p_draft_org_id
     AND is_draft = true;
 
   GET DIAGNOSTICS v_org_rows = ROW_COUNT;
@@ -125,7 +129,7 @@ BEGIN
     org_id, user_id, role, created_at, updated_at
   )
   VALUES (
-    p_client_id, p_user_id, 'member', NOW(), NOW()
+    p_draft_org_id, p_user_id, 'member', NOW(), NOW()
   )
   ON CONFLICT DO NOTHING;
 
@@ -133,6 +137,23 @@ BEGIN
   SET connection_status = 'connected',
       connected_at = NOW(),
       invite_token = NULL,
+      -- Set primary contact based on organization type:
+      -- If claiming an agency org and user email matches invited_email, set agency_primary_contact_id
+      -- If claiming a client org and user email matches invited_email, set client_primary_contact_id
+      agency_primary_contact_id = CASE 
+        WHEN (SELECT email FROM auth.users WHERE id = p_user_id) = 
+             (SELECT invited_email FROM public.connections WHERE id = p_connection_id)
+        AND (SELECT type FROM public.organizations WHERE id = p_draft_org_id) = 'agency'
+        THEN p_user_id
+        ELSE agency_primary_contact_id
+      END,
+      client_primary_contact_id = CASE 
+        WHEN (SELECT email FROM auth.users WHERE id = p_user_id) = 
+             (SELECT invited_email FROM public.connections WHERE id = p_connection_id)
+        AND (SELECT type FROM public.organizations WHERE id = p_draft_org_id) = 'client'
+        THEN p_user_id
+        ELSE client_primary_contact_id
+      END,
       updated_at = NOW()
   WHERE id = p_connection_id
     AND connection_status IN ('internal', 'invited');
@@ -145,5 +166,5 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.claim_organization(uuid, uuid, uuid)
-IS 'Atomically claims an organization: updates organization (including slug generation from name), membership, connection. Generates proper slug from organization name, replacing the random draft slug.';
+IS 'Atomically claims a draft organization (agency or client): updates organization (including slug generation from name), creates membership, and updates connection. Generates proper slug from organization name, replacing the random draft slug. Sets the appropriate primary contact ID (agency_primary_contact_id for agencies, client_primary_contact_id for clients) when the claiming user matches the invited email.';
 

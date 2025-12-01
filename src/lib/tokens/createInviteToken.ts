@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { createHash } from 'crypto'
 import { randomBytes } from 'crypto'
 
@@ -60,7 +60,9 @@ export async function createInviteToken(
     const tokenHash = createHash('sha256').update(rawToken).digest('hex')
 
     // Update connections row with hashed token, invite details, and status
-    const { error: updateError } = await supabase
+    // Use admin client to bypass RLS for draft agency connections
+    const adminSupabase = createAdminClient()
+    const { error: updateError } = await adminSupabase
       .from('connections')
       .update({
         invite_token: tokenHash,

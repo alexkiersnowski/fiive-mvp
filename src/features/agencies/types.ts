@@ -5,6 +5,7 @@ export type Agency = {
   logo?: string
   industry?: string
   status: "connected" | "invited" | "disconnected" | "internal"
+  invitedEmail?: string
   accountManager: {
     id: string
     name: string

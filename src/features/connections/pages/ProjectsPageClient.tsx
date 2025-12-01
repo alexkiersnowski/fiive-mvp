@@ -80,6 +80,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   const isBootstrapping = false
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_isPending, startTransition] = useTransition()
   
   // Loading state lock to prevent concurrent loadMore calls
@@ -617,7 +618,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   }, [hasMore, isPrefetching, prefetchedProjects.length, currentOffset, projects.length])
 
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
+  const handleLoadMore = useCallback((virtualRows: VirtualItem[]) => {
     // Virtual scroll triggers loadMore in ProjectsTable based on scroll position
     // This handler is called when user scrolls near the end
             loadMore()
@@ -692,7 +693,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
 
   function handleProjectUpdate(projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled' }) {
     // Get the original project to compare status changes
-    const _originalProject = projects.find(p => p.id === projectId)
+    const originalProject = projects.find(p => p.id === projectId)
     
     // Update projects list optimistically
     setProjects(prevProjects =>
@@ -763,7 +764,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
 
   function handleTableProjectDeleted(projectId: string) {
     // Get the deleted project to check if it was 'new' status
-    const _deletedProject = projects.find(p => p.id === projectId)
+    const deletedProject = projects.find(p => p.id === projectId)
     
     // Optimistically remove project from table
     setProjects(prev => prev.filter(p => p.id !== projectId))
@@ -944,7 +945,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         }}
         onProjectDeleted={(projectId) => {
           // Get the deleted project to check if it was 'new' status
-          const _deletedProject = projects.find(p => p.id === projectId)
+          const deletedProject = projects.find(p => p.id === projectId)
           
           // Optimistically remove project from table
           setProjects(prev => prev.filter(p => p.id !== projectId))

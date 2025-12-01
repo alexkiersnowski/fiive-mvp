@@ -20,6 +20,7 @@ export const getAgenciesSnapshot = cache(async (
       connection_status,
       agency_primary_contact_id,
       agency_id,
+      invited_email,
       organizations!connections_agency_id_fkey (
         id,
         name,
@@ -84,9 +85,13 @@ export const getAgenciesSnapshot = cache(async (
     if (conn.agency_primary_contact_id) {
       const profile = accountManagerProfiles[conn.agency_primary_contact_id];
       if (profile) {
+        // Use email as fallback if first_name and last_name are both empty/null
+        const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+        const displayName = fullName || profile.email || 'Unknown';
+        
         accountManager = {
           id: conn.agency_primary_contact_id,
-          name: `${profile.first_name} ${profile.last_name}`.trim() || 'Unknown',
+          name: displayName,
           avatarUrl: profile.avatar_url || undefined,
           email: profile.email,
           jobTitle: profile.job_title || undefined
@@ -103,6 +108,7 @@ export const getAgenciesSnapshot = cache(async (
       logo: org?.logo_url,
       industry: org?.industry,
       status: (conn.connection_status as "connected" | "invited" | "disconnected" | "internal") || 'internal',
+      invitedEmail: conn.invited_email || undefined,
       accountManager
     };
   });

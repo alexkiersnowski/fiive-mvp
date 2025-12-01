@@ -42,7 +42,7 @@ interface RequestDetailModalProps {
       id: string
       name: string
     } | null
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
     createdAt?: string
     createdByOrgId?: string
     createdByOrgType?: 'agency' | 'client'
@@ -62,7 +62,7 @@ interface RequestDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
   onRequestDeleted?: (requestId: string) => void
   connectionId: string
   currentOrgId: string
@@ -91,6 +91,17 @@ interface RequestDetailModalProps {
   }>) => void
   onConvertToTask?: (request: RequestDetailModalProps['requestData']) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean // Optional prop for when used outside ConnectionProvider
+}
+
+// Helper hook to safely use connection context
+function useConnectionSafe() {
+  try {
+    return useConnection()
+  } catch {
+    // Return default values when not in ConnectionProvider context
+    return { isDisconnected: false }
+  }
 }
 
 export function RequestDetailModal({
@@ -110,8 +121,11 @@ export function RequestDetailModal({
   onCommentsUpdate,
   onConvertToTask,
   isGlobalView = false,
+  isDisconnected: propIsDisconnected,
 }: RequestDetailModalProps) {
-  const { isDisconnected } = useConnection()
+  // Use prop if provided, otherwise try to get from context
+  const connectionContext = useConnectionSafe()
+  const isDisconnected = propIsDisconnected !== undefined ? propIsDisconnected : connectionContext.isDisconnected
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // Determine if the request is locked for editing based on view context and organization type
