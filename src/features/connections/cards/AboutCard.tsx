@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { LockSimple, Eye } from '@phosphor-icons/react';
+import { LockSimple, Eye, ArrowSquareOut } from '@phosphor-icons/react';
 import { useConnection } from '../ConnectionContext';
 import { InlineEdit } from '@/components/ui/inline-edit';
 import { updateDraftClientOrganization } from '../actions';
@@ -119,6 +119,7 @@ export default function AboutCard() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isTruncated, setIsTruncated] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
+  const websiteFieldRef = useRef<HTMLDivElement>(null);
   
   // Determine if fields should be editable (internal connection, agency user, client partner)
   // But not if connection is disconnected
@@ -131,6 +132,7 @@ export default function AboutCard() {
   const [description, setDescription] = useState(snapshot.partner.description || '');
   const [industry, setIndustry] = useState(snapshot.partner.industry || '');
   const [website, setWebsite] = useState(snapshot.partner.website || '');
+  const [isWebsiteEditing, setIsWebsiteEditing] = useState(false);
   const partnerType = snapshot.partner.type; // 'agency' or 'client'
   
   // Sync state when snapshot changes
@@ -288,6 +290,7 @@ export default function AboutCard() {
 
   // Handle website save
   const handleWebsiteSave = async (value: string) => {
+    setIsWebsiteEditing(false);
     const trimmedValue = value.trim();
     
     // Client-side validation
@@ -322,6 +325,40 @@ export default function AboutCard() {
       toast.error('Failed to update website');
     }
   };
+
+  // Handle external link icon click
+  const handleExternalLinkClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (website) {
+      const url = website.startsWith('http') ? website : `https://${website}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  // Check if website field is in edit mode by detecting input/textarea in DOM
+  useEffect(() => {
+    const checkEditingState = () => {
+      if (websiteFieldRef.current) {
+        const hasInput = websiteFieldRef.current.querySelector('input') !== null;
+        const hasTextarea = websiteFieldRef.current.querySelector('textarea') !== null;
+        setIsWebsiteEditing(hasInput || hasTextarea);
+      }
+    };
+
+    // Check immediately
+    checkEditingState();
+
+    // Set up MutationObserver to detect when input/textarea appears/disappears
+    if (websiteFieldRef.current) {
+      const observer = new MutationObserver(checkEditingState);
+      observer.observe(websiteFieldRef.current, {
+        childList: true,
+        subtree: true
+      });
+
+      return () => observer.disconnect();
+    }
+  }, [website]);
   
   // Check if text is truncated
   useEffect(() => {
@@ -445,14 +482,30 @@ export default function AboutCard() {
         <div>
           <p className="text-xs-medium text-tertiary mb-1">Website</p>
           {isEditable ? (
-            <InlineEdit
-              type="text"
-              value={displayWebsite(website)}
-              onSave={handleWebsiteSave}
-              placeholder="example.com"
-              textClass="text-sm-regular"
-              className="px-0"
-            />
+            <div ref={websiteFieldRef} className="flex items-center gap-2">
+              <InlineEdit
+                type="text"
+                value={displayWebsite(website)}
+                onSave={handleWebsiteSave}
+                placeholder="example.com"
+                textClass="text-sm-regular"
+                className="px-0"
+              />
+              {website && !isWebsiteEditing && (
+                <ArrowSquareOut
+                  size={16}
+                  className="cursor-pointer transition-colors duration-75 flex-shrink-0"
+                  style={{ color: 'var(--color-interactive-neutral-default)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--color-interactive-neutral-hover)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--color-interactive-neutral-default)';
+                  }}
+                  onClick={handleExternalLinkClick}
+                />
+              )}
+            </div>
           ) : website ? (
             <a 
               href={website.startsWith('http') ? website : `https://${website}`}
