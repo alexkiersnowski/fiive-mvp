@@ -142,23 +142,8 @@ export async function POST(request: NextRequest) {
               )
             }
             
-            // Send welcome email if organization upgraded from 'free' to 'active' and is an agency
-            if (
-              previousBillingStatus === 'free' &&
-              billingStatus === 'active' &&
-              organizationType === 'agency'
-            ) {
-              try {
-                const { sendAgencyProWelcomeEmail } = await import('@/app/actions/sendAgencyProWelcomeEmail')
-                await sendAgencyProWelcomeEmail({ organizationId })
-              } catch (emailError) {
-                // Log error but don't fail webhook - email is best-effort
-                console.error('Failed to send Agency Pro welcome email:', {
-                  organizationId,
-                  error: emailError instanceof Error ? emailError.message : String(emailError)
-                })
-              }
-            }
+            // Note: Email is sent from customer.subscription.created event to avoid duplicates
+            // This event may fire before or after subscription.created, so we rely on that handler
           } catch (subscriptionError) {
             return NextResponse.json(
               { error: 'Failed to retrieve subscription', details: subscriptionError instanceof Error ? subscriptionError.message : String(subscriptionError) },
@@ -219,7 +204,7 @@ export async function POST(request: NextRequest) {
           // Find organization by subscription ID first (most reliable - unique per subscription)
           const { data: orgBySub, error: subError } = await supabase
             .from('organizations')
-            .select('id, billing_status')
+            .select('id, billing_status, type')
             .eq('stripe_subscription_id', subscription.id)
             .single()
           
@@ -231,7 +216,7 @@ export async function POST(request: NextRequest) {
             if (subError.code === 'PGRST116') {
               const { data: org, error: findError } = await supabase
                 .from('organizations')
-                .select('id, billing_status')
+                .select('id, billing_status, type')
                 .eq('stripe_customer_id', customerId)
                 .single()
               
@@ -259,6 +244,10 @@ export async function POST(request: NextRequest) {
             )
           }
           
+          // Store previous billing status to check for free -> active transition
+          const previousBillingStatus = organization.billing_status || 'free'
+          const organizationType = organization.type
+          
           // Update organization - ALWAYS sync all Stripe fields (webhook is source of truth)
           const { data: _data, error } = await supabase
             .from('organizations')
@@ -277,6 +266,26 @@ export async function POST(request: NextRequest) {
               { error: 'Failed to update organization', details: error.message },
               { status: 500 }
             )
+          }
+          
+          // Send welcome email if organization upgraded from 'free' to 'active' and is an agency
+          // Only send on subscription.created to avoid duplicate emails
+          if (
+            eventType === 'customer.subscription.created' &&
+            previousBillingStatus === 'free' &&
+            billingStatus === 'active' &&
+            organizationType === 'agency'
+          ) {
+            try {
+              const { sendAgencyProWelcomeEmail } = await import('@/app/actions/sendAgencyProWelcomeEmail')
+              await sendAgencyProWelcomeEmail({ organizationId: organization.id })
+            } catch (emailError) {
+              // Log error but don't fail webhook - email is best-effort
+              console.error('Failed to send Agency Pro welcome email:', {
+                organizationId: organization.id,
+                error: emailError instanceof Error ? emailError.message : String(emailError)
+              })
+            }
           }
         } catch (subscriptionError) {
           return NextResponse.json(

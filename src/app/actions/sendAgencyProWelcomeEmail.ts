@@ -64,8 +64,8 @@ export async function sendAgencyProWelcomeEmail({
   // Generate email HTML from template
   const html = agencyProWelcomeTemplate({ firstName })
 
-  // Use support@fiive.co as sender
-  const fromEmail = 'Fiive <support@fiive.co>'
+  // Use notifications@fiive.co as sender (consistent with other emails)
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'Fiive <notifications@fiive.co>'
 
   // Send email via Resend
   const { data, error } = await resend.emails.send({
@@ -73,6 +73,7 @@ export async function sendAgencyProWelcomeEmail({
     to: [ownerEmail],
     subject: 'Welcome to Agency Pro',
     html,
+    reply_to: 'support@fiive.co',
   })
 
   if (error) {
