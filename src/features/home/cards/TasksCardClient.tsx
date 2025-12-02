@@ -6,7 +6,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TaskBadge } from "@/components/ui/task-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowRight, Plus } from "@phosphor-icons/react/dist/ssr";
+import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import {
   Table,
   TableBody,
@@ -51,7 +51,7 @@ export default function TasksCardClient({
   const isAgency = context.variant === "agency";
   const title = "Tasks";
   const description = isAgency
-    ? "No tasks yet. Start adding action items for your team or clients and choose which tasks are visible to clients."
+    ? "Add action items for your team or client, and choose what stays client-visible."
     : "No tasks yet. Your agency manages all tasks. Submit a request to kick things off or share what you need next.";
   const linkText = "View all tasks";
 
@@ -476,27 +476,15 @@ export default function TasksCardClient({
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasTasks ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
-            onClick={() => router.push("/tasks")}
-          >
-            <span className="mr-1">{linkText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-            onClick={() => router.push("/tasks")}
-          >
-            <Plus size={16} weight="regular" />
-            {isAgency ? "Add task" : "View all tasks"}
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
+          onClick={() => router.push("/tasks")}
+        >
+          <span className="mr-1">{linkText}</span>
+          <ArrowRight size={16} weight="regular" />
+        </Button>
       </div>
 
       {/* Task Detail Modal */}

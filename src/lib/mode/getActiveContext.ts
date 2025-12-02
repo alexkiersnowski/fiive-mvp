@@ -29,6 +29,8 @@ export interface EnhancedModeContext extends ModeContext {
     is_draft?: boolean; // Included for validation - should always be false for active contexts
     billing_status?: string;
     stripe_price_id?: string;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
     current_period_end?: string;
     ownerName?: string; // Owner's full name for restricted member modal
     ownerEmail?: string; // Owner's email for restricted member modal
@@ -76,7 +78,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
           organizations!memberships_org_id_fkey (
             id, name, type, industry, logo_url, 
             website, description, currency_code, 
-            connection_code, owner_id, is_draft, billing_status, stripe_price_id, current_period_end
+            connection_code, owner_id, is_draft, billing_status, stripe_price_id, stripe_customer_id, stripe_subscription_id, current_period_end
           )
         `)
         .eq('user_id', user.id)
@@ -131,7 +133,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       const fallbackStartTime = performance.now();
       const { data: ownerOrg, error: ownerError } = await supabase
         .from('organizations')
-        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id, is_draft, billing_status, stripe_price_id, current_period_end')
+        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id, is_draft, billing_status, stripe_price_id, stripe_customer_id, stripe_subscription_id, current_period_end')
         .eq('owner_id', user.id)
         .is('is_draft', false)
         .single();
@@ -244,6 +246,8 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         is_draft: organization.is_draft || false, // Should always be false for active contexts
         billing_status: organization.billing_status || undefined,
         stripe_price_id: organization.stripe_price_id || undefined,
+        stripeCustomerId: organization.stripe_customer_id || undefined,
+        stripeSubscriptionId: organization.stripe_subscription_id || undefined,
         current_period_end: organization.current_period_end || undefined,
         ownerName,
         ownerEmail

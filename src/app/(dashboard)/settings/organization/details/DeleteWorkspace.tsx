@@ -1,17 +1,22 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
+import { toast } from 'sonner'
+import { deleteWorkspace } from '../../actions'
 
 interface DeleteWorkspaceProps {
   canDeleteWorkspace: boolean
   organizationName: string
+  organizationId: string
 }
 
-export default function DeleteWorkspace({ canDeleteWorkspace, organizationName }: DeleteWorkspaceProps) {
+export default function DeleteWorkspace({ canDeleteWorkspace, organizationName, organizationId }: DeleteWorkspaceProps) {
+  const router = useRouter()
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = React.useState('')
   const [deleteKeywordConfirmation, setDeleteKeywordConfirmation] = React.useState('')
@@ -28,15 +33,26 @@ export default function DeleteWorkspace({ canDeleteWorkspace, organizationName }
       return
     }
 
-    // TODO: Wire up to database
     setIsDeleting(true)
-    // Placeholder for future implementation
-    setTimeout(() => {
+
+    try {
+      const result = await deleteWorkspace({ organizationId })
+
+      if (result.ok) {
+        // Success - user will be signed out by the server action
+        toast.success('Workspace deleted successfully')
+        // Redirect to sign-in (user will be signed out)
+        router.push('/signin')
+      } else {
+        // Error - show message and keep dialog open
+        toast.error(result.message || 'Failed to delete workspace')
+        setIsDeleting(false)
+      }
+    } catch (error) {
+      console.error('Error deleting workspace:', error)
+      toast.error('An unexpected error occurred. Please try again.')
       setIsDeleting(false)
-      setDeleteDialogOpen(false)
-      setDeleteConfirmation('')
-      setDeleteKeywordConfirmation('')
-    }, 1000)
+    }
   }
 
   return (

@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { ListRow } from '@/components/ui/list-row';
-import { ChatCentered, Plus, Eye, Users, ArrowRight } from '@phosphor-icons/react/dist/ssr';
+import { ChatCentered, Plus, Eye, Users } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 
 import { useConnection } from '../ConnectionContext';
@@ -106,7 +106,6 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
   const isAgency = context.variant === 'agency';
   const title = 'Requests';
   const buttonText = isAgency ? 'Add request' : 'Submit request';
-  const linkText = 'View all requests';
   const description = isAgency
     ? 'Clients can submit requests from their portal, or you can add one for them.'
     : 'Ask questions, share updates, or request new work from your agency.';
@@ -482,27 +481,15 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasRequests ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
-            onClick={() => router.push(`/${baseRoute}/${connectionId}/requests`)}
-          >
-            <span className="mr-1">{linkText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-            onClick={handleNewRequestButtonClick}
-          >
-            <Plus size={16} weight="regular" />
-            {buttonText}
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-6 shadow-none cursor-pointer transition-all duration-75"
+          onClick={handleNewRequestButtonClick}
+        >
+          <Plus size={16} weight="regular" />
+          {buttonText}
+        </Button>
       </div>
 
       <RequestDetailModal

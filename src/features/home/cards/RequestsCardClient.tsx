@@ -6,7 +6,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RequestBadge } from "@/components/ui/request-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowRight, Plus } from "@phosphor-icons/react/dist/ssr";
+import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import {
   Table,
   TableBody,
@@ -50,7 +50,7 @@ export default function RequestsCardClient({
   const isAgency = context.variant === "agency";
   const title = "Requests";
   const description = isAgency
-    ? "No requests yet. Clients can submit requests from their portal, or you can add one on their behalf."
+    ? "Clients can submit requests from their portal, or you can add one for them."
     : "No requests yet. Ask questions, share updates, or request new work directly from your agency.";
   const linkText = "View all requests";
 
@@ -411,27 +411,15 @@ export default function RequestsCardClient({
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasRequests ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
-            onClick={() => router.push("/requests")}
-          >
-            <span className="mr-1">{linkText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-            onClick={() => router.push("/requests")}
-          >
-            <Plus size={16} weight="regular" />
-            {isAgency ? "Add request" : "Submit request"}
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
+          onClick={() => router.push("/requests")}
+        >
+          <span className="mr-1">{linkText}</span>
+          <ArrowRight size={16} weight="regular" />
+        </Button>
       </div>
 
       {/* Request Detail Modal */}

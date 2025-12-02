@@ -68,7 +68,7 @@ export function agencyProWelcomeTemplate({
 
     <!-- Welcome message -->
     <p style="color: #1C2024; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 400; line-height: 24px; margin: 24px 0 0 0;">Hi ${firstName},</p>
-    <p style="color: #1C2024; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 400; line-height: 24px; margin: 16px 0 0 0;">Your Agency Pro subscription is active. You're one of the first 100 with full access to Fiive, and your founding-member rate is locked in for life.</p>
+    <p style="color: #1C2024; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 400; line-height: 24px; margin: 16px 0 0 0;">Your Agency Pro subscription is active. You're one of the first 100 with full access to Fiive, and your Founding Member rate is locked in for life.</p>
 
     <!-- Divider -->
     <div style="width: 100%; height: 1px; background-color: rgba(0, 0, 45, 0.09); margin: 40px 0;"></div>

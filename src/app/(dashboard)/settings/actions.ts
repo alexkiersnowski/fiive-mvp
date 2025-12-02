@@ -3,7 +3,7 @@
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { uploadAvatar, uploadLogo, deleteAvatarFolder } from '@/lib/supabase/storage'
+import { uploadAvatar, uploadLogo, deleteAvatarFolder, deleteLogoFolder } from '@/lib/supabase/storage'
 import { randomBytes, createHash } from 'crypto'
 import { escapeForILike } from '@/lib/utils'
 import { SITE_URL } from '@/lib/env'
@@ -455,7 +455,7 @@ export async function deleteOwnAccount(data: { email: string }) {
   if (!orgError && organizations && organizations.length > 0) {
     return { 
       ok: false, 
-      message: "Organization owners cannot delete their accounts. Please transfer ownership first or delete the workspace from Billing & Subscription." 
+      message: "Organization owners cannot delete their accounts. Please transfer ownership first or delete the workspace from Plan & billing." 
     }
   }
 
@@ -560,6 +560,177 @@ export async function deleteOwnAccount(data: { email: string }) {
     return { 
       ok: false, 
       message: "An unexpected error occurred while deleting your account" 
+    }
+  }
+}
+
+// Delete workspace - soft deletes organization and hard deletes all related data
+export async function deleteWorkspace(data: { organizationId: string }) {
+  const supabase = await createClient()
+
+  // Verify the user is authenticated
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  try {
+    // Step 1: Verify user is owner of the organization
+    const { data: organization, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, owner_id, billing_status, stripe_customer_id, stripe_subscription_id")
+      .eq("id", data.organizationId)
+      .is("deleted_at", null)
+      .single()
+
+    if (orgError || !organization) {
+      return { 
+        ok: false, 
+        message: "Organization not found" 
+      }
+    }
+
+    if (organization.owner_id !== user.id) {
+      return { 
+        ok: false, 
+        message: "Only the organization owner can delete the workspace" 
+      }
+    }
+
+    // Step 2: Safety checks - verify no real connections and no billing footprint
+    // (These should already be validated in UI, but double-check for safety)
+    const { data: realConnections, error: connectionsError } = await supabase
+      .from("connections")
+      .select("id")
+      .in("connection_status", ['invited', 'connected', 'disconnected'])
+      .or(`agency_id.eq.${data.organizationId},client_id.eq.${data.organizationId}`)
+      .limit(1)
+
+    if (connectionsError) {
+      console.error('Error checking for real connections:', connectionsError)
+      return { 
+        ok: false, 
+        message: "Failed to verify workspace deletion eligibility" 
+      }
+    }
+
+    if (realConnections && realConnections.length > 0) {
+      return { 
+        ok: false, 
+        message: "Cannot delete workspace with active connections. Please contact support." 
+      }
+    }
+
+    // Check billing footprint
+    if (organization.billing_status !== 'free' || organization.stripe_customer_id || organization.stripe_subscription_id) {
+      return { 
+        ok: false, 
+        message: "Cannot delete workspace with billing history. Please contact support." 
+      }
+    }
+
+    // Step 3: Get all user IDs in the organization (for avatar cleanup and auth.user deletion)
+    const { data: memberships, error: membershipsError } = await supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("org_id", data.organizationId)
+
+    if (membershipsError) {
+      console.error('Error fetching memberships:', membershipsError)
+      return { 
+        ok: false, 
+        message: "Failed to fetch workspace members" 
+      }
+    }
+
+    const userIds = memberships?.map(m => m.user_id).filter(Boolean) as string[] || []
+
+    // Step 4: Delete organization logo folder from storage (best-effort)
+    // Must happen BEFORE organization is soft-deleted so RLS can verify it exists
+    const logoStorageResult = await deleteLogoFolder(data.organizationId)
+    if (!logoStorageResult.success) {
+      console.warn('Failed to delete logo folder for workspace:', {
+        organizationId: data.organizationId,
+        error: logoStorageResult.error,
+      })
+      // Continue - storage cleanup is best-effort
+    }
+
+    // Step 5: Delete avatar folders for all org members (best-effort, in parallel)
+    // MVP: 1 user = 1 org, so safe to delete all avatars
+    const avatarDeletionPromises = userIds.map(userId => 
+      deleteAvatarFolder(userId).catch(error => {
+        console.warn('Failed to delete avatar folder for user:', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return { success: false, error: String(error) }
+      })
+    )
+    
+    await Promise.all(avatarDeletionPromises)
+    // Continue even if some avatar deletions fail - best-effort cleanup
+
+    // Step 6: Call RPC function to handle database deletions
+    const { error: rpcError } = await supabase.rpc('delete_workspace', {
+      p_org_id: data.organizationId,
+      p_user_id: user.id,
+    })
+
+    if (rpcError) {
+      console.error('Error deleting workspace via RPC:', rpcError)
+      
+      // Extract error message
+      const errorMessage = 
+        (rpcError && ('message' in rpcError ? rpcError.message : undefined)) ||
+        (rpcError && ('details' in rpcError ? (rpcError as { details?: string }).details : undefined)) ||
+        (rpcError && ('hint' in rpcError ? (rpcError as { hint?: string }).hint : undefined)) ||
+        'Failed to delete workspace. Please try again.'
+
+      return { 
+        ok: false, 
+        message: errorMessage 
+      }
+    }
+
+    // Step 7: Hard delete all auth.users for org members using admin client
+    // MVP: all users belong only to this org, so safe to delete all
+    const adminSupabase = createAdminClient()
+    const authDeletionPromises = userIds.map(userId =>
+      adminSupabase.auth.admin.deleteUser(userId).catch(error => {
+        console.error('Error deleting auth user:', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        // Log but continue - membership/profile already deleted
+      })
+    )
+
+    await Promise.all(authDeletionPromises)
+    // Continue even if some auth.user deletions fail - database cleanup is done
+
+    // Step 8: Sign out the current user after successful deletion
+    const { error: signOutError } = await supabase.auth.signOut()
+    
+    if (signOutError) {
+      console.error('Error signing out after workspace deletion:', signOutError)
+      // Workspace is deleted, but sign out failed - this is acceptable
+    }
+
+    // Revalidate paths (though user will be signed out)
+    revalidatePath("/settings/organization/details")
+    revalidatePath("/home")
+    
+    return { ok: true }
+
+  } catch (error) {
+    console.error('Unexpected error during workspace deletion:', error)
+    return { 
+      ok: false, 
+      message: "An unexpected error occurred while deleting the workspace" 
     }
   }
 }

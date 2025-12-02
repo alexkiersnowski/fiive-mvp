@@ -8,8 +8,9 @@ import DeleteWorkspace from './DeleteWorkspace'
 export const revalidate = 30
 
 /**
- * Check if an organization has any real connections (non-draft status)
+ * Check if an organization has any real connections (non-internal status)
  * Real connections are those with status: 'invited', 'connected', or 'disconnected'
+ * Only 'internal' connections are excluded - they don't block workspace deletion
  */
 const hasRealConnections = cache(async (
   orgId: string,
@@ -18,6 +19,8 @@ const hasRealConnections = cache(async (
   const supabase = await createClient()
   
   try {
+    // Check for all real connection types that should block deletion
+    // Explicitly exclude 'internal' - only real external connections block deletion
     let query = supabase
       .from('connections')
       .select('id')
@@ -99,7 +102,13 @@ export default async function OrganizationDetailsPage() {
   // Can delete workspace only if:
   // 1. No real connections exist (only internal or no connections)
   // 2. billing_status is 'free'
-  const canDeleteWorkspace = !hasRealConnectionsResult && organization.billing_status === 'free'
+  // 3. No Stripe customer ID exists (no billing footprint)
+  // 4. No Stripe subscription ID exists (extra safety check)
+  const canDeleteWorkspace = 
+    !hasRealConnectionsResult && 
+    organization.billing_status === 'free' &&
+    !organization.stripeCustomerId &&
+    !organization.stripeSubscriptionId
 
   return (
     <div className="space-y-6">
@@ -133,6 +142,7 @@ export default async function OrganizationDetailsPage() {
         <DeleteWorkspace 
           canDeleteWorkspace={canDeleteWorkspace}
           organizationName={organization.name}
+          organizationId={organization.id}
         />
       )}
     </div>

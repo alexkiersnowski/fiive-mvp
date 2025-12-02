@@ -246,7 +246,7 @@ export default function AccessForm({ userId, currentEmail, isOwner }: Props) {
             </p>
             <p className="text-xs-regular" style={{ color: 'var(--color-base-text-tertiary, rgba(3, 9, 26, 0.56))' }}>
               {isOwner
-                ? "You are the owner of this workspace. To delete your workspace and account, go to Billing & Subscription, or transfer ownership to another member."
+                ? "You are the owner of this workspace. To delete your workspace and account, go to Plan & billing, or transfer ownership to another member."
                 : "Permanently remove your personal account and access to Fiive. This cannot be undone."
               }
             </p>

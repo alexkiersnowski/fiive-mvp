@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
-import { Plus, ArrowRight, ClipboardText, LockSimple } from "@phosphor-icons/react/dist/ssr";
+import { Plus, ClipboardText, LockSimple } from "@phosphor-icons/react/dist/ssr";
 import { CheckCircle, Eye, EyeSlash } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
@@ -123,8 +123,6 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
 
   const isAgency = context.variant === "agency";
   const title = "Tasks";
-  const buttonText = isAgency ? "Add task" : "View all tasks";
-  const linkText = "View all tasks";
   const description = isAgency
     ? "Add action items for your team or client, and choose what stays client-visible."
     : "Your agency manages all tasks. Submit a request to get started.";
@@ -498,17 +496,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasTasks ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
-            onClick={() => router.push(`/${baseRoute}/${connectionId}/tasks`)}
-          >
-            <span className="mr-1">{linkText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        ) : (
+        {isAgency && (
           <Button
             variant="outline"
             size="sm"
@@ -516,7 +504,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
             onClick={handleNewTaskButtonClick}
           >
             <Plus size={16} weight="regular" />
-            {buttonText}
+            Add task
           </Button>
         )}
       </div>

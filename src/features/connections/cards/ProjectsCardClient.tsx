@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ProjectBadge } from "@/components/ui/project-badge";
-import { ArrowRight, Plus, Eye } from "@phosphor-icons/react/dist/ssr";
+import { Plus, Eye } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 import {
   Table,
@@ -107,8 +107,6 @@ export default function ProjectsCardClient({
   const description = isAgency
     ? "Projects give your team and client a shared view of work and progress."
     : "Projects are created by your agency and give you a shared view of work and progress.";
-  const linkText = "View all projects";
-  const buttonText = isAgency ? "Add project" : "View all projects";
 
   const hasProjects = prefetchedProjects.length > 0;
 
@@ -441,17 +439,7 @@ export default function ProjectsCardClient({
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasProjects ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
-            onClick={() => router.push(`/${baseRoute}/${connectionId}/projects`)}
-          >
-            <span className="mr-1">{linkText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        ) : (
+        {isAgency && (
           <Button
             variant="outline"
             size="sm"
@@ -459,7 +447,7 @@ export default function ProjectsCardClient({
             onClick={handleNewProjectButtonClick}
           >
             <Plus size={16} weight="regular" />
-            {buttonText}
+            Add project
           </Button>
         )}
       </div>
