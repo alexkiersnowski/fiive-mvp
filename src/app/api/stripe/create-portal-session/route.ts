@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { getStripeInstance } from '@/lib/stripe/server'
 import { createClient } from '@/lib/supabase/server'
+import { SITE_URL } from '@/lib/env'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,11 +50,10 @@ export async function POST(_request: NextRequest) {
     
     // Create portal session
     const stripe = getStripeInstance()
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
     
     const session = await stripe.billingPortal.sessions.create({
       customer: org.stripe_customer_id,
-      return_url: `${baseUrl}/settings/organization/billing`,
+      return_url: `${SITE_URL}/settings/organization/billing`,
     })
     
     return NextResponse.json({ url: session.url })

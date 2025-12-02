@@ -5,6 +5,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { AgenciesSnapshot } from './types';
 import { getAgenciesSnapshot } from './server';
+import { SITE_URL } from '@/lib/env';
 
 export type ConnectionResult = {
   success: boolean;
@@ -231,8 +232,7 @@ export async function createNewAgencyAndInvite(
     }
 
     // Build invite URL
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`;
+    const inviteUrl = `${SITE_URL}/claim?token=${tokenResult.token}`;
 
     // Send invitation email via Resend
     try {

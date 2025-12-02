@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { getStripeInstance, getOrCreateCustomer } from '@/lib/stripe/server'
+import { SITE_URL } from '@/lib/env'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,7 +62,6 @@ export async function POST(request: NextRequest) {
     
     // Create checkout session
     const stripe = getStripeInstance()
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
     
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -76,8 +76,8 @@ export async function POST(request: NextRequest) {
       metadata: {
         organization_id: context.orgId,
       },
-      success_url: `${baseUrl}/settings/organization/billing?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/settings/organization/billing?canceled=true`,
+      success_url: `${SITE_URL}/settings/organization/billing?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${SITE_URL}/settings/organization/billing?canceled=true`,
     })
     
     return NextResponse.json({ url: session.url })

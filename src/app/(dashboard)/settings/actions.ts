@@ -6,6 +6,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { uploadAvatar, uploadLogo, deleteAvatarFolder } from '@/lib/supabase/storage'
 import { randomBytes, createHash } from 'crypto'
 import { escapeForILike } from '@/lib/utils'
+import { SITE_URL } from '@/lib/env'
 
 // Rate limiting configuration
 const RATE_LIMITS = {
@@ -266,7 +267,7 @@ export async function requestEmailChange(data: {
   const { error } = await supabase.auth.updateUser(
     { email },
     { 
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/settings/account/access` 
+      emailRedirectTo: `${SITE_URL}/auth/callback?next=/settings/account/access` 
     }
   )
 
@@ -1498,7 +1499,6 @@ export async function validateAndInviteMembers(data: {
   
   // Import email sending function
   const { sendMemberInviteEmail } = await import('@/app/actions/sendMemberInviteEmail')
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
   
   for (const email of allProcessedEmails) {
     try {
@@ -1508,7 +1508,7 @@ export async function validateAndInviteMembers(data: {
         continue
       }
 
-      const inviteUrl = `${baseUrl}/member-invite/claim?token=${rawToken}`
+      const inviteUrl = `${SITE_URL}/member-invite/claim?token=${rawToken}`
       
       await sendMemberInviteEmail({
         to: email,
@@ -1698,8 +1698,7 @@ export async function resendInvitation(data: {
   // Send email via Resend
   try {
     const { sendMemberInviteEmail } = await import('@/app/actions/sendMemberInviteEmail')
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-    const inviteUrl = `${baseUrl}/member-invite/claim?token=${rawToken}`
+    const inviteUrl = `${SITE_URL}/member-invite/claim?token=${rawToken}`
     
     await sendMemberInviteEmail({
       to: invitation.invited_email,

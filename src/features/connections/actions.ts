@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { uploadLogo } from '@/lib/supabase/storage'
 import { getAgencyOrgId } from '@/lib/connections/agency-validation'
 import { z } from 'zod'
+import { SITE_URL } from '@/lib/env'
 
 export async function updateClientPrimaryContact(
   connectionId: string,
@@ -697,8 +698,7 @@ export async function inviteClientToConnection(data: {
     }
 
     // Build invite URL
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`
+    const inviteUrl = `${SITE_URL}/claim?token=${tokenResult.token}`
 
     // Send invitation email via Resend
     try {
@@ -900,8 +900,7 @@ export async function resendInviteEmail(data: {
     }
 
     // Build invite URL
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`
+    const inviteUrl = `${SITE_URL}/claim?token=${tokenResult.token}`
 
     // Send invitation email via Resend (use appropriate template based on context)
     try {
