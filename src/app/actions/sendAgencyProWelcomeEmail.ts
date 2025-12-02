@@ -73,7 +73,7 @@ export async function sendAgencyProWelcomeEmail({
     to: [ownerEmail],
     subject: 'Welcome to Agency Pro',
     html,
-    reply_to: 'support@fiive.co',
+    replyTo: 'support@fiive.co',
   })
 
   if (error) {

@@ -102,10 +102,6 @@ export async function POST(request: NextRequest) {
               )
             }
             
-            // Store previous billing status to check for free -> active transition
-            const previousBillingStatus = existingOrg.billing_status || 'free'
-            const organizationType = existingOrg.type
-            
             // Use mapping function to determine correct billing status
             const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
             
