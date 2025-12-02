@@ -78,11 +78,15 @@ export function agencyProWelcomeTemplate({
           <!-- Bottom row with Agency Pro and Founding Member -->
           <table width="100%" cellpadding="0" cellspacing="0" border="0" class="mobile-stack-table">
             <tr>
-              <td align="left" valign="bottom" style="padding: 0; color: #ffffff !important;">
-                <h2 class="gradient-text" style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; text-fill-color: #ffffff !important; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 35px; font-weight: 600; line-height: 40px; margin: 0;"><span style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important;">Agency Pro</span></h2>
+              <td align="left" valign="bottom" style="padding: 0;">
+                <h2 style="margin: 0; font-size: 35px; font-weight: 600; line-height: 40px; color: #ffffff !important; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+                  <font color="#ffffff">Agency Pro</font>
+                </h2>
               </td>
-              <td align="right" valign="bottom" style="padding: 0; color: #ffffff !important;">
-                <p class="gradient-text" style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; text-fill-color: #ffffff !important; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;"><span style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important;">Founding Member</span></p>
+              <td align="right" valign="bottom" style="padding: 0;">
+                <p style="margin: 0; font-size: 16px; font-weight: 500; line-height: 24px; color: #ffffff !important; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+                  <font color="#ffffff">Founding Member</font>
+                </p>
               </td>
             </tr>
           </table>
