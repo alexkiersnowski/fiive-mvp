@@ -58,9 +58,9 @@ export function agencyProWelcomeTemplate({
 <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
   <div style="max-width: 600px; margin: 0 auto; padding: 40px; background-color: #ffffff;">
     <!-- Top section with gradient background - using table for email compatibility -->
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" class="gradient-section" style="background: linear-gradient(187deg, ${gradientColor1} 3.71%, ${gradientColor2} 51.17%, ${gradientColor3} 122.36%); border-radius: 8px; margin: 0; color-scheme: light;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(187deg, ${gradientColor1} 3.71%, ${gradientColor2} 51.17%, ${gradientColor3} 122.36%); border-radius: 8px; margin: 0;">
       <tr>
-        <td style="padding: 24px; color: #ffffff !important;">
+        <td style="padding: 24px; background: linear-gradient(187deg, ${gradientColor1} 3.71%, ${gradientColor2} 51.17%, ${gradientColor3} 122.36%); background-color: #0A0A0A; color: #ffffff !important;">
           <!-- Logo row -->
           <table width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
