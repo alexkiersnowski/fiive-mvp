@@ -30,18 +30,38 @@ export function agencyProWelcomeTemplate({
 </head>
 <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
   <div style="max-width: 600px; margin: 0 auto; padding: 40px; background-color: #ffffff;">
-    <!-- Top section with gradient background -->
-    <div style="width: 100%; height: 180px; background: linear-gradient(187deg, ${gradientColor1} 3.71%, ${gradientColor2} 51.17%, ${gradientColor3} 122.36%); padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; border-radius: 8px;">
-      <!-- Fiive logo top left -->
-      <div style="display: inline-block;">
-        <img src="${logoWhiteUrl}" alt="Fiive Logo" style="display: block; height: 20px; width: auto; -webkit-user-drag: none; -khtml-user-drag: none; -moz-user-drag: none; -o-user-drag: none; user-drag: none;">
-      </div>
-      <!-- Bottom row with Agency Pro and Founding Member -->
-      <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-        <h2 style="color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 35px; font-weight: 600; line-height: 40px; margin: 0;">Agency Pro</h2>
-        <p style="color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;">Founding Member</p>
-      </div>
-    </div>
+    <!-- Top section with gradient background - using table for email compatibility -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(187deg, ${gradientColor1} 3.71%, ${gradientColor2} 51.17%, ${gradientColor3} 122.36%); border-radius: 8px; margin: 0;">
+      <tr>
+        <td style="padding: 24px;">
+          <!-- Logo row -->
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="padding: 0;">
+                <img src="${logoWhiteUrl}" alt="Fiive Logo" height="20" style="display: block; height: 20px; -webkit-user-drag: none; -khtml-user-drag: none; -moz-user-drag: none; -o-user-drag: none; user-drag: none; border: 0;">
+              </td>
+            </tr>
+          </table>
+          <!-- Spacer row to push bottom content down -->
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="height: 112px; line-height: 112px; font-size: 1px;">&nbsp;</td>
+            </tr>
+          </table>
+          <!-- Bottom row with Agency Pro and Founding Member -->
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td align="left" valign="bottom" style="padding: 0;">
+                <h2 style="color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 35px; font-weight: 600; line-height: 40px; margin: 0;">Agency Pro</h2>
+              </td>
+              <td align="right" valign="bottom" style="padding: 0;">
+                <p style="color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;">Founding Member</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
 
     <!-- Welcome heading -->
     <h1 style="color: #1C2024; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 35px; font-weight: 600; line-height: 40px; margin: 40px 0 0 0;">Welcome to Fiive</h1>
