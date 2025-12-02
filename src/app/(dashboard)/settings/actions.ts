@@ -633,6 +633,7 @@ export async function deleteWorkspace(data: { organizationId: string }) {
     }
 
     // Step 3: Get all user IDs in the organization (for avatar cleanup and auth.user deletion)
+    // Include owner (from organizations.owner_id) and all members (from memberships)
     const { data: memberships, error: membershipsError } = await supabase
       .from("memberships")
       .select("user_id")
@@ -646,9 +647,28 @@ export async function deleteWorkspace(data: { organizationId: string }) {
       }
     }
 
-    const userIds = memberships?.map(m => m.user_id).filter(Boolean) as string[] || []
+    // Get all user IDs from memberships, plus the owner ID
+    const membershipUserIds = memberships?.map(m => m.user_id).filter(Boolean) as string[] || []
+    const ownerId = organization.owner_id
+    
+    // Combine owner and members, remove duplicates
+    const userIds = Array.from(new Set([ownerId, ...membershipUserIds])).filter(Boolean) as string[]
 
-    // Step 4: Delete organization logo folder from storage (best-effort)
+    // Step 4: Get draft organization IDs created by this workspace (for logo cleanup)
+    const { data: draftOrgs, error: draftOrgsError } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("created_by_org_id", data.organizationId)
+      .eq("is_draft", true)
+
+    if (draftOrgsError) {
+      console.warn('Error fetching draft organizations:', draftOrgsError)
+      // Continue - we'll still try to delete main org logo
+    }
+
+    const draftOrgIds = draftOrgs?.map(org => org.id).filter(Boolean) as string[] || []
+
+    // Step 5: Delete organization logo folder from storage (best-effort)
     // Must happen BEFORE organization is soft-deleted so RLS can verify it exists
     const logoStorageResult = await deleteLogoFolder(data.organizationId)
     if (!logoStorageResult.success) {
@@ -659,7 +679,22 @@ export async function deleteWorkspace(data: { organizationId: string }) {
       // Continue - storage cleanup is best-effort
     }
 
-    // Step 5: Delete avatar folders for all org members (best-effort, in parallel)
+    // Step 6: Delete logo folders for all draft organizations (best-effort, in parallel)
+    // Must happen BEFORE draft orgs are deleted so RLS can verify they exist
+    const draftLogoDeletionPromises = draftOrgIds.map(draftOrgId =>
+      deleteLogoFolder(draftOrgId).catch(error => {
+        console.warn('Failed to delete logo folder for draft org:', {
+          draftOrgId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return { success: false, error: String(error) }
+      })
+    )
+
+    await Promise.all(draftLogoDeletionPromises)
+    // Continue even if some logo deletions fail - best-effort cleanup
+
+    // Step 7: Delete avatar folders for all org members (best-effort, in parallel)
     // MVP: 1 user = 1 org, so safe to delete all avatars
     const avatarDeletionPromises = userIds.map(userId => 
       deleteAvatarFolder(userId).catch(error => {
@@ -674,7 +709,7 @@ export async function deleteWorkspace(data: { organizationId: string }) {
     await Promise.all(avatarDeletionPromises)
     // Continue even if some avatar deletions fail - best-effort cleanup
 
-    // Step 6: Call RPC function to handle database deletions
+    // Step 8: Call RPC function to handle database deletions
     const { error: rpcError } = await supabase.rpc('delete_workspace', {
       p_org_id: data.organizationId,
       p_user_id: user.id,
@@ -696,7 +731,7 @@ export async function deleteWorkspace(data: { organizationId: string }) {
       }
     }
 
-    // Step 7: Hard delete all auth.users for org members using admin client
+    // Step 9: Hard delete all auth.users for org members using admin client
     // MVP: all users belong only to this org, so safe to delete all
     const adminSupabase = createAdminClient()
     const authDeletionPromises = userIds.map(userId =>
@@ -712,7 +747,7 @@ export async function deleteWorkspace(data: { organizationId: string }) {
     await Promise.all(authDeletionPromises)
     // Continue even if some auth.user deletions fail - database cleanup is done
 
-    // Step 8: Sign out the current user after successful deletion
+    // Step 10: Sign out the current user after successful deletion
     const { error: signOutError } = await supabase.auth.signOut()
     
     if (signOutError) {
@@ -1535,6 +1570,26 @@ export async function validateAndInviteMembers(data: {
         newEmails.push(email)
       }
     })
+
+    // Check if adding new invitations would exceed member limit (for free agencies)
+    if (organizationType === 'agency' && billingStatus === 'free' && newEmails.length > 0) {
+      const { countOrganizationMembers, countOrganizationInvitations } = await import('@/lib/paywall/checkMemberLimit')
+      const [memberCount, invitationCount] = await Promise.all([
+        countOrganizationMembers(data.organizationId),
+        countOrganizationInvitations(data.organizationId),
+      ])
+      
+      const totalAfterInvites = memberCount + invitationCount + newEmails.length
+      
+      // Free agency organizations limited to 2 members total (including owner)
+      if (totalAfterInvites > 2) {
+        return {
+          ok: false,
+          paywall: true,
+          message: "You can only invite 1 additional member on the Starter plan"
+        }
+      }
+    }
 
   // Handle new emails - create new invitations
   // Store raw tokens for email links (keyed by email)

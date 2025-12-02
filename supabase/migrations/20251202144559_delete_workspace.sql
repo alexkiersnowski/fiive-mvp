@@ -19,6 +19,7 @@ DECLARE
   v_owner_id uuid;
   v_internal_connection_ids uuid[];
   v_draft_org_ids uuid[];
+  v_draft_connection_ids uuid[];
   v_connection_id uuid;
   v_request_ids uuid[];
   v_task_ids uuid[];
@@ -40,43 +41,48 @@ BEGIN
   
   -- Step 2: Collect all internal connection IDs for this organization
   -- (both as agency and as client)
-  SELECT ARRAY_AGG(id) INTO v_internal_connection_ids
+  -- Use COALESCE to ensure we get an empty array instead of NULL if no connections exist
+  SELECT COALESCE(ARRAY_AGG(id), ARRAY[]::uuid[]) INTO v_internal_connection_ids
   FROM public.connections
   WHERE (agency_id = p_org_id OR client_id = p_org_id)
     AND connection_status = 'internal';
   
   -- Step 3: Collect all draft organization IDs created by this organization
-  SELECT ARRAY_AGG(id) INTO v_draft_org_ids
+  -- Use COALESCE to ensure we get an empty array instead of NULL if no draft orgs exist
+  SELECT COALESCE(ARRAY_AGG(id), ARRAY[]::uuid[]) INTO v_draft_org_ids
   FROM public.organizations
   WHERE created_by_org_id = p_org_id
     AND is_draft = true;
   
   -- Step 4: Collect all user IDs in this organization (for profile soft-deletion)
-  SELECT ARRAY_AGG(DISTINCT user_id) INTO v_user_ids
+  -- Use COALESCE to ensure we get an empty array instead of NULL if no memberships exist
+  SELECT COALESCE(ARRAY_AGG(DISTINCT user_id), ARRAY[]::uuid[]) INTO v_user_ids
   FROM public.memberships
   WHERE org_id = p_org_id;
   
   -- Step 5: For each internal connection, delete related data
-  IF v_internal_connection_ids IS NOT NULL AND array_length(v_internal_connection_ids, 1) > 0 THEN
+  IF array_length(v_internal_connection_ids, 1) > 0 THEN
     FOREACH v_connection_id IN ARRAY v_internal_connection_ids
     LOOP
       -- Collect request IDs for this connection
-      SELECT ARRAY_AGG(id) INTO v_request_ids
+      -- Use COALESCE to ensure we get an empty array instead of NULL if no requests exist
+      SELECT COALESCE(ARRAY_AGG(id), ARRAY[]::uuid[]) INTO v_request_ids
       FROM public.requests
       WHERE connection_id = v_connection_id;
       
       -- Collect task IDs for this connection
-      SELECT ARRAY_AGG(id) INTO v_task_ids
+      -- Use COALESCE to ensure we get an empty array instead of NULL if no tasks exist
+      SELECT COALESCE(ARRAY_AGG(id), ARRAY[]::uuid[]) INTO v_task_ids
       FROM public.tasks
       WHERE connection_id = v_connection_id;
       
       -- Delete comments on requests (must be done before deleting requests)
-      IF v_request_ids IS NOT NULL AND array_length(v_request_ids, 1) > 0 THEN
+      IF array_length(v_request_ids, 1) > 0 THEN
         DELETE FROM public.request_comments WHERE request_id = ANY(v_request_ids);
       END IF;
       
       -- Delete comments on tasks (must be done before deleting tasks)
-      IF v_task_ids IS NOT NULL AND array_length(v_task_ids, 1) > 0 THEN
+      IF array_length(v_task_ids, 1) > 0 THEN
         DELETE FROM public.task_comments WHERE task_id = ANY(v_task_ids);
       END IF;
       
@@ -101,34 +107,36 @@ BEGIN
   -- Step 6: Delete all draft organizations created by this workspace
   -- (This will cascade delete their connections and related data via delete_draft_client/delete_draft_agency)
   -- But we need to handle them here since we're deleting the parent org
-  IF v_draft_org_ids IS NOT NULL AND array_length(v_draft_org_ids, 1) > 0 THEN
-    -- For each draft org, we need to delete its connection and related data first
-    -- Then delete the draft org itself
-    -- Note: This is a simplified approach - in production you might want to call
-    -- delete_draft_client/delete_draft_agency for each, but since we're deleting
-    -- the parent org anyway, we can hard delete them directly
-    FOREACH v_connection_id IN ARRAY (
-      SELECT ARRAY_AGG(c.id)
-      FROM public.connections c
-      WHERE (c.agency_id = ANY(v_draft_org_ids) OR c.client_id = ANY(v_draft_org_ids))
-    )
-    LOOP
+  IF array_length(v_draft_org_ids, 1) > 0 THEN
+    -- Collect all connection IDs for draft orgs first
+    -- Use COALESCE to ensure we get an empty array instead of NULL if no connections exist
+    SELECT COALESCE(ARRAY_AGG(c.id), ARRAY[]::uuid[]) INTO v_draft_connection_ids
+    FROM public.connections c
+    WHERE (c.agency_id = ANY(v_draft_org_ids) OR c.client_id = ANY(v_draft_org_ids));
+    
+    -- For each draft org connection, delete related data
+    -- Only proceed if we have connections to process
+    IF array_length(v_draft_connection_ids, 1) > 0 THEN
+      FOREACH v_connection_id IN ARRAY v_draft_connection_ids
+      LOOP
       -- Collect request IDs
-      SELECT ARRAY_AGG(id) INTO v_request_ids
+      -- Use COALESCE to ensure we get an empty array instead of NULL if no requests exist
+      SELECT COALESCE(ARRAY_AGG(id), ARRAY[]::uuid[]) INTO v_request_ids
       FROM public.requests
       WHERE connection_id = v_connection_id;
       
       -- Collect task IDs
-      SELECT ARRAY_AGG(id) INTO v_task_ids
+      -- Use COALESCE to ensure we get an empty array instead of NULL if no tasks exist
+      SELECT COALESCE(ARRAY_AGG(id), ARRAY[]::uuid[]) INTO v_task_ids
       FROM public.tasks
       WHERE connection_id = v_connection_id;
       
       -- Delete comments
-      IF v_request_ids IS NOT NULL AND array_length(v_request_ids, 1) > 0 THEN
+      IF array_length(v_request_ids, 1) > 0 THEN
         DELETE FROM public.request_comments WHERE request_id = ANY(v_request_ids);
       END IF;
       
-      IF v_task_ids IS NOT NULL AND array_length(v_task_ids, 1) > 0 THEN
+      IF array_length(v_task_ids, 1) > 0 THEN
         DELETE FROM public.task_comments WHERE task_id = ANY(v_task_ids);
       END IF;
       
@@ -139,7 +147,8 @@ BEGIN
       DELETE FROM public.tasks WHERE connection_id = v_connection_id;
       DELETE FROM public.requests WHERE connection_id = v_connection_id;
       DELETE FROM public.projects WHERE connection_id = v_connection_id;
-    END LOOP;
+      END LOOP;
+    END IF;
     
     -- Delete connections for draft orgs
     DELETE FROM public.connections
@@ -160,7 +169,7 @@ BEGIN
   DELETE FROM public.memberships WHERE org_id = p_org_id;
   
   -- Step 10: Soft delete all profiles for org members
-  IF v_user_ids IS NOT NULL AND array_length(v_user_ids, 1) > 0 THEN
+  IF array_length(v_user_ids, 1) > 0 THEN
     UPDATE public.profiles
     SET deleted_at = NOW(),
         updated_at = NOW()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/search-input'
 import { PaywallModal } from '@/components/ui/paywall-modal'
@@ -54,6 +54,16 @@ export default function MembersContent({
   const [canInviteMembers, setCanInviteMembers] = useState(initialCanInviteMembers)
   
   const memberCount = members.length + invitations.length
+
+  // Calculate max emails that can be invited (for free agencies only)
+  const maxEmailsForInvite = useMemo(() => {
+    if (organizationType === 'agency' && billingStatus === 'free') {
+      const totalCount = members.length + invitations.length
+      const remainingSlots = 2 - totalCount
+      return Math.max(0, remainingSlots) // Can't be negative
+    }
+    return undefined // No limit for clients and paid agencies
+  }, [members.length, invitations.length, organizationType, billingStatus])
 
   // Update canInviteMembers when members/invitations change (e.g., after successful invite)
   useEffect(() => {
@@ -298,6 +308,7 @@ export default function MembersContent({
           billingStatus={billingStatus}
           organizationType={organizationType}
           onPaywallTrigger={() => setIsPaywallModalOpen(true)}
+          maxEmailsForInvite={maxEmailsForInvite}
         />
       </div>
 

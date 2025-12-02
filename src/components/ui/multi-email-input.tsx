@@ -124,6 +124,7 @@ export function MultiEmailInput({
           newChips.push(createChip(email))
         }
       })
+      
       setChips(newChips)
       onChange?.(newChips.map(chip => chip.email))
       setInputValue('')

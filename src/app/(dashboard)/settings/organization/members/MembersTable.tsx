@@ -144,6 +144,7 @@ interface MembersTableProps {
   billingStatus?: string
   organizationType?: 'agency' | 'client'
   onPaywallTrigger?: () => void
+  maxEmailsForInvite?: number
 }
 
 const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTableProps>(function MembersTable({ 
@@ -163,7 +164,8 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   onInviteClick: _externalOnInviteClick,
   billingStatus = 'free',
   organizationType = 'agency',
-  onPaywallTrigger
+  onPaywallTrigger,
+  maxEmailsForInvite
 }, ref) {
   const [_internalSearchQuery, _setInternalSearchQuery] = useState('')
   const searchQuery = externalSearchQuery || _internalSearchQuery
@@ -535,7 +537,13 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
 
   const handleInviteEmails = async () => {
     if (inviteEmails.length === 0) {
-      toast.error('Please enter at least one email address')
+      setGeneralError('Please enter at least one email address')
+      return
+    }
+
+    // Check member limit before submitting (for free agencies)
+    if (maxEmailsForInvite !== undefined && inviteEmails.length > maxEmailsForInvite) {
+      setGeneralError("You can only invite 1 additional member on the Starter plan")
       return
     }
 

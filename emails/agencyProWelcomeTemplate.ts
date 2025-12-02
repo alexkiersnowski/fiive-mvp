@@ -27,6 +27,23 @@ export function agencyProWelcomeTemplate({
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Welcome to Agency Pro - Fiive</title>
+  <style>
+    @media only screen and (max-width: 600px) {
+      .mobile-stack-table {
+        display: block !important;
+        width: 100% !important;
+      }
+      .mobile-stack-table td {
+        display: block !important;
+        width: 100% !important;
+        text-align: left !important;
+      }
+    }
+    /* Force white text in dark mode */
+    .gradient-text {
+      color: #ffffff !important;
+    }
+  </style>
 </head>
 <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
   <div style="max-width: 600px; margin: 0 auto; padding: 40px; background-color: #ffffff;">
@@ -49,13 +66,13 @@ export function agencyProWelcomeTemplate({
             </tr>
           </table>
           <!-- Bottom row with Agency Pro and Founding Member -->
-          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" class="mobile-stack-table">
             <tr>
               <td align="left" valign="bottom" style="padding: 0;">
-                <h2 style="color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 35px; font-weight: 600; line-height: 40px; margin: 0;">Agency Pro</h2>
+                <h2 class="gradient-text" style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 35px; font-weight: 600; line-height: 40px; margin: 0;">Agency Pro</h2>
               </td>
               <td align="right" valign="bottom" style="padding: 0;">
-                <p style="color: #ffffff; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;">Founding Member</p>
+                <p class="gradient-text" style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;">Founding Member</p>
               </td>
             </tr>
           </table>
