@@ -88,10 +88,10 @@ export async function POST(request: NextRequest) {
               break
             }
             
-            // Verify organization exists before updating
+            // Verify organization exists and get current billing status before updating
             const { data: existingOrg, error: checkError } = await supabase
               .from('organizations')
-              .select('id, name')
+              .select('id, name, billing_status, type')
               .eq('id', organizationId)
               .single()
             
@@ -101,6 +101,10 @@ export async function POST(request: NextRequest) {
                 { status: 404 }
               )
             }
+            
+            // Store previous billing status to check for free -> active transition
+            const previousBillingStatus = existingOrg.billing_status || 'free'
+            const organizationType = existingOrg.type
             
             // Use mapping function to determine correct billing status
             const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
@@ -136,6 +140,24 @@ export async function POST(request: NextRequest) {
                 { error: 'Failed to update organization', details: error.message },
                 { status: 500 }
               )
+            }
+            
+            // Send welcome email if organization upgraded from 'free' to 'active' and is an agency
+            if (
+              previousBillingStatus === 'free' &&
+              billingStatus === 'active' &&
+              organizationType === 'agency'
+            ) {
+              try {
+                const { sendAgencyProWelcomeEmail } = await import('@/app/actions/sendAgencyProWelcomeEmail')
+                await sendAgencyProWelcomeEmail({ organizationId })
+              } catch (emailError) {
+                // Log error but don't fail webhook - email is best-effort
+                console.error('Failed to send Agency Pro welcome email:', {
+                  organizationId,
+                  error: emailError instanceof Error ? emailError.message : String(emailError)
+                })
+              }
             }
           } catch (subscriptionError) {
             return NextResponse.json(

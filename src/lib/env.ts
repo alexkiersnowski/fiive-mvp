@@ -7,11 +7,14 @@
  */
 
 // SITE_URL is used for server-side URL construction (emails, webhooks, etc.)
-// Falls back to localhost:3000 for local development only
-export const SITE_URL = process.env.SITE_URL || (process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : undefined);
+// Only allow localhost fallback in true local development (not on Vercel)
+// In any deployed environment (Vercel preview/production), require SITE_URL to be set
+const isLocalDevelopment = process.env.NODE_ENV === 'development' && !process.env.VERCEL;
+export const SITE_URL = process.env.SITE_URL || (isLocalDevelopment ? 'http://localhost:3000' : undefined);
 
-if (!SITE_URL && process.env.NODE_ENV === 'production') {
-  throw new Error('SITE_URL environment variable is required in production');
+// Fail fast if SITE_URL is missing in any non-local environment
+if (!SITE_URL) {
+  throw new Error('SITE_URL environment variable is required. Set it in your Vercel environment variables.');
 }
 
 // Export other server-only env vars for consistency
