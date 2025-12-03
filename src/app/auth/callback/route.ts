@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
     .from('memberships')
     .select('id')
     .eq('user_id', user.id)
-    .single()
+    .maybeSingle()
 
   const hasMembership = !!membership
 

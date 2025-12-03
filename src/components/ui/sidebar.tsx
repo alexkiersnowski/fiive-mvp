@@ -58,6 +58,9 @@ const SidebarComponent = memo(function SidebarComponent({
   const [isHovered, setIsHovered] = useState(false)
   const [showAlert, setShowAlert] = useState(!isCollapsed)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Normalize billingStatus - should always be provided from server, but handle undefined
+  const normalizedBillingStatus = billingStatus || 'free'
 
   const handleMouseEnter = useCallback(() => {
     setIsHovered(true)
@@ -200,7 +203,7 @@ const SidebarComponent = memo(function SidebarComponent({
 
   // Memoize the founding member alert component
   const foundingMemberAlert = useMemo(() => {
-    const isFree = billingStatus === 'free'
+    const isFree = normalizedBillingStatus === 'free'
     
     return (
       <Alert className="flex flex-col gap-1 rounded-md bg-neutral-alpha-2 border-neutral-alpha-4 p-3">
@@ -342,14 +345,15 @@ const SidebarComponent = memo(function SidebarComponent({
                   e.currentTarget.style.backgroundColor = 'var(--color-orange-3)'
                 }}
                 onClick={() => {
-                  const isFree = billingStatus === 'free'
+                  const isFree = normalizedBillingStatus === 'free'
                   if (isFree) {
                     router.push('/settings/organization/billing')
                   } else {
                     window.location.href = 'mailto:support@fiive.co'
                   }
                 }}
-                aria-label={billingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
+                aria-label={normalizedBillingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
+                suppressHydrationWarning
               >
                 <StarFour 
                   size={18} 
@@ -359,7 +363,7 @@ const SidebarComponent = memo(function SidebarComponent({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={8}>
-              {billingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
+              {normalizedBillingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
             </TooltipContent>
           </Tooltip>
         ) : (
