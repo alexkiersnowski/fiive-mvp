@@ -255,8 +255,10 @@ const SidebarComponent = memo(function SidebarComponent({
               size="sm"
               className="self-start h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75"
               style={{ marginLeft: '-4px' }}
+              onClick={() => window.location.href = 'mailto:support@fiive.co'}
             >
-              Share feedback
+              <span className="mr-1">Share feedback</span>
+              <ArrowRight size={16} weight="regular" />
             </Button>
           </>
         )}
@@ -339,7 +341,15 @@ const SidebarComponent = memo(function SidebarComponent({
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'var(--color-orange-3)'
                 }}
-                aria-label="Founding 50 feedback"
+                onClick={() => {
+                  const isFree = billingStatus === 'free'
+                  if (isFree) {
+                    router.push('/settings/organization/billing')
+                  } else {
+                    window.location.href = 'mailto:support@fiive.co'
+                  }
+                }}
+                aria-label={billingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
               >
                 <StarFour 
                   size={18} 
@@ -349,7 +359,7 @@ const SidebarComponent = memo(function SidebarComponent({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={8}>
-              Founding 50 feedback
+              {billingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
             </TooltipContent>
           </Tooltip>
         ) : (

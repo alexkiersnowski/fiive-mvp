@@ -12,7 +12,7 @@ const CORE_FEATURES = [
   { text: 'Unlimited live connections' },
   { text: 'Unlimited team members' },
   { text: 'Requests, projects & task management' },
-  { text: 'Founding member rate locked for life' }
+  { text: 'Founding member rate locked in' }
 ]
 
 interface PaywallModalProps {

@@ -53,7 +53,7 @@ const AGENCY_PRO_FEATURES = [
   { text: 'All current & future features' },
   { text: 'Priority onboarding & support' },
   { text: 'Directly influence the future of Fiive' },
-  { text: 'Founding member rate locked for life' }
+  { text: 'Founding member rate locked in' }
 ]
 
 /**
