@@ -9,118 +9,49 @@ export type HealthCounts = {
   unassigned: number;
 };
 
-export const getHealthCounts = cache(async (context: EnhancedModeContext): Promise<HealthCounts> => {
+/**
+ * Get count of tasks due within the next 7 days for the current organization
+ * @param context - The enhanced mode context
+ * @param connectionIds - Optional array of connection IDs to use instead of fetching connections
+ *                        This avoids redundant queries when connection IDs are already available
+ */
+export const getTasksDueSoonCount = cache(async (
+  context: EnhancedModeContext,
+  connectionIds?: string[]
+): Promise<number> => {
   const supabase = await createClient();
   
-  if (context.variant !== 'agency') {
-    // Clients don't have health counts - they see agencies
-    return { healthy: 0, atRisk: 0, critical: 0, unassigned: 0 };
-  }
+  // Use provided connection IDs or fetch them
+  let finalConnectionIds: string[] = connectionIds || [];
   
-  // Exclude disconnected connections (frozen/read-only)
-  const { data: connections, error } = await supabase
-    .from('connections')
-    .select('health_status')
-    .eq('agency_id', context.orgId)
-    .neq('connection_status', 'disconnected');
-  
-  if (error) {
-    console.error('Error fetching health counts:', error);
-    return { healthy: 0, atRisk: 0, critical: 0, unassigned: 0 };
-  }
-  
-  const counts: HealthCounts = {
-    healthy: 0,
-    atRisk: 0,
-    critical: 0,
-    unassigned: 0
-  };
-  
-  connections?.forEach(conn => {
-    switch (conn.health_status) {
-      case 'healthy':
-        counts.healthy++;
-        break;
-      case 'at_risk':
-        counts.atRisk++;
-        break;
-      case 'critical':
-        counts.critical++;
-        break;
-      case 'unassigned':
-      default:
-        counts.unassigned++;
-        break;
+  if (finalConnectionIds.length === 0) {
+    // Get all connection IDs that belong to this organization
+    // Agency: connections where agency_id = orgId
+    // Client: connections where client_id = orgId
+    // Exclude disconnected connections (frozen/read-only)
+    const connectionQuery = context.variant === 'agency'
+      ? supabase
+          .from('connections')
+          .select('id')
+          .eq('agency_id', context.orgId)
+          .neq('connection_status', 'disconnected')
+      : supabase
+          .from('connections')
+          .select('id')
+          .eq('client_id', context.orgId)
+          .neq('connection_status', 'disconnected');
+
+    const { data: connections, error: connectionQueryError } = await connectionQuery;
+
+    if (connectionQueryError || !connections) {
+      console.error('Error fetching connections for tasks due soon count:', connectionQueryError);
+      return 0;
     }
-  });
-  
-  return counts;
-});
 
-export const getContractsEndingCount = cache(async (context: EnhancedModeContext): Promise<number> => {
-  const supabase = await createClient();
-  
-  if (context.variant !== 'agency') {
-    // Clients don't have contract ending counts - they see agencies
-    return 0;
-  }
-  
-  // Calculate 90 days from now
-  const today = new Date();
-  const ninetyDaysFromNow = new Date();
-  ninetyDaysFromNow.setDate(today.getDate() + 90);
-  
-  // Format dates for PostgreSQL (YYYY-MM-DD)
-  const todayStr = today.toISOString().split('T')[0];
-  const ninetyDaysStr = ninetyDaysFromNow.toISOString().split('T')[0];
-  
-  // Exclude disconnected connections (frozen/read-only)
-  const { data: connections, error } = await supabase
-    .from('connections')
-    .select('contract_end_on')
-    .eq('agency_id', context.orgId)
-    .neq('connection_status', 'disconnected')
-    .not('contract_end_on', 'is', null)
-    .gte('contract_end_on', todayStr)
-    .lte('contract_end_on', ninetyDaysStr);
-  
-  if (error) {
-    console.error('Error fetching contracts ending count:', error);
-    return 0;
-  }
-  
-  return connections?.length || 0;
-});
-
-export const getTasksDueSoonCount = cache(async (context: EnhancedModeContext): Promise<number> => {
-  const supabase = await createClient();
-  
-  // Get all connection IDs that belong to this organization
-  // Agency: connections where agency_id = orgId
-  // Client: connections where client_id = orgId
-  // Exclude disconnected connections (frozen/read-only)
-  const connectionQuery = context.variant === 'agency'
-    ? supabase
-        .from('connections')
-        .select('id')
-        .eq('agency_id', context.orgId)
-        .neq('connection_status', 'disconnected')
-    : supabase
-        .from('connections')
-        .select('id')
-        .eq('client_id', context.orgId)
-        .neq('connection_status', 'disconnected');
-
-  const { data: connections, error: connectionQueryError } = await connectionQuery;
-
-  if (connectionQueryError || !connections) {
-    console.error('Error fetching connections for tasks due soon count:', connectionQueryError);
-    return 0;
+    finalConnectionIds = connections.map(c => c.id);
   }
 
-  const connectionIds = connections.map(c => c.id);
-
-  if (connectionIds.length === 0) {
+  if (finalConnectionIds.length === 0) {
     // No connections, return 0
     return 0;
   }
@@ -139,7 +70,7 @@ export const getTasksDueSoonCount = cache(async (context: EnhancedModeContext): 
   const { count, error } = await supabase
     .from('tasks')
     .select('id', { count: 'exact', head: true })
-    .in('connection_id', connectionIds)
+    .in('connection_id', finalConnectionIds)
     .is('deleted_at', null)
     .neq('status', 'done')
     .not('due_date', 'is', null)
@@ -205,7 +136,19 @@ export const getLiveProjectCountsForAgencies = cache(async (
   return counts;
 });
 
-// Unified query that fetches all home page data in a single database call
+/**
+ * Unified query that fetches all home page data in a single database call.
+ * 
+ * Performance optimization: This function fetches connections once and returns
+ * connectionIds to be reused by count functions, eliminating redundant queries.
+ * 
+ * All count functions (getGlobalNewRequestsCount, getGlobalInReviewRequestsCount,
+ * getTasksDueSoonCount, getGlobalAssignedTasksCount) accept an optional connectionIds
+ * parameter to avoid fetching connections again.
+ * 
+ * @param context - The enhanced mode context
+ * @returns Unified home data including connectionIds for reuse in count queries
+ */
 export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => {
   const supabase = await createClient();
   
@@ -234,6 +177,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
       console.error('Error fetching agency connections:', error);
       return {
         connectionCount: 0,
+        connectionIds: [], // Return empty array to maintain consistent return type
         agencyPreviews: [],
         healthCounts: { healthy: 0, atRisk: 0, critical: 0, unassigned: 0 },
         contractsEndingCount: 0
@@ -260,6 +204,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
 
     return {
       connectionCount: connections?.length || 0,
+      connectionIds, // Return connection IDs to avoid redundant queries
       agencyPreviews,
       healthCounts: { healthy: 0, atRisk: 0, critical: 0, unassigned: 0 },
       contractsEndingCount: 0
@@ -292,6 +237,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
     console.error('Error fetching connections for home data:', error);
     return {
       connectionCount: 0,
+      connectionIds: [], // Return empty array to maintain consistent return type
       agencyPreviews: [],
       healthCounts: { healthy: 0, atRisk: 0, critical: 0, unassigned: 0 },
       contractsEndingCount: 0
@@ -341,8 +287,12 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
     }
   });
 
+  // Extract connection IDs for reuse in count queries
+  const connectionIds = (connections || []).map(c => c.id);
+
   return {
     connectionCount: connections?.length || 0,
+    connectionIds, // Return connection IDs to avoid redundant queries
     agencyPreviews: [], // Agencies don't show agency previews
     healthCounts,
     contractsEndingCount

@@ -9,12 +9,17 @@ export const getHomeSnapshot = cache(async (context: EnhancedModeContext): Promi
   // Use unified query to fetch all data in a single database call
   const unifiedData = await getUnifiedHomeData(context);
   
-  // Fetch new requests count, in-review requests count, tasks due soon count, and assigned tasks count in parallel with unified data
+  // Pass connection IDs from unified data to avoid redundant connection queries
+  // This eliminates 4 redundant database queries per page load
+  const connectionIds = unifiedData.connectionIds || [];
+  
+  // Fetch new requests count, in-review requests count, tasks due soon count, and assigned tasks count in parallel
+  // All count functions now accept optional connectionIds to avoid redundant queries
   const [newRequestsCount, inReviewRequestsCount, tasksDueSoonCount, assignedTasksCount] = await Promise.all([
-    getGlobalNewRequestsCount(context),
-    getGlobalInReviewRequestsCount(context),
-    getTasksDueSoonCount(context),
-    getGlobalAssignedTasksCount(context),
+    getGlobalNewRequestsCount(context, connectionIds),
+    getGlobalInReviewRequestsCount(context, connectionIds),
+    getTasksDueSoonCount(context, connectionIds),
+    getGlobalAssignedTasksCount(context, connectionIds),
   ]);
   
   return {

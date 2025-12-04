@@ -1572,8 +1572,15 @@ export const getMembersForAllConnections = cache(async (
  * Get global count of tasks assigned to any member of the client organization
  * Only works for client context (returns 0 for agency context)
  */
+/**
+ * Get global count of tasks assigned to client organization members
+ * @param context - The enhanced mode context
+ * @param connectionIds - Optional array of connection IDs to use instead of fetching connections
+ *                        This avoids redundant queries when connection IDs are already available
+ */
 export const getGlobalAssignedTasksCount = cache(async (
-  context: EnhancedModeContext
+  context: EnhancedModeContext,
+  connectionIds?: string[]
 ): Promise<number> => {
   // Only works for client context
   if (context.variant !== 'client') {
@@ -1587,22 +1594,27 @@ export const getGlobalAssignedTasksCount = cache(async (
 
   const supabase = await createClient();
   
-  // Get all connection IDs where this client is the client-side org
-  // Exclude disconnected connections (frozen/read-only)
-  const { data: connections, error: connectionQueryError } = await supabase
-    .from('connections')
-    .select('id')
-    .eq('client_id', context.orgId)
-    .neq('connection_status', 'disconnected');
+  // Use provided connection IDs or fetch them
+  let finalConnectionIds: string[] = connectionIds || [];
+  
+  if (finalConnectionIds.length === 0) {
+    // Get all connection IDs where this client is the client-side org
+    // Exclude disconnected connections (frozen/read-only)
+    const { data: connections, error: connectionQueryError } = await supabase
+      .from('connections')
+      .select('id')
+      .eq('client_id', context.orgId)
+      .neq('connection_status', 'disconnected');
 
-  if (connectionQueryError || !connections) {
-    console.error('Error fetching connections for assigned tasks count:', connectionQueryError);
-    return 0;
+    if (connectionQueryError || !connections) {
+      console.error('Error fetching connections for assigned tasks count:', connectionQueryError);
+      return 0;
+    }
+
+    finalConnectionIds = connections.map(c => c.id);
   }
 
-  const connectionIds = connections.map(c => c.id);
-
-  if (connectionIds.length === 0) {
+  if (finalConnectionIds.length === 0) {
     return 0;
   }
 
@@ -1631,7 +1643,7 @@ export const getGlobalAssignedTasksCount = cache(async (
   const { count, error: countError } = await supabase
     .from('tasks')
     .select('id', { count: 'exact', head: true })
-    .in('connection_id', connectionIds)
+    .in('connection_id', finalConnectionIds)
     .in('assignee_user_id', clientOrgUserIds)
     .is('completed_at', null)
     .is('deleted_at', null);

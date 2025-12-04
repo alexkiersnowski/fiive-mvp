@@ -958,8 +958,15 @@ export const getAgencyMembersForActiveOrg = cache(async (
 /**
  * Get global count of requests with status 'new' for the current organization
  */
+/**
+ * Get global count of requests with status 'new' for the current organization
+ * @param context - The enhanced mode context
+ * @param connectionIds - Optional array of connection IDs to use instead of fetching connections
+ *                        This avoids redundant queries when connection IDs are already available
+ */
 export const getGlobalNewRequestsCount = cache(async (
-  context: EnhancedModeContext
+  context: EnhancedModeContext,
+  connectionIds?: string[]
 ): Promise<number> => {
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {
@@ -968,30 +975,35 @@ export const getGlobalNewRequestsCount = cache(async (
 
   const supabase = await createClient();
   
-  // Get all connection IDs that belong to this organization
-  // Exclude disconnected connections (frozen/read-only)
-  const connectionQuery = context.variant === 'agency'
-    ? supabase
-        .from('connections')
-        .select('id')
-        .eq('agency_id', context.orgId)
-        .neq('connection_status', 'disconnected')
-    : supabase
-        .from('connections')
-        .select('id')
-        .eq('client_id', context.orgId)
-        .neq('connection_status', 'disconnected');
+  // Use provided connection IDs or fetch them
+  let finalConnectionIds: string[] = connectionIds || [];
+  
+  if (finalConnectionIds.length === 0) {
+    // Get all connection IDs that belong to this organization
+    // Exclude disconnected connections (frozen/read-only)
+    const connectionQuery = context.variant === 'agency'
+      ? supabase
+          .from('connections')
+          .select('id')
+          .eq('agency_id', context.orgId)
+          .neq('connection_status', 'disconnected')
+      : supabase
+          .from('connections')
+          .select('id')
+          .eq('client_id', context.orgId)
+          .neq('connection_status', 'disconnected');
 
-  const { data: connections, error: connectionQueryError } = await connectionQuery;
+    const { data: connections, error: connectionQueryError } = await connectionQuery;
 
-  if (connectionQueryError || !connections) {
-    console.error('Error fetching connections:', connectionQueryError);
-    return 0;
+    if (connectionQueryError || !connections) {
+      console.error('Error fetching connections:', connectionQueryError);
+      return 0;
+    }
+
+    finalConnectionIds = connections.map(c => c.id);
   }
 
-  const connectionIds = connections.map(c => c.id);
-
-  if (connectionIds.length === 0) {
+  if (finalConnectionIds.length === 0) {
     return 0;
   }
 
@@ -999,7 +1011,7 @@ export const getGlobalNewRequestsCount = cache(async (
   const { count, error: countError } = await supabase
     .from('requests')
     .select('id', { count: 'exact', head: true })
-    .in('connection_id', connectionIds)
+    .in('connection_id', finalConnectionIds)
     .eq('status', 'new')
     .is('deleted_at', null);
 
@@ -1013,9 +1025,13 @@ export const getGlobalNewRequestsCount = cache(async (
 
 /**
  * Get global count of requests with status 'in_review' for the current organization
+ * @param context - The enhanced mode context
+ * @param connectionIds - Optional array of connection IDs to use instead of fetching connections
+ *                        This avoids redundant queries when connection IDs are already available
  */
 export const getGlobalInReviewRequestsCount = cache(async (
-  context: EnhancedModeContext
+  context: EnhancedModeContext,
+  connectionIds?: string[]
 ): Promise<number> => {
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {
@@ -1024,30 +1040,35 @@ export const getGlobalInReviewRequestsCount = cache(async (
 
   const supabase = await createClient();
   
-  // Get all connection IDs that belong to this organization
-  // Exclude disconnected connections (frozen/read-only)
-  const connectionQuery = context.variant === 'agency'
-    ? supabase
-        .from('connections')
-        .select('id')
-        .eq('agency_id', context.orgId)
-        .neq('connection_status', 'disconnected')
-    : supabase
-        .from('connections')
-        .select('id')
-        .eq('client_id', context.orgId)
-        .neq('connection_status', 'disconnected');
+  // Use provided connection IDs or fetch them
+  let finalConnectionIds: string[] = connectionIds || [];
+  
+  if (finalConnectionIds.length === 0) {
+    // Get all connection IDs that belong to this organization
+    // Exclude disconnected connections (frozen/read-only)
+    const connectionQuery = context.variant === 'agency'
+      ? supabase
+          .from('connections')
+          .select('id')
+          .eq('agency_id', context.orgId)
+          .neq('connection_status', 'disconnected')
+      : supabase
+          .from('connections')
+          .select('id')
+          .eq('client_id', context.orgId)
+          .neq('connection_status', 'disconnected');
 
-  const { data: connections, error: connectionQueryError } = await connectionQuery;
+    const { data: connections, error: connectionQueryError } = await connectionQuery;
 
-  if (connectionQueryError || !connections) {
-    console.error('Error fetching connections:', connectionQueryError);
-    return 0;
+    if (connectionQueryError || !connections) {
+      console.error('Error fetching connections:', connectionQueryError);
+      return 0;
+    }
+
+    finalConnectionIds = connections.map(c => c.id);
   }
 
-  const connectionIds = connections.map(c => c.id);
-
-  if (connectionIds.length === 0) {
+  if (finalConnectionIds.length === 0) {
     return 0;
   }
 
@@ -1055,7 +1076,7 @@ export const getGlobalInReviewRequestsCount = cache(async (
   const { count, error: countError } = await supabase
     .from('requests')
     .select('id', { count: 'exact', head: true })
-    .in('connection_id', connectionIds)
+    .in('connection_id', finalConnectionIds)
     .eq('status', 'in_review')
     .is('deleted_at', null);
 
