@@ -99,6 +99,79 @@ export default function MembersContent({
     }
     return merged
   }
+
+  // Client-side filtering function that matches server-side search logic
+  // Used when unfilteredTotalCount <= 100 for instant search without network calls
+  function filterMembersLocally(
+    members: OrganizationMember[],
+    invitations: OrganizationInvitation[],
+    searchQuery: string
+  ): { filteredMembers: OrganizationMember[]; filteredInvitations: OrganizationInvitation[] } {
+    const trimmedQuery = searchQuery.trim()
+    
+    if (!trimmedQuery) {
+      return { filteredMembers: members, filteredInvitations: invitations }
+    }
+
+    const lowerQuery = trimmedQuery.toLowerCase()
+    const searchTerms = lowerQuery.split(' ').filter(t => t.length > 0)
+
+    // Check if query is a role search (exact match for "owner" or "member")
+    const isRoleSearch = lowerQuery === 'owner' || lowerQuery === 'member'
+
+    // Filter members
+    const filteredMembers = members.filter(member => {
+      // If it's a role search, check effective_role
+      if (isRoleSearch) {
+        return member.effective_role.toLowerCase() === lowerQuery
+      }
+
+      // Otherwise, search in name and email fields
+      const firstName = (member.first_name || '').toLowerCase()
+      const lastName = (member.last_name || '').toLowerCase()
+      const email = (member.email || '').toLowerCase()
+      const effectiveRole = (member.effective_role || '').toLowerCase()
+
+      if (searchTerms.length > 1) {
+        // Multi-word search: try to match first word in first_name AND second word in last_name
+        // OR vice versa, OR full term in any field (including role)
+        const firstTerm = searchTerms[0]
+        const secondTerm = searchTerms[1]
+        
+        return (
+          (firstName.includes(firstTerm) && lastName.includes(secondTerm)) ||
+          (firstName.includes(secondTerm) && lastName.includes(firstTerm)) ||
+          firstName.includes(lowerQuery) ||
+          lastName.includes(lowerQuery) ||
+          email.includes(lowerQuery) ||
+          effectiveRole.includes(lowerQuery)
+        )
+      } else {
+        // Single word search: match in first_name, last_name, email, or role
+        return (
+          firstName.includes(lowerQuery) ||
+          lastName.includes(lowerQuery) ||
+          email.includes(lowerQuery) ||
+          effectiveRole.includes(lowerQuery)
+        )
+      }
+    })
+
+    // Filter invitations
+    const filteredInvitations = invitations.filter(invitation => {
+      const invitedEmail = (invitation.invited_email || '').toLowerCase()
+      const role = (invitation.role || '').toLowerCase()
+      
+      // If it's a role search, check invitation role (invitations are always "member" role)
+      if (isRoleSearch) {
+        return lowerQuery === 'member' && role === 'member'
+      }
+      
+      return invitedEmail.includes(lowerQuery) || role.includes(lowerQuery)
+    })
+
+    return { filteredMembers, filteredInvitations }
+  }
   
   // Load more function following RequestsPageClient pattern
   const loadMore = useCallback(async () => {
@@ -148,16 +221,27 @@ export default function MembersContent({
     loadMore()
   }, [loadMore])
   
+  // Determine if we should use client-side filtering (≤100 members) or server-side search (>100 members)
+  const useClientSideFiltering = unfilteredTotalCount <= 100
+
   // Debounce server fetch (150ms - matching other tables)
+  // Only debounce if using server-side search
   useEffect(() => {
+    if (useClientSideFiltering) {
+      // For client-side filtering, update immediately (no debounce needed)
+      setDebouncedSearchQuery(searchQuery)
+      return
+    }
+    
+    // For server-side search, debounce to reduce API calls
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery)
     }, 150)
 
     return () => clearTimeout(timer)
-  }, [searchQuery])
+  }, [searchQuery, useClientSideFiltering])
   
-  // Track current request to prevent stale updates
+  // Search effect: client-side filtering for ≤100 members, server-side for >100 members
   useEffect(() => {
     // Handle empty search query by resetting to initial data
     if (!debouncedSearchQuery.trim()) {
@@ -169,7 +253,24 @@ export default function MembersContent({
       setIsLoading(false)
       return
     }
-    
+
+    // Client-side filtering for small organizations (≤100 members)
+    if (useClientSideFiltering) {
+      const { filteredMembers, filteredInvitations } = filterMembersLocally(
+        initialMembers,
+        initialInvitations,
+        debouncedSearchQuery
+      )
+      setMembers(filteredMembers)
+      setInvitations(filteredInvitations)
+      setHasMore(false) // No pagination needed for client-side filtering
+      setCurrentOffset(PAGE_SIZE)
+      setIsBootstrapping(false)
+      setIsLoading(false)
+      return
+    }
+
+    // Server-side search for large organizations (>100 members)
     // Increment request ID for this search
     const requestId = ++currentRequestRef.current
     
@@ -218,7 +319,7 @@ export default function MembersContent({
     return () => {
       // No-op. The ref check prevents stale updates.
     }
-  }, [debouncedSearchQuery, organizationId, initialMembers, initialInvitations, initialHasNextPage])
+  }, [debouncedSearchQuery, organizationId, initialMembers, initialInvitations, initialHasNextPage, useClientSideFiltering])
   
   // Sync local state when props change (e.g., when new members/invitations are added)
   // Only sync when there's no active search to avoid interfering with search results

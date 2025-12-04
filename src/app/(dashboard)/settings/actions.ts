@@ -886,12 +886,17 @@ export async function getOrganizationMembers(
     .eq("memberships.org_id", organizationId)
     .is("deleted_at", null)
 
+  // Track role search for post-transformation filtering
+  const trimmedQuery = searchQuery.trim()
+  const lowerQuery = trimmedQuery.toLowerCase()
+  const isRoleSearch = lowerQuery === 'owner' || lowerQuery === 'member'
+  const searchIncludesRole = !isRoleSearch && (lowerQuery.includes('owner') || lowerQuery.includes('member'))
+
   // Apply search filters directly on profiles table fields (standard PostgREST syntax)
-  if (searchQuery.trim()) {
-    const trimmedQuery = searchQuery.trim()
+  if (trimmedQuery && !isRoleSearch) {
     const escaped = escapeForILike(trimmedQuery)
     const searchPattern = `%${escaped}%`
-    const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0)
+    const searchTerms = lowerQuery.split(' ').filter(t => t.length > 0)
     
     if (searchTerms.length > 1) {
       // Multi-word search: try to match first word in first_name AND second word in last_name
@@ -943,7 +948,7 @@ export async function getOrganizationMembers(
 
   // Transform the data to match our interface
   // Data structure is now: profiles with nested memberships and organizations
-  const transformedMembers: OrganizationMember[] = profiles?.map(profile => {
+  let transformedMembers: OrganizationMember[] = profiles?.map(profile => {
     const membership = Array.isArray(profile.memberships) ? profile.memberships[0] : profile.memberships
     const organization = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations
     
@@ -968,6 +973,28 @@ export async function getOrganizationMembers(
       }
     }
   }) || []
+
+  // Apply role-based filtering if needed (after transformation since effective_role is computed)
+  if (isRoleSearch) {
+    transformedMembers = transformedMembers.filter(member => 
+      member.effective_role.toLowerCase() === lowerQuery
+    )
+  } else if (searchIncludesRole) {
+    // If search query includes "owner" or "member" but isn't exact match, filter by role as well
+    transformedMembers = transformedMembers.filter(member => {
+      const firstName = (member.first_name || '').toLowerCase()
+      const lastName = (member.last_name || '').toLowerCase()
+      const email = (member.email || '').toLowerCase()
+      const effectiveRole = (member.effective_role || '').toLowerCase()
+      
+      return (
+        firstName.includes(lowerQuery) ||
+        lastName.includes(lowerQuery) ||
+        email.includes(lowerQuery) ||
+        effectiveRole.includes(lowerQuery)
+      )
+    })
+  }
 
   // Determine if there are more pages
   const hasNextPage = transformedMembers.length === limit
@@ -1852,11 +1879,25 @@ export async function getOrganizationInvitations(
 
   // Apply server-side search if searchQuery is provided
   // Uses trigram index on lower(invited_email) for fast email search
-  if (searchQuery.trim()) {
-    const escapedSearch = escapeForILike(searchQuery.trim())
+  const trimmedQuery = searchQuery.trim()
+  const lowerQuery = trimmedQuery.toLowerCase()
+  const isRoleSearch = lowerQuery === 'owner' || lowerQuery === 'member'
+  
+  if (trimmedQuery && !isRoleSearch) {
+    const escapedSearch = escapeForILike(trimmedQuery)
     const searchTerm = `%${escapedSearch}%`
     // Use ilike on invited_email - trigram index will be used automatically
     query = query.ilike("invited_email", searchTerm)
+  } else if (isRoleSearch) {
+    // For role search, invitations are always "member" role
+    // Filter to only show if searching for "member"
+    if (lowerQuery === 'member') {
+      // Keep all invitations (they're all member role)
+      // No additional filter needed
+    } else {
+      // Searching for "owner" - invitations can't be owners, so return empty
+      query = query.eq("id", "00000000-0000-0000-0000-000000000000") // Impossible match
+    }
   }
 
   // Order and paginate
