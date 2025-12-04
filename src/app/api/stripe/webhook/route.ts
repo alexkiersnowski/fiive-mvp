@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
                 timestamp: new Date().toISOString()
               })
             }
-          } catch (customerError) {
+          } catch (_customerError) {
             // Customer doesn't exist or error retrieving - reset fields if org found
             const { data: org } = await supabase
               .from('organizations')

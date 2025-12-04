@@ -1798,7 +1798,6 @@ export async function validateAndInviteMembers(data: {
   revalidatePath("/settings/organization/members")
   
   // Return detailed results
-  const totalProcessed = allProcessedEmails.length
   const totalSuccessful = successfulEmails.length
   const totalFailed = failedEmails.length
   

@@ -56,7 +56,7 @@ export async function getOrCreateCustomer(
         // Customer exists and is valid, return it
         return org.stripe_customer_id
       }
-    } catch (error) {
+    } catch (_error) {
       // Customer doesn't exist or error retrieving (likely deleted or invalid)
       // Reset all Stripe fields using centralized helper
       try {

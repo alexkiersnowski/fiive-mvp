@@ -107,13 +107,13 @@ export async function sendMemberInviteEmailsBatch(
 
   // Send batch via Resend Batch API with permissive validation mode
   // This allows partial success - some emails can succeed while others fail
-  const { data, error, errors } = await resend.batch.send(batchPayload, {
+  const response = await resend.batch.send(batchPayload, {
     batchValidation: 'permissive', // Allow partial success
   })
 
   // Handle overall batch error (entire request failed)
-  if (error) {
-    const errorMessage = error.message || 'Unknown error'
+  if (response.error) {
+    const errorMessage = response.error.message || 'Unknown error'
     console.error('[sendMemberInviteEmailsBatch] Batch API error:', errorMessage)
     // If entire batch failed, mark all emails as failed
     return emails.map(({ to }) => ({
@@ -125,13 +125,15 @@ export async function sendMemberInviteEmailsBatch(
 
   // Process results - map batch response to email addresses
   // The data array contains successful emails in the same order as batchPayload
-  // The errors array (in permissive mode) contains failed emails with their index
+  // Check for errors in the response (may be in different format depending on Resend API)
   const results: Array<{ email: string; success: boolean; error?: string }> = []
   
   // Create a map of failed emails by index
   const failedEmailsMap = new Map<number, string>()
-  if (errors && Array.isArray(errors)) {
-    errors.forEach((err) => {
+  // Check if response has errors property (may not exist in type but could be present at runtime)
+  const responseErrors = (response as unknown as { errors?: Array<{ index: number; message: string }> }).errors
+  if (responseErrors && Array.isArray(responseErrors)) {
+    responseErrors.forEach((err) => {
       failedEmailsMap.set(err.index, err.message)
     })
   }
