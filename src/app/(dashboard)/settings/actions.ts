@@ -852,74 +852,93 @@ export async function getOrganizationMembers(
     }
   }
 
-  // When searching, apply ILIKE filters FIRST (uses trigram indexes), then filter by organization membership
-  // This is the optimal pattern: PostgreSQL can use trigram indexes before filtering by membership
+  // When searching, filter by org membership FIRST, then search only those profiles
+  // This dramatically reduces the search space (e.g., 10-50 profiles vs thousands)
+  // Fast with idx_memberships_org_id index, then trigram indexes work on small dataset
   let matchingUserIds: string[] = []
   if (searchQuery.trim()) {
-    const trimmedQuery = searchQuery.trim()
-    const escaped = escapeForILike(trimmedQuery)
-    const searchPattern = `%${escaped}%`
-    const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0)
+    // Step 1: Get all user_ids that belong to this organization's memberships (FAST with index)
+    const { data: orgMemberships, error: membershipsError } = await supabase
+      .from('memberships')
+      .select('user_id')
+      .eq('org_id', organizationId)
     
-    // Apply ILIKE filters FIRST on profiles table (uses trigram indexes for fast search)
-    // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
-    // Also match if full search term appears in either first_name, last_name, or email
-    let profilesQuery = supabase
-      .from('profiles')
-      .select('id, first_name, last_name, email, memberships!inner(org_id)')
-      .is('deleted_at', null)
-      .eq('memberships.org_id', organizationId) // Filter by organization membership via JOIN
-    
-    if (searchTerms.length > 1) {
-      // Multi-word search: try to match first word in first_name AND second word in last_name
-      // OR vice versa, OR full term in any field
-      const firstTermEscaped = escapeForILike(searchTerms[0])
-      const secondTermEscaped = escapeForILike(searchTerms[1])
-      const firstPattern = `%${firstTermEscaped}%`
-      const secondPattern = `%${secondTermEscaped}%`
-      
-      // Match: (first_name contains first term AND last_name contains second term)
-      // OR (first_name contains second term AND last_name contains first term)
-      // OR (first_name contains full term) OR (last_name contains full term) OR (email contains full term)
-      profilesQuery = profilesQuery.or(
-        `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
-        `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
-        `first_name.ilike.${searchPattern},` +
-        `last_name.ilike.${searchPattern},` +
-        `email.ilike.${searchPattern}`
-      )
+    if (membershipsError || !orgMemberships || orgMemberships.length === 0) {
+      // No memberships found - return empty result
+      matchingUserIds = []
     } else {
-      // Single word search: match in first_name, last_name, or email
-      profilesQuery = profilesQuery.or(
-        `first_name.ilike.${searchPattern},` +
-        `last_name.ilike.${searchPattern},` +
-        `email.ilike.${searchPattern}`
-      )
-    }
-    
-    const { data: matchingProfiles, error: profilesError } = await profilesQuery
-    
-    if (!profilesError && matchingProfiles) {
-      // For multi-word searches, also filter in memory to ensure all terms match
-      if (searchTerms.length > 1) {
-        matchingUserIds = matchingProfiles
-          .filter(profile => {
-            const firstName = (profile.first_name || '').toLowerCase()
-            const lastName = (profile.last_name || '').toLowerCase()
-            const email = (profile.email || '').toLowerCase()
-            const fullName = `${firstName} ${lastName}`.trim()
-            
-            // Check if all search terms appear somewhere in the name or email
-            return searchTerms.every(term => 
-              firstName.includes(term) || 
-              lastName.includes(term) || 
-              fullName.includes(term) ||
-              email.includes(term)
-            )
-          })
-          .map(p => p.id)
+      const orgUserIds = orgMemberships.map(m => m.user_id).filter(Boolean) as string[]
+      
+      if (orgUserIds.length === 0) {
+        matchingUserIds = []
       } else {
-        matchingUserIds = matchingProfiles.map(p => p.id)
+        // Step 2: Search ONLY profiles that belong to this organization (small dataset, fast)
+        const trimmedQuery = searchQuery.trim()
+        const escaped = escapeForILike(trimmedQuery)
+        const searchPattern = `%${escaped}%`
+        const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0)
+        
+        // Search profiles table filtered by org member IDs (uses trigram indexes on small dataset)
+        // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
+        // Also match if full search term appears in either first_name, last_name, or email
+        let profilesQuery = supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email')
+          .is('deleted_at', null)
+          .in('id', orgUserIds) // CRITICAL: Only search profiles in this organization
+        
+        if (searchTerms.length > 1) {
+          // Multi-word search: try to match first word in first_name AND second word in last_name
+          // OR vice versa, OR full term in any field
+          const firstTermEscaped = escapeForILike(searchTerms[0])
+          const secondTermEscaped = escapeForILike(searchTerms[1])
+          const firstPattern = `%${firstTermEscaped}%`
+          const secondPattern = `%${secondTermEscaped}%`
+          
+          // Match: (first_name contains first term AND last_name contains second term)
+          // OR (first_name contains second term AND last_name contains first term)
+          // OR (first_name contains full term) OR (last_name contains full term) OR (email contains full term)
+          profilesQuery = profilesQuery.or(
+            `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
+            `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
+            `first_name.ilike.${searchPattern},` +
+            `last_name.ilike.${searchPattern},` +
+            `email.ilike.${searchPattern}`
+          )
+        } else {
+          // Single word search: match in first_name, last_name, or email
+          profilesQuery = profilesQuery.or(
+            `first_name.ilike.${searchPattern},` +
+            `last_name.ilike.${searchPattern},` +
+            `email.ilike.${searchPattern}`
+          )
+        }
+        
+        const { data: matchingProfiles, error: profilesError } = await profilesQuery
+        
+        if (!profilesError && matchingProfiles) {
+          // For multi-word searches, also filter in memory to ensure all terms match
+          if (searchTerms.length > 1) {
+            matchingUserIds = matchingProfiles
+              .filter(profile => {
+                const firstName = (profile.first_name || '').toLowerCase()
+                const lastName = (profile.last_name || '').toLowerCase()
+                const email = (profile.email || '').toLowerCase()
+                const fullName = `${firstName} ${lastName}`.trim()
+                
+                // Check if all search terms appear somewhere in the name or email
+                return searchTerms.every(term => 
+                  firstName.includes(term) || 
+                  lastName.includes(term) || 
+                  fullName.includes(term) ||
+                  email.includes(term)
+                )
+              })
+              .map(p => p.id)
+          } else {
+            matchingUserIds = matchingProfiles.map(p => p.id)
+          }
+        }
       }
     }
   }
