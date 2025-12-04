@@ -53,16 +53,54 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Get or create Stripe customer
-    const customerId = await getOrCreateCustomer(
-      context.orgId,
-      context.user.email,
-      context.organization.name
-    )
+    // Get or create Stripe customer (handles invalid/deleted customers internally)
+    let customerId: string
+    try {
+      customerId = await getOrCreateCustomer(
+        context.orgId,
+        context.user.email,
+        context.organization.name
+      )
+    } catch (customerError) {
+      console.error('Error getting or creating customer:', customerError)
+      
+      // If customer creation fails, return user-friendly error
+      if (customerError instanceof Error && customerError.message.includes('reset')) {
+        return NextResponse.json(
+          { error: 'Your billing account was reset. Please try again.' },
+          { status: 400 }
+        )
+      }
+      
+      return NextResponse.json(
+        { error: 'Failed to set up billing account. Please try again or contact support.' },
+        { status: 500 }
+      )
+    }
     
-    // Create checkout session
+    // DEFENSIVE CHECK: Verify customer ID is valid before creating checkout session
     const stripe = getStripeInstance()
     
+    try {
+      const customer = await stripe.customers.retrieve(customerId)
+      
+      // Check if customer is deleted (shouldn't happen after getOrCreateCustomer, but defensive)
+      if (customer.deleted) {
+        return NextResponse.json(
+          { error: 'Your billing account has been deleted. Please contact support.' },
+          { status: 400 }
+        )
+      }
+    } catch (verifyError) {
+      // Customer doesn't exist - this shouldn't happen after getOrCreateCustomer
+      console.error('Customer verification failed after creation:', verifyError)
+      return NextResponse.json(
+        { error: 'Failed to verify billing account. Please try again.' },
+        { status: 500 }
+      )
+    }
+    
+    // Create checkout session
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,

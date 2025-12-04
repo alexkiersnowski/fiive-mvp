@@ -9,6 +9,7 @@ import { headers } from 'next/headers'
 import Stripe from 'stripe'
 import { getStripeInstance, mapSubscriptionStatusToBillingStatus } from '@/lib/stripe/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { resetStripeFields } from '@/lib/stripe/helpers'
 
 export async function POST(request: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -165,6 +166,53 @@ export async function POST(request: NextRequest) {
           
           const customerId = subscription.customer as string
         
+          // GUARD: Check customer exists and isn't deleted before processing (idempotency + sanity check)
+          try {
+            const customer = await stripe.customers.retrieve(customerId)
+            // If customer is deleted, Stripe returns a deleted customer object
+            if (customer.deleted) {
+              // Customer is deleted - reset fields and return success (idempotent)
+              const { data: org } = await supabase
+                .from('organizations')
+                .select('id')
+                .eq('stripe_customer_id', customerId)
+                .single()
+              
+              if (org) {
+                await resetStripeFields(org.id)
+              }
+              
+              // Return success - we've handled the deleted customer case
+              return NextResponse.json({ 
+                received: true,
+                eventType: event.type,
+                processed: true,
+                message: 'Customer deleted - fields reset',
+                timestamp: new Date().toISOString()
+              })
+            }
+          } catch (customerError) {
+            // Customer doesn't exist or error retrieving - reset fields if org found
+            const { data: org } = await supabase
+              .from('organizations')
+              .select('id')
+              .eq('stripe_customer_id', customerId)
+              .single()
+            
+            if (org) {
+              await resetStripeFields(org.id)
+            }
+            
+            // Return success - we've handled the invalid customer case
+            return NextResponse.json({ 
+              received: true,
+              eventType: event.type,
+              processed: true,
+              message: 'Customer not found - fields reset',
+              timestamp: new Date().toISOString()
+            })
+          }
+        
           // Validate subscription has items
           if (!subscription.items || !subscription.items.data || subscription.items.data.length === 0) {
             return NextResponse.json(
@@ -200,7 +248,7 @@ export async function POST(request: NextRequest) {
           // Find organization by subscription ID first (most reliable - unique per subscription)
           const { data: orgBySub, error: subError } = await supabase
             .from('organizations')
-            .select('id, billing_status, type')
+            .select('id, billing_status, type, stripe_customer_id')
             .eq('stripe_subscription_id', subscription.id)
             .single()
           
@@ -212,7 +260,7 @@ export async function POST(request: NextRequest) {
             if (subError.code === 'PGRST116') {
               const { data: org, error: findError } = await supabase
                 .from('organizations')
-                .select('id, billing_status, type')
+                .select('id, billing_status, type, stripe_customer_id')
                 .eq('stripe_customer_id', customerId)
                 .single()
               
@@ -237,6 +285,20 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
               { error: 'Organization not found for customer or subscription' },
               { status: 404 }
+            )
+          }
+          
+          // MISMATCH GUARD: Verify subscription.customer === org.stripe_customer_id (prevent cross-org updates)
+          if (organization.stripe_customer_id && organization.stripe_customer_id !== customerId) {
+            console.warn('Subscription customer mismatch:', {
+              organizationId: organization.id,
+              subscriptionCustomerId: customerId,
+              orgCustomerId: organization.stripe_customer_id,
+              subscriptionId: subscription.id
+            })
+            return NextResponse.json(
+              { error: 'Subscription customer does not match organization customer' },
+              { status: 400 }
             )
           }
           
@@ -304,17 +366,37 @@ export async function POST(request: NextRequest) {
           .single()
         
         if (!findError && org) {
-          const { error } = await supabase
-            .from('organizations')
-            .update({
-              billing_status: 'free',
-              current_period_end: null, // Clean up when subscription is deleted
-            })
-            .eq('id', org.id)
-          
-          if (error) {
+          // Use centralized reset helper to reset all Stripe fields
+          try {
+            await resetStripeFields(org.id)
+          } catch (resetError) {
             return NextResponse.json(
-              { error: 'Failed to update organization after cancellation', details: error.message },
+              { error: 'Failed to reset Stripe fields after subscription deletion', details: resetError instanceof Error ? resetError.message : String(resetError) },
+              { status: 500 }
+            )
+          }
+        }
+        break
+      }
+      
+      case 'customer.deleted': {
+        const customer = event.data.object as Stripe.Customer
+        const customerId = customer.id
+        
+        // Find organization by customer ID
+        const { data: org, error: findError } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('stripe_customer_id', customerId)
+          .single()
+        
+        if (!findError && org) {
+          // Use centralized reset helper to reset all Stripe fields
+          try {
+            await resetStripeFields(org.id)
+          } catch (resetError) {
+            return NextResponse.json(
+              { error: 'Failed to reset Stripe fields after customer deletion', details: resetError instanceof Error ? resetError.message : String(resetError) },
               { status: 500 }
             )
           }

@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { resetStripeFields } from './helpers'
 
 /**
  * Get configured Stripe instance
@@ -45,16 +46,25 @@ export async function getOrCreateCustomer(
   if (org.stripe_customer_id) {
     try {
       // Try to retrieve the customer to verify it exists
-      await stripe.customers.retrieve(org.stripe_customer_id)
-      // Customer exists, return it
-      return org.stripe_customer_id
-    } catch (_error) {
-      // Customer doesn't exist (likely from different mode), clear it and create new one
-      // Clear the invalid customer ID
-      await supabase
-        .from('organizations')
-        .update({ stripe_customer_id: null })
-        .eq('id', organizationId)
+      const customer = await stripe.customers.retrieve(org.stripe_customer_id)
+      
+      // Check if customer is deleted
+      if (customer.deleted) {
+        // Customer is deleted - reset all Stripe fields using centralized helper
+        await resetStripeFields(organizationId)
+      } else {
+        // Customer exists and is valid, return it
+        return org.stripe_customer_id
+      }
+    } catch (error) {
+      // Customer doesn't exist or error retrieving (likely deleted or invalid)
+      // Reset all Stripe fields using centralized helper
+      try {
+        await resetStripeFields(organizationId)
+      } catch (resetError) {
+        // If reset fails, log but continue to create new customer
+        console.error('Failed to reset Stripe fields:', resetError)
+      }
     }
   }
   
