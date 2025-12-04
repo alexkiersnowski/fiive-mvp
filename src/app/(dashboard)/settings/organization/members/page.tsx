@@ -64,6 +64,9 @@ export default async function UserManagementPage() {
   const membersHasNextPage = membersResult.status === 'fulfilled' && membersResult.value.ok
     ? (membersResult.value.hasNextPage || false)
     : false
+  const membersTotalCount = membersResult.status === 'fulfilled' && membersResult.value.ok
+    ? membersResult.value.totalCount
+    : undefined
   
   if (membersResult.status === 'rejected') {
     console.error('Error fetching members:', membersResult.reason)
@@ -78,6 +81,9 @@ export default async function UserManagementPage() {
   const invitationsHasNextPage = invitationsResult.status === 'fulfilled' && invitationsResult.value.ok
     ? (invitationsResult.value.hasNextPage || false)
     : false
+  const invitationsTotalCount = invitationsResult.status === 'fulfilled' && invitationsResult.value.ok
+    ? invitationsResult.value.totalCount
+    : undefined
   
   if (invitationsResult.status === 'rejected') {
     console.error('Error fetching invitations:', invitationsResult.reason)
@@ -92,6 +98,12 @@ export default async function UserManagementPage() {
   const canInviteMembers = memberLimitCheckResult.status === 'fulfilled' 
     ? memberLimitCheckResult.value.allowed 
     : true // Default to true on error (fail open)
+
+  // Calculate accurate unfilteredTotalCount using totalCount from server if available,
+  // otherwise fall back to loaded data length (for backwards compatibility)
+  const unfilteredTotalCount = (membersTotalCount !== undefined && invitationsTotalCount !== undefined)
+    ? membersTotalCount + invitationsTotalCount
+    : members.length + invitations.length
 
   // If both fail, show error
   if (members.length === 0 && invitations.length === 0) {
@@ -120,7 +132,7 @@ export default async function UserManagementPage() {
       invitations={invitations}
       organizationId={organization.id}
       currentUserRole={currentUserRole}
-      unfilteredTotalCount={members.length + invitations.length}
+      unfilteredTotalCount={unfilteredTotalCount}
       initialHasNextPage={initialHasNextPage}
       billingStatus={billingStatus}
       organizationType={organizationType}

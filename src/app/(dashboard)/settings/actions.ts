@@ -820,6 +820,7 @@ export async function getOrganizationMembers(
   ok: boolean
   data?: OrganizationMember[]
   hasNextPage?: boolean
+  totalCount?: number
   message?: string
 }> {
   const { limit = 100, offset = 0, searchQuery = '' } = options
@@ -855,32 +856,37 @@ export async function getOrganizationMembers(
   // Single optimized query: Start from memberships (filtered by org_id), JOIN with profiles, apply ILIKE filters
   // This eliminates the 3-query pattern and lets PostgreSQL optimize the entire query as one unit
   // PostgreSQL can use idx_memberships_org_id first, then JOIN with profiles, then apply trigram indexes
+  // Strictly scoped to organization - no fallback, no guessing, no global profile queries
+  // PostgREST doesn't support filtering nested foreign key relationships in .or() clauses
+  // Solution: Query from profiles table, filter by user_id through memberships relationship
+  // This allows us to use standard PostgREST filtering syntax while maintaining org scoping
   let query = supabase
-    .from("memberships")
+    .from("profiles")
     .select(`
       id,
-      role,
-      created_at,
-      profiles!inner(
+      first_name,
+      last_name,
+      email,
+      job_title,
+      avatar_url,
+      deleted_at,
+      memberships!inner(
         id,
-        first_name,
-        last_name,
-        email,
-        job_title,
-        avatar_url,
-        deleted_at
-      ),
-      organizations!inner(
-        id,
-        name,
-        logo_url,
-        owner_id
+        role,
+        created_at,
+        org_id,
+        organizations!inner(
+          id,
+          name,
+          logo_url,
+          owner_id
+        )
       )
     `)
-    .eq("org_id", organizationId)
-    .is("profiles.deleted_at", null)
+    .eq("memberships.org_id", organizationId)
+    .is("deleted_at", null)
 
-  // Apply search filters directly on joined profiles (PostgreSQL can optimize this)
+  // Apply search filters directly on profiles table fields (standard PostgREST syntax)
   if (searchQuery.trim()) {
     const trimmedQuery = searchQuery.trim()
     const escaped = escapeForILike(trimmedQuery)
@@ -895,56 +901,66 @@ export async function getOrganizationMembers(
       const firstPattern = `%${firstTermEscaped}%`
       const secondPattern = `%${secondTermEscaped}%`
       
-      // Apply ILIKE filters on joined profiles table
+      // Standard PostgREST .or() syntax on profiles table fields
       query = query.or(
-        `and(profiles.first_name.ilike.${firstPattern},profiles.last_name.ilike.${secondPattern}),` +
-        `and(profiles.first_name.ilike.${secondPattern},profiles.last_name.ilike.${firstPattern}),` +
-        `profiles.first_name.ilike.${searchPattern},` +
-        `profiles.last_name.ilike.${searchPattern},` +
-        `profiles.email.ilike.${searchPattern}`
+        `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
+        `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
+        `first_name.ilike.${searchPattern},` +
+        `last_name.ilike.${searchPattern},` +
+        `email.ilike.${searchPattern}`
       )
     } else {
       // Single word search: match in first_name, last_name, or email
       query = query.or(
-        `profiles.first_name.ilike.${searchPattern},` +
-        `profiles.last_name.ilike.${searchPattern},` +
-        `profiles.email.ilike.${searchPattern}`
+        `first_name.ilike.${searchPattern},` +
+        `last_name.ilike.${searchPattern},` +
+        `email.ilike.${searchPattern}`
       )
     }
   }
 
-  // Order and paginate
-  const { data: members, error: membersError } = await query
-    .order("profiles(first_name)")
+  // Order and paginate - standard PostgREST ordering on profiles table
+  const { data: profiles, error: profilesError } = await query
+    .order("first_name", { ascending: true })
     .range(offset, offset + limit - 1)
 
+  // Rename error variable for consistency
+  const membersError = profilesError
+
   if (membersError) {
-    console.error('Error fetching organization members:', membersError)
+    console.error('Error fetching organization members:', {
+      error: membersError,
+      message: membersError?.message,
+      details: membersError?.details,
+      hint: membersError?.hint,
+      code: membersError?.code
+    })
     return { 
       ok: false, 
-      message: "Failed to fetch members" 
+      message: `Failed to fetch members: ${membersError?.message || 'Unknown error'}` 
     }
   }
 
   // Transform the data to match our interface
-  const transformedMembers: OrganizationMember[] = members?.map(member => {
-    const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles
-    const organization = Array.isArray(member.organizations) ? member.organizations[0] : member.organizations
+  // Data structure is now: profiles with nested memberships and organizations
+  const transformedMembers: OrganizationMember[] = profiles?.map(profile => {
+    const membership = Array.isArray(profile.memberships) ? profile.memberships[0] : profile.memberships
+    const organization = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations
     
     // Compute effective role: if user is owner, show 'owner', otherwise show membership role
-    const effective_role = organization.owner_id === profile.id ? 'owner' : member.role
+    const effective_role = organization.owner_id === profile.id ? 'owner' : membership.role
     
     return {
       id: profile.id,
-      membership_id: member.id,
+      membership_id: membership.id,
       first_name: profile.first_name || '',
       last_name: profile.last_name || '',
       email: profile.email || '',
       job_title: profile.job_title || undefined,
       avatar_url: profile.avatar_url || undefined,
-      role: member.role,
+      role: membership.role,
       effective_role: effective_role,
-      created_at: member.created_at,
+      created_at: membership.created_at,
       organization: {
         id: organization.id,
         name: organization.name || '',
@@ -956,10 +972,32 @@ export async function getOrganizationMembers(
   // Determine if there are more pages
   const hasNextPage = transformedMembers.length === limit
 
+  // Get total count when loading first page without search (for accurate unfilteredTotalCount)
+  let totalCount: number | undefined = undefined
+  if (offset === 0 && !searchQuery.trim()) {
+    // Count profiles with memberships matching the same filters as the main query
+    // This ensures we count only non-deleted profiles with memberships in this org
+    const countQuery = supabase
+      .from("profiles")
+      .select(`
+        id,
+        memberships!inner(org_id)
+      `, { count: 'exact', head: true })
+      .eq("memberships.org_id", organizationId)
+      .is("deleted_at", null)
+    
+    const { count, error: countError } = await countQuery
+    
+    if (!countError && count !== null) {
+      totalCount = count
+    }
+  }
+
   return { 
     ok: true, 
     data: transformedMembers,
-    hasNextPage
+    hasNextPage,
+    totalCount
   }
 }
 
@@ -1781,7 +1819,7 @@ export async function validateAndInviteMembers(data: {
 export async function getOrganizationInvitations(
   organizationId: string,
   options: { limit?: number; offset?: number; searchQuery?: string } = {}
-): Promise<ActionResult<OrganizationInvitation[]> & { hasNextPage?: boolean }> {
+): Promise<ActionResult<OrganizationInvitation[]> & { hasNextPage?: boolean; totalCount?: number }> {
   const { limit = 100, offset = 0, searchQuery = '' } = options
   
   // Verify authentication
@@ -1837,10 +1875,27 @@ export async function getOrganizationInvitations(
   // Determine if there are more pages
   const hasNextPage = (invitations || []).length === limit
 
+  // Get total count when loading first page without search (for accurate unfilteredTotalCount)
+  let totalCount: number | undefined = undefined
+  if (offset === 0 && !searchQuery.trim()) {
+    const countQuery = supabase
+      .from("membership_invitations")
+      .select("*", { count: 'exact', head: true })
+      .eq("org_id", organizationId)
+      .eq("status", "pending")
+    
+    const { count, error: countError } = await countQuery
+    
+    if (!countError && count !== null) {
+      totalCount = count
+    }
+  }
+
   return { 
     ok: true, 
     data: invitations || [],
-    hasNextPage
+    hasNextPage,
+    totalCount
   }
 }
 
