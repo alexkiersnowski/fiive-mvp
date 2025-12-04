@@ -150,8 +150,8 @@ const SidebarComponent = memo(function SidebarComponent({
       { href: '/settings/organization/members', label: 'User management', icon: <UsersThree size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'members' }
     ]
     
-    // Only show billing for owners
-    if (currentUserRole === 'owner') {
+    // Only show billing for agency owners (clients don't have billing in MVP)
+    if (currentUserRole === 'owner' && capabilities?.canSeeClients) {
       baseItems.push({ href: '/settings/organization/billing', label: 'Plan & billing', icon: <CreditCard size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'billing' })
     }
     
@@ -204,6 +204,7 @@ const SidebarComponent = memo(function SidebarComponent({
   // Memoize the founding member alert component
   const foundingMemberAlert = useMemo(() => {
     const isFree = normalizedBillingStatus === 'free'
+    const isClientView = capabilities?.canSeeClients === false
     
     return (
       <Alert className="flex flex-col gap-1 rounded-md bg-neutral-alpha-2 border-neutral-alpha-4 p-3">
@@ -221,20 +222,33 @@ const SidebarComponent = memo(function SidebarComponent({
               />
               Early access
             </Badge>
-            <AlertDescription className="text-xs-regular px-1.5 mt-2" style={{ color: 'var(--color-base-text-secondary)' }}>
-              You&apos;re exploring Fiive. Be one of the first 100.
+            <AlertDescription className="text-xs-regular px-1.5 mt-1" style={{ color: 'var(--color-base-text-secondary)' }}>
+              {isClientView ? "Your feedback influences what we build next" : "You're exploring Fiive. Be one of the first 100."}
             </AlertDescription>
-            <NextLink href="/settings/organization/billing">
+            {isClientView ? (
               <Button
                 variant="ghost"
                 size="sm"
                 className="self-start h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75"
                 style={{ marginLeft: '-4px' }}
+                onClick={() => window.location.href = 'mailto:support@fiive.co'}
               >
-                <span className="mr-1">Get early access</span>
+                <span className="mr-1">Give feedback</span>
                 <ArrowRight size={16} weight="regular" />
               </Button>
-            </NextLink>
+            ) : (
+              <NextLink href="/settings/organization/billing">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="self-start h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75"
+                  style={{ marginLeft: '-4px' }}
+                >
+                  <span className="mr-1">Get early access</span>
+                  <ArrowRight size={16} weight="regular" />
+                </Button>
+              </NextLink>
+            )}
           </>
         ) : (
           <>
@@ -267,7 +281,7 @@ const SidebarComponent = memo(function SidebarComponent({
         )}
       </Alert>
     )
-  }, [billingStatus])
+  }, [normalizedBillingStatus, capabilities?.canSeeClients])
 
   return (
     <div 
@@ -346,13 +360,16 @@ const SidebarComponent = memo(function SidebarComponent({
                 }}
                 onClick={() => {
                   const isFree = normalizedBillingStatus === 'free'
-                  if (isFree) {
+                  const isClientView = capabilities?.canSeeClients === false
+                  if (isFree && isClientView) {
+                    window.location.href = 'mailto:support@fiive.co'
+                  } else if (isFree) {
                     router.push('/settings/organization/billing')
                   } else {
                     window.location.href = 'mailto:support@fiive.co'
                   }
                 }}
-                aria-label={normalizedBillingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
+                aria-label={normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Early access') : 'Founding 50 feedback'}
                 suppressHydrationWarning
               >
                 <StarFour 
@@ -363,7 +380,7 @@ const SidebarComponent = memo(function SidebarComponent({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={8}>
-              {normalizedBillingStatus === 'free' ? 'Early access' : 'Founding 50 feedback'}
+              {normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Early access') : 'Founding 50 feedback'}
             </TooltipContent>
           </Tooltip>
         ) : (

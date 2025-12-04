@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import AuthLayout from '@/components/layouts/AuthLayout'
 import { createClient, isUserVerified } from '@/lib/supabase/server'
+import { getActiveContext } from '@/lib/mode/getActiveContext'
 
 async function handleSignIn(data: { email: string }) {
   'use server'
@@ -97,7 +98,13 @@ async function handleSignIn(data: { email: string }) {
   }
 }
 
-export default function SignInPage() {
+export default async function SignInPage() {
+  // Redirect logged-in users with active organization sessions to /home
+  const context = await getActiveContext()
+  if (context) {
+    redirect('/home')
+  }
+
   return (
     <AuthLayout
       title="Sign in to your account"

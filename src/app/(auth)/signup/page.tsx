@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import AuthLayout from '@/components/layouts/AuthLayout'
 import { createClient, isUserVerified } from '@/lib/supabase/server'
 import { SignupHashHandler } from './SignupHashHandler'
+import { getActiveContext } from '@/lib/mode/getActiveContext'
 
 async function handleSignUp(data: { email: string }) {
   'use server'
@@ -98,7 +99,13 @@ async function handleSignUp(data: { email: string }) {
   }
 }
 
-export default function SignUpPage() {
+export default async function SignUpPage() {
+  // Redirect logged-in users with active organization sessions to /home
+  const context = await getActiveContext()
+  if (context) {
+    redirect('/home')
+  }
+
   return (
     <>
       <SignupHashHandler />

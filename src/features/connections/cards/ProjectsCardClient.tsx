@@ -106,7 +106,7 @@ export default function ProjectsCardClient({
   const title = "Projects";
   const description = isAgency
     ? "Projects give your team and client a shared view of work and progress."
-    : "Projects are created by your agency and give you a shared view of work and progress.";
+    : "Projects are created by your agency, giving you a shared view of work and progress.";
 
   const hasProjects = prefetchedProjects.length > 0;
 

@@ -558,19 +558,37 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
       })
 
       if (result.ok) {
-        toast.success(result.message || 'Invitations sent successfully')
-        setInviteDialogOpen(false)
-        setInviteEmails([])
-        setEmailErrors({})
-        setGeneralError('')
-        // Refresh invitations data from server
-        try {
-          const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
-          if (invitationsResult.ok) {
-            setLocalInvitations(invitationsResult.data || [])
+        // Check if there are partial failures (some emails succeeded, some failed)
+        if (result.errors && Object.keys(result.errors).length > 0) {
+          // Partial success - show success message but keep dialog open with errors
+          toast.success(result.message || 'Some invitations sent successfully')
+          setEmailErrors(result.errors)
+          setGeneralError('')
+          // Refresh invitations data from server to show successful ones
+          try {
+            const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
+            if (invitationsResult.ok) {
+              setLocalInvitations(invitationsResult.data || [])
+            }
+          } catch (error) {
+            console.error('Failed to refresh invitations:', error)
           }
-        } catch (error) {
-          console.error('Failed to refresh invitations:', error)
+        } else {
+          // Complete success - close dialog
+          toast.success(result.message || 'Invitations sent successfully')
+          setInviteDialogOpen(false)
+          setInviteEmails([])
+          setEmailErrors({})
+          setGeneralError('')
+          // Refresh invitations data from server
+          try {
+            const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
+            if (invitationsResult.ok) {
+              setLocalInvitations(invitationsResult.data || [])
+            }
+          } catch (error) {
+            console.error('Failed to refresh invitations:', error)
+          }
         }
       } else {
         // Check if this is a paywall error

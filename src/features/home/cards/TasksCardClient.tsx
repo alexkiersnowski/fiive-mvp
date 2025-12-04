@@ -52,7 +52,7 @@ export default function TasksCardClient({
   const title = "Tasks";
   const description = isAgency
     ? "Add action items for your team or client, and choose what stays client-visible."
-    : "No tasks yet. Your agency manages all tasks. Submit a request to kick things off or share what you need next.";
+    : "Your agency manages all tasks. Submit a request to get started.";
   const linkText = "View all tasks";
 
   // Local state for tasks (to allow optimistic updates)

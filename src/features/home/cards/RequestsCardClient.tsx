@@ -51,7 +51,7 @@ export default function RequestsCardClient({
   const title = "Requests";
   const description = isAgency
     ? "Clients can submit requests from their portal, or you can add one for them."
-    : "No requests yet. Ask questions, share updates, or request new work directly from your agency.";
+    : "Ask questions, share updates, or request new work from your agency.";
   const linkText = "View all requests";
 
   // Local state for requests (to allow optimistic updates)

@@ -123,7 +123,10 @@ const Topbar = memo(function Topbar({ user, profile, organization, variant = 'ag
                     src={organization?.logoUrl || ""} 
                     alt={organization?.name || 'Organization'} 
                   />
-                  <AvatarFallback className="bg-neutral-9 text-white text-sm-regular rounded-sm">
+                  <AvatarFallback 
+                    className="bg-neutral-9 text-sm-regular rounded-sm"
+                    style={{ color: 'var(--color-base-text-inverse)' }}
+                  >
                     {organizationInitial}
                   </AvatarFallback>
                 </Avatar>
@@ -191,7 +194,12 @@ const Topbar = memo(function Topbar({ user, profile, organization, variant = 'ag
               <div className="p-3">
                 <div className="text-sm font-normal text-muted-foreground mb-2">Help & support</div>
                 <div className="rounded-md p-3 border border-neutral-alpha-5">
-                  <div className="text-sm font-normal text-gray-900 mb-1">support@fiive.co</div>
+                  <a 
+                    href="mailto:support@fiive.co"
+                    className="text-sm font-normal text-gray-900 mb-1 block cursor-pointer hover:underline"
+                  >
+                    support@fiive.co
+                  </a>
                   <div className="text-xs text-gray-600">We&apos;re here for support, questions, or anything else</div>
                 </div>
               </div>

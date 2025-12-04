@@ -1720,40 +1720,117 @@ export async function validateAndInviteMembers(data: {
 
   const orgName = orgForEmail?.name || 'our organization'
 
-  // Send Resend invite emails for all processed emails
+  // Send Resend invite emails using Batch API (single request for all emails)
+  // This eliminates rate limiting issues and improves performance significantly
   const allProcessedEmails = [...newEmails, ...expiredEmails, ...pendingEmails]
   
-  // Import email sending function
-  const { sendMemberInviteEmail } = await import('@/app/actions/sendMemberInviteEmail')
+  // Import batch email sending function
+  const { sendMemberInviteEmailsBatch } = await import('@/app/actions/sendMemberInviteEmail')
   
-  for (const email of allProcessedEmails) {
-    try {
-      const rawToken = rawTokensMap.get(email.toLowerCase().trim())
-      if (!rawToken) {
-        console.error(`No raw token found for ${email}`)
-        continue
-      }
-
-      const inviteUrl = `${SITE_URL}/member-invite/claim?token=${rawToken}`
-      
-      await sendMemberInviteEmail({
-        to: email,
-        organizationName: orgName,
-        inviteUrl
+  // Prepare email payloads for batch API and track emails with missing tokens
+  const emailPayloads: Array<{ to: string; organizationName: string; inviteUrl: string }> = []
+  const emailsWithMissingTokens: Array<{ email: string; success: boolean; error: string }> = []
+  
+  allProcessedEmails.forEach((email) => {
+    const normalizedEmail = email.toLowerCase().trim()
+    const rawToken = rawTokensMap.get(normalizedEmail)
+    
+    if (!rawToken) {
+      console.error(`[validateAndInviteMembers] No raw token found for ${email}`)
+      emailsWithMissingTokens.push({
+        email,
+        success: false,
+        error: 'No token found',
       })
-    } catch (error) {
-      console.error(`Error sending invite email to ${email}:`, error)
-      // Continue with other emails even if one fails
+      return
     }
+
+    const inviteUrl = `${SITE_URL}/member-invite/claim?token=${rawToken}`
+    
+    emailPayloads.push({
+      to: email,
+      organizationName: orgName,
+      inviteUrl,
+    })
+  })
+
+  // Send all emails in a single batch API call
+  let emailResults: Array<{ email: string; success: boolean; error?: string }> = []
+  
+  // If we have emails to send, call batch API
+  if (emailPayloads.length > 0) {
+    try {
+      emailResults = await sendMemberInviteEmailsBatch(emailPayloads)
+    } catch (error) {
+      // If batch API call fails entirely, mark all batch emails as failed
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[validateAndInviteMembers] Batch API call failed:', errorMessage)
+      emailResults = emailPayloads.map(({ to }) => ({
+        email: to,
+        success: false,
+        error: `Batch send failed: ${errorMessage}`,
+      }))
+    }
+  }
+  
+  // Combine batch results with emails that had missing tokens
+  emailResults = [...emailResults, ...emailsWithMissingTokens]
+  
+  // Process results to track successes and failures
+  const successfulEmails: string[] = []
+  const failedEmails: Array<{ email: string; error: string }> = []
+  
+  for (const result of emailResults) {
+    if (result.success) {
+      successfulEmails.push(result.email)
+    } else {
+      failedEmails.push({ email: result.email, error: result.error || 'Unknown error' })
+    }
+  }
+
+  // Log summary
+  console.log(`[validateAndInviteMembers] Email send results: ${successfulEmails.length} succeeded, ${failedEmails.length} failed`)
+  if (failedEmails.length > 0) {
+    console.error('[validateAndInviteMembers] Failed emails:', failedEmails)
   }
 
   // Revalidate the members page
   revalidatePath("/settings/organization/members")
   
-  const totalProcessed = newEmails.length + expiredEmails.length + pendingEmails.length
-  const message = totalProcessed === 1 
+  // Return detailed results
+  const totalProcessed = allProcessedEmails.length
+  const totalSuccessful = successfulEmails.length
+  const totalFailed = failedEmails.length
+  
+  // If all emails failed, return error
+  if (totalSuccessful === 0 && totalFailed > 0) {
+    return {
+      ok: false,
+      message: `Failed to send all ${totalFailed} invitation${totalFailed !== 1 ? 's' : ''}. Please try again.`,
+      errors: failedEmails.reduce((acc, { email, error }) => {
+        acc[email] = error
+        return acc
+      }, {} as Record<string, string>)
+    }
+  }
+  
+  // If some emails failed, return partial success with details
+  if (totalFailed > 0) {
+    const message = `${totalSuccessful} invitation${totalSuccessful !== 1 ? 's' : ''} sent successfully${totalFailed > 0 ? `, ${totalFailed} failed` : ''}`
+    return {
+      ok: true,
+      message,
+      errors: failedEmails.reduce((acc, { email, error }) => {
+        acc[email] = error
+        return acc
+      }, {} as Record<string, string>)
+    }
+  }
+  
+  // All emails succeeded
+  const message = totalSuccessful === 1 
     ? 'Invitation sent successfully' 
-    : `${totalProcessed} invitations sent successfully`
+    : `${totalSuccessful} invitations sent successfully`
     
   return { 
     ok: true,

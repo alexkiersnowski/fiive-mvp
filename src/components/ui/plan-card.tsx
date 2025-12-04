@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/shadcn-io/spinner'
 
 export interface PlanCardProps {
   // Plan identification
@@ -33,6 +34,7 @@ export interface PlanCardProps {
   buttonText?: string  // Optional custom button text (overrides isActive logic)
   onButtonClick?: () => void  // Button click handler
   buttonDisabled?: boolean  // Disable button (e.g., during loading)
+  buttonLoading?: boolean  // Show loading spinner on button
   description?: React.ReactNode  // Optional description text shown below the button
   
   // Badge (optional)
@@ -70,6 +72,7 @@ export function PlanCard({
   buttonText,
   onButtonClick,
   buttonDisabled = false,
+  buttonLoading = false,
   description,
   badge,
   features,
@@ -268,9 +271,9 @@ export function PlanCard({
       <div style={{ marginTop: 'auto', paddingTop: '40px' }}>
         <Button 
           variant={isButtonNonInteractive ? "outline" : "default"}
-          className={`w-full ${isButtonNonInteractive ? 'hover:bg-transparent hover:border-current shadow-none' : ''}`}
+          className={`w-full relative ${isButtonNonInteractive ? 'hover:bg-transparent hover:border-current shadow-none' : ''}`}
           onClick={isButtonNonInteractive ? undefined : onButtonClick}
-          disabled={buttonDisabled}
+          disabled={buttonDisabled || buttonLoading}
           style={{
             ...(isButtonNonInteractive ? {
               pointerEvents: 'none',
@@ -282,7 +285,12 @@ export function PlanCard({
             height: '40px'
           }}
         >
-          {buttonTextFinal}
+          <span className={buttonLoading ? "invisible" : ""}>{buttonTextFinal}</span>
+          {buttonLoading && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Spinner size={16} />
+            </div>
+          )}
         </Button>
         {description && (
           <div style={{ marginTop: '32px' }}>

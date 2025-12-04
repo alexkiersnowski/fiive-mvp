@@ -116,10 +116,12 @@ export function ProfileCard({ member, isOpen, onClose }: ProfileCardProps) {
                   {member.first_name} {member.last_name}
                 </h2>
 
-                {/* Job Title */}
-                <p className="text-md-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-                  {member.job_title || 'Job title'}
-                </p>
+                {/* Job Title - Only show if job_title exists */}
+                {member.job_title && (
+                  <p className="text-md-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                    {member.job_title}
+                  </p>
+                )}
 
                 {/* Email */}
                 <p className="text-sm-regular overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: 'var(--color-base-text-tertiary)' }}>
