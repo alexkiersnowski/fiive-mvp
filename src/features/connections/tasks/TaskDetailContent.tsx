@@ -268,7 +268,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         return [{ id: project.id, name: project.name }, ...prev]
       })
     }
-  }, [project?.id, project?.name])
+  }, [project])
 
   // Sync project prop when project ID changes (different task selected)
   // Event listener handles real-time name updates for the same project
@@ -285,7 +285,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     } else {
       setTaskProject(null)
     }
-  }, [project?.id]) // Only depend on project ID, not name
+  }, [project]) // Depend on entire project object
   
   // Update projects list when initialProjects prop changes (e.g., when modal opens with fresh data)
   useEffect(() => {

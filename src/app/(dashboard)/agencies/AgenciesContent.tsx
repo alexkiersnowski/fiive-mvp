@@ -14,7 +14,6 @@ import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { AgenciesSnapshot } from '@/features/agencies/types';
 import { connectToExistingAgency, refreshAgenciesData, createNewAgencyAndInvite, fetchMoreAgencies } from '@/features/agencies/actions';
-import type { VirtualItem } from '@tanstack/react-virtual';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -53,14 +52,14 @@ export function AgenciesContent({
   initialSearchValue = '' 
 }: AgenciesContentProps) {
   const [agencies, setAgencies] = useState(snapshot.agencies);
-  const [totalCount, setTotalCount] = useState(snapshot.total);
+  const [_totalCount, setTotalCount] = useState(snapshot.total);
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState(snapshot.unfilteredTotalCount);
   const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
   const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
   const [isLoading, setIsLoading] = useState(false);
-  const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
+  const [_isFetchingServerResults, setIsFetchingServerResults] = useState(false);
   const [isAddAgencyDialogOpen, setIsAddAgencyDialogOpen] = useState(false);
   const [isAddNewAgencyDialogOpen, setIsAddNewAgencyDialogOpen] = useState(false);
   const [isConnectToAgencyDialogOpen, setIsConnectToAgencyDialogOpen] = useState(false);
@@ -205,7 +204,7 @@ export function AgenciesContent({
     // Debounced server fetch handled by useEffect
   }, []);
 
-  const loadMore = useCallback(async () => {
+  const _loadMore = useCallback(async () => {
     if (!hasNextPage || isLoading || !cursor) return;
     
     setIsLoading(true);

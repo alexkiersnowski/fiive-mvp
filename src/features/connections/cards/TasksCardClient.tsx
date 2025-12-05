@@ -309,8 +309,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
             return next.slice(0, 4);
           });
         }
-      } catch (error) {
-        console.error('Failed to fetch created task:', error);
+      } catch {
         // Keep optimistic entry if fetch fails
       }
     };

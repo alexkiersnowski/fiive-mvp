@@ -22,7 +22,7 @@ async function handleSignIn(data: { email: string }) {
   let supabase
   try {
     supabase = await createClient()
-  } catch (error) {
+  } catch {
     throw new Error('Something went wrong. Please try again in a moment.')
   }
   

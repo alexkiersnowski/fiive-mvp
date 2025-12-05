@@ -72,7 +72,7 @@ export default function AuthLayout({
     } catch (error) {
       // Next.js redirect() throws a special error - don't treat it as an error
       if (error && typeof error === 'object' && 'digest' in error) {
-        const digest = (error as any).digest
+        const digest = (error as { digest?: unknown }).digest
         if (typeof digest === 'string' && digest.includes('NEXT_REDIRECT')) {
           // This is a redirect - let it propagate
           throw error

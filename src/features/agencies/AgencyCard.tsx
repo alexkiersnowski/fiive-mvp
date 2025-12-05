@@ -39,8 +39,8 @@ export function AgencyCard({
   avatarUrl, 
   avatarFallback,
   status,
-  invitedEmail,
-  accountManager,
+  invitedEmail: _invitedEmail,
+  accountManager: _accountManager,
   projectCount = 0,
   context,
   onAgencyDeleted

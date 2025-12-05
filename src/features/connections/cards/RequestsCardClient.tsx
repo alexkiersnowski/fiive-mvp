@@ -498,9 +498,9 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       if (!tempId && context.variant === 'agency' && fetched.status === 'new') {
         setNewRequestsCount((prev) => (prev || 0) + 1);
       }
-    } catch (error) {
-      console.error('Failed to reconcile new request:', error);
-    }
+      } catch {
+        // Error already logged, continue silently
+      }
   }, [connectionId, context.variant, mapRequestToPrefetched, setNewRequestsCount]);
 
   const handleNewRequestButtonClick = useCallback(() => {
