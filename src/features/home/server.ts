@@ -336,7 +336,12 @@ export const getHomeCountsAggregated = cache(async (
 
   // Prepare all count queries in parallel
   // For client context, we also need to fetch memberships for assigned tasks
-  const queries: Promise<any>[] = [
+  type SupabaseQueryResult = {
+    data: unknown;
+    error: { message: string; details?: string; hint?: string; code?: string } | null;
+    count?: number | null;
+  };
+  const queries: Array<Promise<SupabaseQueryResult>> = [
     // New requests count
     supabase
       .from('requests')
