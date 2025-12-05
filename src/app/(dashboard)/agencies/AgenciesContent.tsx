@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, Link } from '@phosphor-icons/react/ssr';
 import { SearchInput } from '@/components/ui/search-input';
@@ -12,7 +13,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { AgenciesSnapshot } from '@/features/agencies/types';
-import { connectToExistingAgency, refreshAgenciesData, createNewAgencyAndInvite } from '@/features/agencies/actions';
+import { connectToExistingAgency, refreshAgenciesData, createNewAgencyAndInvite, fetchMoreAgencies } from '@/features/agencies/actions';
+import type { VirtualItem } from '@tanstack/react-virtual';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -51,8 +53,14 @@ export function AgenciesContent({
   initialSearchValue = '' 
 }: AgenciesContentProps) {
   const [agencies, setAgencies] = useState(snapshot.agencies);
-  const [, setTotalCount] = useState(snapshot.total);
+  const [totalCount, setTotalCount] = useState(snapshot.total);
+  const [unfilteredTotalCount, setUnfilteredTotalCount] = useState(snapshot.unfilteredTotalCount);
+  const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
+  const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
+  const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
   const [isAddAgencyDialogOpen, setIsAddAgencyDialogOpen] = useState(false);
   const [isAddNewAgencyDialogOpen, setIsAddNewAgencyDialogOpen] = useState(false);
   const [isConnectToAgencyDialogOpen, setIsConnectToAgencyDialogOpen] = useState(false);
@@ -62,16 +70,32 @@ export function AgenciesContent({
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCreatingAgency, setIsCreatingAgency] = useState(false);
 
-  // Client-side filtering for search
-  const filteredAgencies = useMemo(() => {
-    if (!searchValue.trim()) {
-      return agencies;
+  // Sync local state with server snapshot when props change
+  useEffect(() => {
+    setAgencies(snapshot.agencies);
+    setTotalCount(snapshot.total);
+    setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
+    setCursor(snapshot.cursor || null);
+    setHasNextPage(snapshot.hasNextPage);
+    setIsFetchingServerResults(false);
+  }, [snapshot]);
+
+  // Client-side filtering function that matches server-side search logic
+  // Used when unfilteredTotalCount <= 100 for instant search without network calls
+  function filterAgenciesLocally(
+    agenciesToFilter: typeof agencies,
+    searchQuery: string
+  ): typeof agencies {
+    const trimmedQuery = searchQuery.trim();
+    
+    if (!trimmedQuery) {
+      return agenciesToFilter;
     }
 
-    const query = searchValue.toLowerCase().trim();
+    const query = trimmedQuery.toLowerCase();
     const searchTerms = query.split(' ').filter(term => term.length > 0);
     
-    return agencies.filter(agency => {
+    return agenciesToFilter.filter(agency => {
       if (searchTerms.length === 0) return true;
       
       // Create searchable text for the crucial fields: Agency name, Industry, Status, Account Manager
@@ -85,7 +109,15 @@ export function AgenciesContent({
       // Check if all search terms are present
       return searchTerms.every(term => searchableText.includes(term));
     });
-  }, [agencies, searchValue]);
+  }
+  
+  // Determine if we should use client-side filtering (≤100 agencies) or server-side search (>100 agencies)
+  const useClientSideFiltering = unfilteredTotalCount <= 100;
+  
+  // Display: Apply client-side filtering if enabled, otherwise use server results directly
+  const filteredAgencies = useClientSideFiltering
+    ? filterAgenciesLocally(agencies, searchValue)
+    : agencies;
 
   const selectionForm = useForm<AccountTypeFormData>({
     resolver: zodResolver(accountTypeSchema),
@@ -127,9 +159,80 @@ export function AgenciesContent({
   });
 
 
-  const handleSearchChange = (value: string) => {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Debounce logic: immediate for client-side filtering, 150ms for server-side search
+  useEffect(() => {
+    if (useClientSideFiltering) {
+      // For client-side filtering, update immediately (no debounce needed)
+      setDebouncedSearchValue(searchValue);
+      return;
+    }
+    
+    // For server-side search, debounce to reduce API calls
+    const timer = setTimeout(() => {
+      setDebouncedSearchValue(searchValue);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [searchValue, useClientSideFiltering]);
+
+  // Trigger server fetch when debounced search changes (only for server-side search)
+  useEffect(() => {
+    // Skip server fetch if using client-side filtering
+    if (useClientSideFiltering) {
+      setIsFetchingServerResults(false);
+      return;
+    }
+    
+    const currentSearchParam = searchParams.get('search') || '';
+    
+    if (debouncedSearchValue !== currentSearchParam) {
+      setIsFetchingServerResults(true);
+      const params = new URLSearchParams(searchParams.toString());
+      if (debouncedSearchValue.trim()) {
+        params.set('search', debouncedSearchValue.trim());
+      } else {
+        params.delete('search');
+      }
+      router.push(`/agencies?${params.toString()}`, { scroll: false });
+    }
+  }, [debouncedSearchValue, router, searchParams, useClientSideFiltering]);
+
+  const handleSearchChange = useCallback((value: string) => {
     setSearchValue(value);
-  };
+    // Debounced server fetch handled by useEffect
+  }, []);
+
+  const loadMore = useCallback(async () => {
+    if (!hasNextPage || isLoading || !cursor) return;
+    
+    setIsLoading(true);
+    try {
+      const snapshot = await fetchMoreAgencies(context, {
+        cursor,
+        search: debouncedSearchValue,
+        limit: 50
+      });
+      
+      // Merge new agencies with existing ones
+      setAgencies(prev => {
+        const existingIds = new Set(prev.map(a => a.id));
+        const newAgencies = snapshot.agencies.filter(a => !existingIds.has(a.id));
+        return [...prev, ...newAgencies];
+      });
+      setTotalCount(snapshot.total);
+      setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
+      setCursor(snapshot.cursor || null);
+      setHasNextPage(snapshot.hasNextPage);
+    } catch (error) {
+      console.error('Error loading more agencies:', error);
+      setHasNextPage(false);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [hasNextPage, isLoading, cursor, context, debouncedSearchValue]);
 
 
   const handleAddAgencyClick = () => {
@@ -180,9 +283,12 @@ export function AgenciesContent({
       
       if (result.success) {
         // Update local state with fresh data
-        const refreshedData = await refreshAgenciesData(context);
+        const refreshedData = await refreshAgenciesData(context, { search: debouncedSearchValue });
         setAgencies(refreshedData.agencies);
         setTotalCount(refreshedData.total);
+        setUnfilteredTotalCount(refreshedData.unfilteredTotalCount);
+        setCursor(refreshedData.cursor || null);
+        setHasNextPage(refreshedData.hasNextPage);
         
         // Close dialog and show success
         handleAddNewAgencyDialogClose();
@@ -218,9 +324,12 @@ export function AgenciesContent({
       
       if (result.success) {
         // Update local state with fresh data
-        const refreshedData = await refreshAgenciesData(context);
+        const refreshedData = await refreshAgenciesData(context, { search: debouncedSearchValue });
         setAgencies(refreshedData.agencies);
         setTotalCount(refreshedData.total);
+        setUnfilteredTotalCount(refreshedData.unfilteredTotalCount);
+        setCursor(refreshedData.cursor || null);
+        setHasNextPage(refreshedData.hasNextPage);
         
         // Set success state for modal
         setConnectedAgencyName(result.agencyName || 'Agency');
@@ -333,12 +442,16 @@ export function AgenciesContent({
                 status={agency.status}
                 invitedEmail={agency.invitedEmail}
                 accountManager={agency.accountManager}
+                projectCount={0}
                 context={context}
                 onAgencyDeleted={async () => {
                   // Refresh agencies data after deletion
-                  const refreshedData = await refreshAgenciesData(context);
+                  const refreshedData = await refreshAgenciesData(context, { search: debouncedSearchValue });
                   setAgencies(refreshedData.agencies);
                   setTotalCount(refreshedData.total);
+                  setUnfilteredTotalCount(refreshedData.unfilteredTotalCount);
+                  setCursor(refreshedData.cursor || null);
+                  setHasNextPage(refreshedData.hasNextPage);
                 }}
               />
             ))}
@@ -561,7 +674,7 @@ export function AgenciesContent({
                 </AvatarFallback>
               </Avatar>
               
-              <DialogTitle className="display-5-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>Connected to {connectedAgencyName}</DialogTitle>
+              <DialogTitle className="display-7-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>Connected to {connectedAgencyName}</DialogTitle>
               <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
                 You can now collaborate through your shared workspace
               </DialogDescription>

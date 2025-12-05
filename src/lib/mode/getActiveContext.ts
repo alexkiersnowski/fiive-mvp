@@ -41,21 +41,24 @@ export interface EnhancedModeContext extends ModeContext {
 
 // Cache this function so it only runs once per request, even if called multiple times
 export const getActiveContext = cache(async (): Promise<EnhancedModeContext | null> => {
-  const startTime = performance.now();
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const startTime = isDevelopment ? performance.now() : 0;
   const supabase = await createClient();
 
   try {
     // Get the current user (must be first - provides user.id for subsequent queries)
-    const authStartTime = performance.now();
+    const authStartTime = isDevelopment ? performance.now() : 0;
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    console.log(`[Performance] auth.getUser: ${(performance.now() - authStartTime).toFixed(2)}ms`);
+    if (isDevelopment) {
+      console.log(`[Performance] auth.getUser: ${(performance.now() - authStartTime).toFixed(2)}ms`);
+    }
     
     if (userError || !user) {
       return null;
     }
 
     // Fetch profile and membership+org in parallel for maximum performance
-    const parallelStartTime = performance.now();
+    const parallelStartTime = isDevelopment ? performance.now() : 0;
     const [
       { data: profile, error: profileError },
       { data: membershipWithOrgAndCount, error: membershipError }
@@ -86,7 +89,9 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         .single()
     ]);
     
-    console.log(`[Performance] Parallel queries (profile + membership+org): ${(performance.now() - parallelStartTime).toFixed(2)}ms`);
+    if (isDevelopment) {
+      console.log(`[Performance] Parallel queries (profile + membership+org): ${(performance.now() - parallelStartTime).toFixed(2)}ms`);
+    }
 
     if (profileError || !profile) {
       console.error('Profile fetch failed:', profileError);
@@ -115,13 +120,15 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         
         // Fetch member count - optimized to run in parallel with other operations
         // We use head: true for faster count-only queries (no data transfer)
-        const countStartTime = performance.now();
+        const countStartTime = isDevelopment ? performance.now() : 0;
         const { count, error: memberCountError } = await supabase
           .from('memberships')
           .select('*', { count: 'exact', head: true })
           .eq('org_id', organization.id);
         
-        console.log(`[Performance] Member count query: ${(performance.now() - countStartTime).toFixed(2)}ms`);
+        if (isDevelopment) {
+          console.log(`[Performance] Member count query: ${(performance.now() - countStartTime).toFixed(2)}ms`);
+        }
         
         if (!memberCountError) {
           finalMemberCount = count || 0;
@@ -130,7 +137,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
     } else {
       // Fallback: try as owner (for cases where membership might not exist)
       // CRITICAL: Filter out draft organizations - they cannot be active contexts
-      const fallbackStartTime = performance.now();
+      const fallbackStartTime = isDevelopment ? performance.now() : 0;
       const { data: ownerOrg, error: ownerError } = await supabase
         .from('organizations')
         .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id, is_draft, billing_status, stripe_price_id, stripe_customer_id, stripe_subscription_id, current_period_end')
@@ -138,7 +145,9 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         .is('is_draft', false)
         .single();
       
-      console.log(`[Performance] Owner fallback query: ${(performance.now() - fallbackStartTime).toFixed(2)}ms`);
+      if (isDevelopment) {
+        console.log(`[Performance] Owner fallback query: ${(performance.now() - fallbackStartTime).toFixed(2)}ms`);
+      }
       
       if (ownerOrg && !ownerError) {
         organization = ownerOrg;
@@ -256,8 +265,10 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       isRestricted
     };
 
-    const totalTime = performance.now() - startTime;
-    console.log(`[Performance] getActiveContext TOTAL: ${totalTime.toFixed(2)}ms`);
+    if (isDevelopment) {
+      const totalTime = performance.now() - startTime;
+      console.log(`[Performance] getActiveContext TOTAL: ${totalTime.toFixed(2)}ms`);
+    }
 
     return enhancedContextData;
   } catch (error) {

@@ -272,7 +272,7 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
     switch (connectionStatus) {
       case 'connected':
         return {
-          title: 'Disconnect from client',
+          title: isAgency ? 'Disconnect from agency' : 'Disconnect from client',
           description: 'This will freeze the workspace. You\'ll still have access, but can\'t collaborate until reconnected.',
           buttonText: 'Disconnect',
           buttonVariant: 'outline' as const,
@@ -288,7 +288,9 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
           onConfirm: handleDisconnect,
           isProcessing: isDisconnecting,
           dialogTitle: `Disconnect from ${partnerOrganization.name}?`,
-          dialogDescription: 'You\'ll still have access to this workspace, but collaboration will be disabled until reconnected. You can reconnect anytime with your client\'s connection code.'
+          dialogDescription: isAgency 
+            ? 'You\'ll still have access to this workspace, but collaboration will be disabled until reconnected. You can reconnect anytime with your agency\'s connection code.'
+            : 'You\'ll still have access to this workspace, but collaboration will be disabled until reconnected. You can reconnect anytime with your client\'s connection code.'
         }
       case 'invited':
         return {

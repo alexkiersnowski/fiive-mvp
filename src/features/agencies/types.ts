@@ -18,9 +18,13 @@ export type Agency = {
 export type AgenciesSnapshot = {
   agencies: Agency[];
   total: number;
+  unfilteredTotalCount: number; // Total count without search/filter applied
+  cursor?: string | null;
+  hasNextPage: boolean;
 };
 
 export type AgenciesPaginationOptions = {
   search?: string;
+  cursor?: string;
   limit?: number;
 };

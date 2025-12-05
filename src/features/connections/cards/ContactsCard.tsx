@@ -405,7 +405,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     avatarUrl={currentAgencyContact!.avatarUrl}
                     text={`${currentAgencyContact!.firstName} ${currentAgencyContact!.lastName}`}
                     secondaryText={currentAgencyContact!.jobTitle || 'No job title'}
-                    iconButtonEnd={!isDisconnected}
+                    iconButtonEnd={false}
                     onClick={() => handleContactClick({ 
                       id: currentAgencyContact!.id,
                       first_name: currentAgencyContact!.firstName, 
@@ -425,7 +425,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isDisconnected ? "No contact assigned" : "Awaiting agency assignment"}
+                    text={isDisconnected ? "No contact assigned" : "Unassigned"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -478,7 +478,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isDisconnected ? "No contact assigned" : "Assign contact to represent your team"}
+                    text={isDisconnected ? "No contact assigned" : "Unassigned"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}

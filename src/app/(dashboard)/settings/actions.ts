@@ -65,6 +65,8 @@ type ActionResult<T = any> = {
 }
 
 // Helper function for organization ownership verification
+// Optimized to use idx_organizations_id_owner composite index for fast id + owner_id lookups
+// Also verifies user has membership access via idx_memberships_user_id
 async function verifyOrganizationOwnership(organizationId: string, userId: string): Promise<ActionResult> {
   const supabase = await createClient()
   
@@ -91,6 +93,7 @@ async function verifyOrganizationOwnership(organizationId: string, userId: strin
 }
 
 // Helper function for organization access verification (any member)
+// Optimized to use idx_organizations_id_owner for id lookups and idx_memberships_user_id for membership verification
 async function verifyOrganizationAccess(organizationId: string, userId: string): Promise<ActionResult> {
   const supabase = await createClient()
   

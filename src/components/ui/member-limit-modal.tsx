@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from 'next/navigation'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -14,7 +13,6 @@ interface MemberLimitModalProps {
 }
 
 export function MemberLimitModal({ open, ownerEmail, ownerName: _ownerName }: MemberLimitModalProps) {
-  const router = useRouter()
   const [isSigningOut, setIsSigningOut] = React.useState(false)
 
   const handleSignOut = async () => {
@@ -24,8 +22,7 @@ export function MemberLimitModal({ open, ownerEmail, ownerName: _ownerName }: Me
     try {
       const result = await signOut()
       if (result.ok) {
-        router.push('/signin')
-        router.refresh()
+        window.location.href = '/signin'
       } else {
         console.error('Sign out error:', result.message)
         setIsSigningOut(false)

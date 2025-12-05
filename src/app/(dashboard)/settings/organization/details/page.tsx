@@ -11,6 +11,10 @@ export const revalidate = 30
  * Check if an organization has any real connections (non-internal status)
  * Real connections are those with status: 'invited', 'connected', or 'disconnected'
  * Only 'internal' connections are excluded - they don't block workspace deletion
+ * 
+ * Optimized to use indexes:
+ * - idx_connections_agency_id for agency lookups
+ * - idx_connections_client_id and idx_connections_client_status for client lookups
  */
 const hasRealConnections = cache(async (
   orgId: string,
@@ -19,13 +23,15 @@ const hasRealConnections = cache(async (
   const supabase = await createClient()
   
   try {
-    // Check for all real connection types that should block deletion
-    // Explicitly exclude 'internal' - only real external connections block deletion
+    // Optimized query: use count with head:true for fastest possible check
+    // No data transfer - just returns count, PostgreSQL can optimize this better
+    // Indexes will be used automatically:
+    // - For agencies: idx_connections_agency_id
+    // - For clients: idx_connections_client_status (composite index covers both filters)
     let query = supabase
       .from('connections')
-      .select('id')
+      .select('id', { count: 'exact', head: true })
       .in('connection_status', ['invited', 'connected', 'disconnected'])
-      .limit(1)
     
     if (variant === 'agency') {
       query = query.eq('agency_id', orgId)
@@ -33,7 +39,7 @@ const hasRealConnections = cache(async (
       query = query.eq('client_id', orgId)
     }
     
-    const { data, error } = await query
+    const { count, error } = await query
     
     if (error) {
       console.error('Error checking for real connections:', error)
@@ -42,7 +48,7 @@ const hasRealConnections = cache(async (
     }
     
     // Return true if any real connections exist
-    return (data?.length ?? 0) > 0
+    return (count ?? 0) > 0
   } catch (error) {
     console.error('Unexpected error checking for real connections:', error)
     // Default to showing "contact support" message for safety
@@ -60,11 +66,6 @@ export default async function OrganizationDetailsPage() {
   // Use organization data from enhanced context
   const organization = context.organization
   const currentUserRole = context.currentUserRole
-
-  // Debug: Log organization data to see what we're getting
-  console.log('Organization data:', organization)
-  console.log('Context variant:', context.variant)
-  console.log('Current user role:', currentUserRole)
 
   // Check if organization data is missing
   if (!organization || !organization.id) {

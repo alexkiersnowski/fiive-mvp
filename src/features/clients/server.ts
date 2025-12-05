@@ -1,6 +1,5 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
-import { escapeForILike } from '@/lib/utils';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ClientsSnapshot, Client, ClientsPaginationOptions } from './types';
 
@@ -11,64 +10,6 @@ function encodeCursor(index: number): string {
 
 function decodeCursor(cursor: string): number {
   return parseInt(Buffer.from(cursor, 'base64').toString(), 10);
-}
-
-// Cache for mock data generation
-let cachedMockData: Client[] | null = null;
-
-// Cache for month mapping to avoid recreation
-const _MONTH_MAP: { [key: string]: number } = {
-  'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-  'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-} as const;
-
-function _generateMockData(): Client[] {
-  if (cachedMockData) {
-    return cachedMockData;
-  }
-
-  cachedMockData = Array.from({ length: 1 }, (_, i) => {
-    const clientId = i + 1;
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-    
-    // Deterministic contract end date based on client ID
-    const hasContract = clientId % 3 === 0;
-    const contractEnd = hasContract 
-      ? `${(clientId % 28) + 1} ${monthNames[clientId % 6]} 2025`
-      : undefined;
-    
-    return {
-      id: `${clientId}`,
-      name: `Client ${String(clientId).padStart(3, '0')}`, // Client 001, Client 002, etc.
-      logo: undefined,
-      status: (["internal", "onboarding", "active", "offboarded"] as const)[clientId % 4],
-      accountManager: { 
-        id: `manager-${i}`,
-        name: `Manager ${String(Math.floor(i / 10) + 1).padStart(2, '0')}`,
-        firstName: 'Manager',
-        lastName: `${String(Math.floor(i / 10) + 1).padStart(2, '0')}`,
-        email: `manager${String(Math.floor(i / 10) + 1).padStart(2, '0')}@agency.com`,
-        jobTitle: 'Account Manager',
-        avatar: undefined,
-        organization: {
-          id: 'agency-org',
-          name: 'Agency',
-          logo_url: 'https://api.dicebear.com/7.x/shapes/svg?seed=agency'
-        }
-      },
-      contractEnd,
-      health: (() => {
-        // Ensure we have some critical clients for testing
-        if (clientId <= 10) return "critical";
-        if (clientId <= 20) return "at-risk";
-        if (clientId <= 30) return "healthy";
-        return (["critical", "at-risk", "healthy", "unassigned"] as const)[clientId % 4];
-      })(),
-      badge: ["Draft", "Onboarding", "Active", "Offboarded"][clientId % 4]
-    };
-  });
-
-  return cachedMockData || [];
 }
 
 export const getClientsSnapshot = cache(async (
@@ -112,6 +53,13 @@ export const getClientsSnapshot = cache(async (
   if (unfilteredCountError) {
     console.error('Error fetching unfiltered total count:', unfilteredCountError);
   }
+  
+  const totalCount = unfilteredTotalCount ?? 0;
+  
+  // Determine if we should use client-side filtering (≤100 items) or server-side search (>100 items)
+  // For MVP: when ≤100, fetch all and let client-side handle filtering
+  // When >100, use server-side search with pagination
+  const useClientSideFiltering = totalCount <= 100 && !search.trim();
   
   // Build base query with joins including profiles for account manager search
   let query = supabase
@@ -167,12 +115,15 @@ export const getClientsSnapshot = cache(async (
       query = query.order('created_at', { ascending: false });
   }
   
-  // When searching, fetch all connections first (for account manager search), then filter and paginate in memory
-  // When not searching, apply pagination at database level for performance
+  // Apply pagination logic:
+  // - If using client-side filtering (≤100, no search): fetch all, no pagination
+  // - If server-side search (>100 or has search): apply pagination at database level
   const startIndex = cursor ? decodeCursor(cursor) : 0;
-  if (!search.trim()) {
+  if (!useClientSideFiltering) {
+    // Server-side: apply pagination at database level
     query = query.range(startIndex, startIndex + limit - 1);
   }
+  // Client-side: fetch all (no range limit)
   
   // Execute query
   const { data: connections, error } = await query;
@@ -211,11 +162,11 @@ export const getClientsSnapshot = cache(async (
     });
   }
   
-  // Apply search filter in memory (supports all fields including account manager)
+  // Apply search filter in memory (only when using server-side search)
+  // When useClientSideFiltering is true, return all data and let client handle filtering
   let filteredConnections = connectionsArray;
   
-  if (search.trim()) {
-    const _escapedSearch = escapeForILike(search.trim());
+  if (!useClientSideFiltering && search.trim()) {
     const searchLower = search.trim().toLowerCase();
     const searchTerms = searchLower.split(' ').filter(t => t.length > 0);
     
@@ -250,10 +201,11 @@ export const getClientsSnapshot = cache(async (
   }
   
   // Get total count for pagination
-  // When searching, use filtered count; otherwise use unfilteredTotalCount
-  const totalCount = search.trim() 
-    ? filteredConnections.length 
-    : (unfilteredTotalCount ?? connectionsArray.length);
+  // When using client-side filtering: return unfilteredTotalCount (client will filter)
+  // When using server-side search: use filtered count if searching, otherwise unfilteredTotalCount
+  const finalTotalCount = useClientSideFiltering
+    ? totalCount
+    : (search.trim() ? filteredConnections.length : totalCount);
   
   // Transform connections to Client format
   const allClients: Client[] = filteredConnections.map(conn => {
@@ -349,18 +301,21 @@ export const getClientsSnapshot = cache(async (
     });
   }
 
-  // Apply pagination (in memory when searching, already applied at DB level when not searching)
+  // Apply pagination:
+  // - Client-side filtering: return all clients (no pagination)
+  // - Server-side search: paginate results
   const endIndex = startIndex + limit;
   let paginatedClients = sortedClients;
   
-  if (search.trim()) {
-    // Paginate in memory after filtering/sorting
+  if (!useClientSideFiltering) {
+    // Server-side: paginate after filtering/sorting
     paginatedClients = sortedClients.slice(startIndex, endIndex);
   }
+  // Client-side: return all (no pagination needed)
   
   // Calculate total and pagination state
-  const total = totalCount;
-  const hasNextPage = endIndex < total;
+  const total = finalTotalCount;
+  const hasNextPage = useClientSideFiltering ? false : (endIndex < total);
 
   return {
     clients: paginatedClients,

@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -16,7 +15,6 @@ interface DeleteWorkspaceProps {
 }
 
 export default function DeleteWorkspace({ canDeleteWorkspace, organizationName, organizationId }: DeleteWorkspaceProps) {
-  const router = useRouter()
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = React.useState('')
   const [deleteKeywordConfirmation, setDeleteKeywordConfirmation] = React.useState('')
@@ -42,7 +40,7 @@ export default function DeleteWorkspace({ canDeleteWorkspace, organizationName, 
         // Success - user will be signed out by the server action
         toast.success('Workspace deleted successfully')
         // Redirect to sign-in (user will be signed out)
-        router.push('/signin')
+        window.location.href = '/signin'
       } else {
         // Error - show message and keep dialog open
         toast.error(result.message || 'Failed to delete workspace')

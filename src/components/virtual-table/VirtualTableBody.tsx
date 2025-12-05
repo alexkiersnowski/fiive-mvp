@@ -53,7 +53,12 @@ export function VirtualTableBody<T extends { id: string }>({
     return (
       <Table noWrapper className="table-fixed w-full border-collapse">
         <TableBody>
-          <TableRow className="hover:bg-transparent">
+          <TableRow 
+            className="hover:bg-transparent"
+            style={{
+              backgroundColor: 'var(--color-base-surface-page-background)',
+            }}
+          >
             <td 
               colSpan={1000} 
               className="text-center py-8"

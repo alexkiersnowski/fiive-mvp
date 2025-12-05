@@ -97,6 +97,44 @@ export function ClientsContent({
     }
   }, [searchParams, router]);
 
+  // Client-side filtering function that matches server-side search logic
+  // Used when unfilteredTotalCount <= 100 for instant search without network calls
+  function filterClientsLocally(
+    clientsToFilter: Client[],
+    searchQuery: string
+  ): Client[] {
+    const trimmedQuery = searchQuery.trim();
+    
+    if (!trimmedQuery) {
+      return clientsToFilter;
+    }
+
+    const lowerQuery = trimmedQuery.toLowerCase();
+    const searchTerms = lowerQuery.split(' ').filter(t => t.length > 0);
+
+    return clientsToFilter.filter(client => {
+      const name = (client.name || '').toLowerCase();
+      const status = (client.status || '').toLowerCase();
+      const engagementStatus = (client.badge || '').toLowerCase();
+      const healthStatus = (client.health || '').toLowerCase();
+      const contractEnd = (client.contractEnd || '').toLowerCase();
+      const accountManagerName = (client.accountManager.name || '').toLowerCase();
+
+      // Check if all search terms match any field
+      return searchTerms.every(term => 
+        name.includes(term) ||
+        status.includes(term) ||
+        engagementStatus.includes(term) ||
+        healthStatus.includes(term) ||
+        contractEnd.includes(term) ||
+        accountManagerName.includes(term)
+      );
+    });
+  }
+  
+  // Determine if we should use client-side filtering (≤100 clients) or server-side search (>100 clients)
+  const useClientSideFiltering = unfilteredTotalCount <= 100;
+
   // Sync local state with server snapshot when props change
   useEffect(() => {
     // Use transition for smooth updates (prevents flicker)
@@ -110,17 +148,30 @@ export function ClientsContent({
     });
   }, [snapshot, startTransition]);
 
-  // Debounce server fetch (150ms - reduced from 300ms for faster response)
+  // Debounce logic: immediate for client-side filtering, 150ms for server-side search
   useEffect(() => {
+    if (useClientSideFiltering) {
+      // For client-side filtering, update immediately (no debounce needed)
+      setDebouncedSearchValue(searchValue);
+      return;
+    }
+    
+    // For server-side search, debounce to reduce API calls
     const timer = setTimeout(() => {
       setDebouncedSearchValue(searchValue);
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [searchValue]);
+  }, [searchValue, useClientSideFiltering]);
 
-  // Trigger server fetch when debounced search or sort changes (for complete results)
+  // Trigger server fetch when debounced search or sort changes (only for server-side search)
   useEffect(() => {
+    // Skip server fetch if using client-side filtering
+    if (useClientSideFiltering) {
+      setIsFetchingServerResults(false);
+      return;
+    }
+    
     const currentSearchParam = searchParams.get('search') || '';
     const currentSortParam = searchParams.get('sort') || 'newest-first';
     
@@ -135,11 +186,15 @@ export function ClientsContent({
       params.set('sort', sortValue);
       router.push(`/clients?${params.toString()}`, { scroll: false });
     }
-  }, [debouncedSearchValue, sortValue, router, searchParams]);
-
-  // Display: Use server results directly (no optimistic filtering)
-  const displayedClients = clients;
-  const displayedTotal = totalCount;
+  }, [debouncedSearchValue, sortValue, router, searchParams, useClientSideFiltering]);
+  
+  // Display: Apply client-side filtering if enabled, otherwise use server results directly
+  const displayedClients = useClientSideFiltering
+    ? filterClientsLocally(clients, searchValue)
+    : clients;
+  const displayedTotal = useClientSideFiltering
+    ? filterClientsLocally(clients, searchValue).length
+    : totalCount;
 
 
   // Track header height for sticky table offset
@@ -443,7 +498,7 @@ export function ClientsContent({
           sortValue={sortValue}
           isLoading={isLoading}
           isBootstrapping={isFetchingServerResults && displayedClients.length === 0}
-          isSearching={searchValue.trim() !== debouncedSearchValue.trim()}
+          isSearching={!useClientSideFiltering && searchValue.trim() !== debouncedSearchValue.trim()}
           hasNextPage={hasNextPage}
           unfilteredTotalCount={unfilteredTotalCount}
           onLoadMore={loadMore}
@@ -684,7 +739,7 @@ export function ClientsContent({
                   </AvatarFallback>
                 </Avatar>
                 
-                <DialogTitle className="display-5-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>Connected to {connectedClientName}</DialogTitle>
+                <DialogTitle className="display-7-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>Connected to {connectedClientName}</DialogTitle>
                 <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
                   You can now collaborate through your shared workspace
                 </DialogDescription>

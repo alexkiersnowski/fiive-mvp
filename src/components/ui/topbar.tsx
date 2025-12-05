@@ -2,7 +2,6 @@
 
 import { useState, memo, useCallback, useMemo } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import BrandLink from './brand-link'
 import AvatarButton from './avatar-button'
 import { Avatar, AvatarFallback, AvatarImage } from './avatar'
@@ -44,7 +43,6 @@ interface TopbarProps {
 }
 
 const Topbar = memo(function Topbar({ user, profile, organization, variant = 'agency' }: TopbarProps) {
-  const router = useRouter()
   const [isHelpDropdownOpen, setIsHelpDropdownOpen] = useState(false)
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false)
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
@@ -80,17 +78,17 @@ const Topbar = memo(function Topbar({ user, profile, organization, variant = 'ag
     try {
       const result = await signOut()
       if (result.ok) {
-        router.push('/signin')
+        window.location.href = '/signin'
       } else {
         toast.error(result.message || 'Failed to sign out')
+        setIsSigningOut(false)
       }
     } catch (error) {
       console.error('Sign out error:', error)
       toast.error('Failed to sign out. Please try again.')
-    } finally {
       setIsSigningOut(false)
     }
-  }, [isSigningOut, router])
+  }, [isSigningOut])
   return (
     <div className="w-full bg-neutral-2 border-b border-neutral-alpha-4 py-1 px-3">
       <div className="flex items-center justify-between">

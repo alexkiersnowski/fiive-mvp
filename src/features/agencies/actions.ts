@@ -410,9 +410,39 @@ export async function connectToExistingAgency(
  * Used to update the client-side state after mutations
  */
 export async function refreshAgenciesData(
-  context: EnhancedModeContext
+  context: EnhancedModeContext,
+  options?: { search?: string }
 ): Promise<AgenciesSnapshot> {
-  const snapshot = await getAgenciesSnapshot(context);
+  const snapshot = await getAgenciesSnapshot(context, {
+    search: options?.search || '',
+    limit: 50
+  });
+  return snapshot;
+}
+
+/**
+ * Fetches more agencies using cursor-based pagination
+ * Used for infinite scroll / load more functionality
+ */
+export async function fetchMoreAgencies(
+  context: EnhancedModeContext,
+  options: { cursor: string | null; search?: string; limit?: number }
+): Promise<AgenciesSnapshot> {
+  if (!options.cursor) {
+    return {
+      agencies: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+    };
+  }
+  
+  const snapshot = await getAgenciesSnapshot(context, {
+    search: options.search || '',
+    cursor: options.cursor,
+    limit: options.limit || 50
+  });
   return snapshot;
 }
 

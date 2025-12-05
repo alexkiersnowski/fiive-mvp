@@ -4,7 +4,6 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -37,7 +36,6 @@ const emailSchema = z.object({
 type EmailFormData = z.infer<typeof emailSchema>
 
 export default function AccessForm({ userId, currentEmail, isOwner }: Props) {
-  const router = useRouter()
   const [pendingEmail, setPendingEmail] = React.useState<string | null>(null)
   const [isUpdating, setIsUpdating] = React.useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
@@ -149,7 +147,7 @@ export default function AccessForm({ userId, currentEmail, isOwner }: Props) {
         toast.success("Your account has been deleted successfully")
         
         // Redirect to signin page
-        router.push('/signin')
+        window.location.href = '/signin'
       } else {
         toast.error(result.message || "Failed to delete account. Please try again.")
       }
