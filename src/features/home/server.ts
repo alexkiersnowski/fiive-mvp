@@ -337,7 +337,7 @@ export const getHomeCountsAggregated = cache(async (
   // Prepare all count queries in parallel
   // For client context, we also need to fetch memberships for assigned tasks
   // Note: Supabase query builders are thenable and work with Promise.all
-  const queries = [
+  const baseQueries = [
     // New requests count
     supabase
       .from('requests')
@@ -366,16 +366,16 @@ export const getHomeCountsAggregated = cache(async (
       .lte('due_date', sevenDaysStr),
   ];
 
-  // For client context, add assigned tasks count query
-  if (context.variant === 'client') {
-    // First get client org user IDs, then count assigned tasks
-    queries.push(
-      supabase
-        .from('memberships')
-        .select('user_id')
-        .eq('org_id', context.orgId)
-    );
-  }
+  // For client context, add memberships query to get user IDs for assigned tasks
+  const queries = context.variant === 'client'
+    ? [
+        ...baseQueries,
+        supabase
+          .from('memberships')
+          .select('user_id')
+          .eq('org_id', context.orgId),
+      ]
+    : baseQueries;
 
   // Execute all queries in parallel
   const results = await Promise.all(queries);
