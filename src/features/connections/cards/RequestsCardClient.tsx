@@ -116,7 +116,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       // Update project name in all requests that reference this project
       setPrefetchedRequests((prev) =>
         prev.map((request) => {
-          if (request.detail.project?.id === projectId) {
+          if (request.detail.project?.id === projectId && request.detail.project) {
             return {
               ...request,
               detail: {
