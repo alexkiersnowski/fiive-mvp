@@ -315,9 +315,9 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       }
     };
 
-    window.addEventListener('taskCreated', handleTaskCreated as EventListener);
+    window.addEventListener('taskCreated', handleTaskCreated as unknown as EventListener);
     return () => {
-      window.removeEventListener('taskCreated', handleTaskCreated as EventListener);
+      window.removeEventListener('taskCreated', handleTaskCreated as unknown as EventListener);
     };
   }, [connectionId, context, snapshot, sortedMembers, mapTaskToPrefetched]);
 
