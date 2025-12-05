@@ -135,7 +135,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       setPrefetchedTasks((prev) =>
         prev.map((task) => {
           const project = task.detail.project;
-          if (project?.id === projectId) {
+          if (project && project.id === projectId) {
             return {
               ...task,
               detail: {

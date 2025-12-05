@@ -117,7 +117,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       setPrefetchedRequests((prev) =>
         prev.map((request) => {
           const project = request.detail.project;
-          if (project?.id === projectId) {
+          if (project && project.id === projectId) {
             return {
               ...request,
               detail: {
