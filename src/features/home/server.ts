@@ -299,6 +299,138 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
   };
 });
 
+/**
+ * Get all home page counts in optimized parallel queries.
+ * This combines 4 separate count queries into parallel execution with shared connection IDs.
+ * 
+ * @param context - The enhanced mode context
+ * @param connectionIds - Array of connection IDs to use (should be provided from getUnifiedHomeData)
+ * @returns Object containing all counts needed for the home page
+ */
+export const getHomeCountsAggregated = cache(async (
+  context: EnhancedModeContext,
+  connectionIds: string[]
+): Promise<{
+  newRequestsCount: number;
+  inReviewRequestsCount: number;
+  tasksDueSoonCount: number;
+  assignedTasksCount: number;
+}> => {
+  const supabase = await createClient();
+
+  if (connectionIds.length === 0) {
+    return {
+      newRequestsCount: 0,
+      inReviewRequestsCount: 0,
+      tasksDueSoonCount: 0,
+      assignedTasksCount: 0,
+    };
+  }
+
+  // Calculate date ranges for tasks due soon
+  const today = new Date();
+  const sevenDaysFromNow = new Date();
+  sevenDaysFromNow.setDate(today.getDate() + 7);
+  const todayStr = today.toISOString().split('T')[0];
+  const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
+
+  // Prepare all count queries in parallel
+  // For client context, we also need to fetch memberships for assigned tasks
+  const queries: Promise<any>[] = [
+    // New requests count
+    supabase
+      .from('requests')
+      .select('id', { count: 'exact', head: true })
+      .in('connection_id', connectionIds)
+      .eq('status', 'new')
+      .is('deleted_at', null),
+    
+    // In-review requests count
+    supabase
+      .from('requests')
+      .select('id', { count: 'exact', head: true })
+      .in('connection_id', connectionIds)
+      .eq('status', 'in_review')
+      .is('deleted_at', null),
+    
+    // Tasks due soon count
+    supabase
+      .from('tasks')
+      .select('id', { count: 'exact', head: true })
+      .in('connection_id', connectionIds)
+      .is('deleted_at', null)
+      .neq('status', 'done')
+      .not('due_date', 'is', null)
+      .gte('due_date', todayStr)
+      .lte('due_date', sevenDaysStr),
+  ];
+
+  // For client context, add assigned tasks count query
+  if (context.variant === 'client') {
+    // First get client org user IDs, then count assigned tasks
+    queries.push(
+      supabase
+        .from('memberships')
+        .select('user_id')
+        .eq('org_id', context.orgId)
+    );
+  }
+
+  // Execute all queries in parallel
+  const results = await Promise.all(queries);
+
+  // Extract counts
+  const [
+    newRequestsResult,
+    inReviewRequestsResult,
+    tasksDueSoonResult,
+    ...restResults
+  ] = results;
+
+  const newRequestsCount = newRequestsResult.error ? 0 : (newRequestsResult.count || 0);
+  const inReviewRequestsCount = inReviewRequestsResult.error ? 0 : (inReviewRequestsResult.count || 0);
+  const tasksDueSoonCount = tasksDueSoonResult.error ? 0 : (tasksDueSoonResult.count || 0);
+
+  // Handle assigned tasks count (client context only)
+  let assignedTasksCount = 0;
+  if (context.variant === 'client' && restResults.length > 0) {
+    const membershipsResult = restResults[0];
+    if (!membershipsResult.error && membershipsResult.data) {
+      const clientOrgUserIds = membershipsResult.data.map((m: { user_id: string }) => m.user_id);
+      
+      if (clientOrgUserIds.length > 0) {
+        const assignedTasksResult = await supabase
+          .from('tasks')
+          .select('id', { count: 'exact', head: true })
+          .in('connection_id', connectionIds)
+          .in('assignee_user_id', clientOrgUserIds)
+          .is('completed_at', null)
+          .is('deleted_at', null);
+        
+        assignedTasksCount = assignedTasksResult.error ? 0 : (assignedTasksResult.count || 0);
+      }
+    }
+  }
+
+  // Log errors if any
+  if (newRequestsResult.error) {
+    console.error('Error fetching new requests count:', newRequestsResult.error);
+  }
+  if (inReviewRequestsResult.error) {
+    console.error('Error fetching in-review requests count:', inReviewRequestsResult.error);
+  }
+  if (tasksDueSoonResult.error) {
+    console.error('Error fetching tasks due soon count:', tasksDueSoonResult.error);
+  }
+
+  return {
+    newRequestsCount,
+    inReviewRequestsCount,
+    tasksDueSoonCount,
+    assignedTasksCount,
+  };
+});
+
 export const getOrganizationResources = cache(async (
   context: EnhancedModeContext
 ): Promise<Array<{

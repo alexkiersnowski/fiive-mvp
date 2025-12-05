@@ -2,6 +2,9 @@ import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { getHomeSnapshot } from '@/features/home/loaders';
 import { homeCardRegistry } from '@/features/home/registry';
 
+// Cache for 30 seconds to improve performance while keeping data reasonably fresh
+export const revalidate = 30;
+
 export default async function DashboardHome() {
   const pageStartTime = performance.now();
   
