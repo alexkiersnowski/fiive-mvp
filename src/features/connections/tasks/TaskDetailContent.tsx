@@ -252,10 +252,15 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
   // and merge with initial projects from props
   useEffect(() => {
     if (project && project.id && project.name) {
-      // Add current project to list immediately if not already present
+      // Update or add current project to list
       setProjects(prev => {
         const existingIndex = prev.findIndex(p => p.id === project.id)
         if (existingIndex >= 0) {
+          // Update existing project name if it changed
+          const existing = prev[existingIndex]
+          if (existing.name === project.name) {
+            return prev // No change needed
+          }
           const updated = [...prev]
           updated[existingIndex] = { id: project.id, name: project.name }
           return updated
@@ -263,15 +268,24 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         return [{ id: project.id, name: project.name }, ...prev]
       })
     }
-  }, [project])
+  }, [project?.id, project?.name])
 
+  // Sync project prop when project ID changes (different task selected)
+  // Event listener handles real-time name updates for the same project
   useEffect(() => {
     if (project && project.id && project.name) {
-      setTaskProject({ id: project.id, name: project.name })
+      setTaskProject((prev) => {
+        // Update if project ID changed (different project) or if no previous state
+        // Don't update if same project ID (event listener handles name updates)
+        if (!prev || prev.id !== project.id) {
+          return { id: project.id, name: project.name }
+        }
+        return prev // Keep existing state - event listener will update name if needed
+      })
     } else {
       setTaskProject(null)
     }
-  }, [project])
+  }, [project?.id]) // Only depend on project ID, not name
   
   // Update projects list when initialProjects prop changes (e.g., when modal opens with fresh data)
   useEffect(() => {
@@ -285,6 +299,36 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       })
     }
   }, [initialProjects])
+
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in projects list
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+
+      // Update taskProject if it matches the updated project
+      setTaskProject((prev) => {
+        if (prev && prev.id === projectId) {
+          return { ...prev, name: title };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId])
   
   const loadComments = useCallback(async (): Promise<Comment[] | null> => {
     try {

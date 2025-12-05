@@ -15,7 +15,7 @@ import { RequestDetailModal } from '../requests/RequestDetailModal';
 import { NewRequestModal } from '../requests/NewRequestModal';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal';
 import { convertRequestToTask } from '../tasks/actions';
-import { fetchRequestById } from '../requests/actions';
+import { fetchRequestById, deleteRequest } from '../requests/actions';
 import type { Request } from '../server';
 
 type PrefetchedComment = {
@@ -97,11 +97,61 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [convertRequest, setConvertRequest] = useState<RequestDetailPayload | null>(null);
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
-  const [_isConverting, _setIsConverting] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
 
   useEffect(() => {
     setPrefetchedRequests(requests);
   }, [requests]);
+
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in all requests that reference this project
+      setPrefetchedRequests((prev) =>
+        prev.map((request) => {
+          if (request.detail.project?.id === projectId) {
+            return {
+              ...request,
+              detail: {
+                ...request.detail,
+                project: {
+                  ...request.detail.project,
+                  name: title,
+                },
+              },
+            };
+          }
+          return request;
+        })
+      );
+
+      // Update selected request if it references this project
+      setSelectedRequest((prev) => {
+        if (prev && prev.project?.id === projectId) {
+          return {
+            ...prev,
+            project: {
+              ...prev.project,
+              name: title,
+            },
+          };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId]);
 
   const isAgency = context.variant === 'agency';
   const title = 'Requests';
@@ -122,7 +172,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     return context.variant === 'agency' ? 'agencies' : 'clients';
   }, [pathname, context.variant]);
 
-  const handleRowClick = useCallback(async (requestId: string) => {
+  const handleRowClick = useCallback((requestId: string) => {
     const target = prefetchedRequests.find((item) => item.id === requestId);
     if (!target) {
       toast.error('Unable to load request details.');
@@ -190,15 +240,14 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     ));
   }, [context.variant, setNewRequestsCount]);
 
-  const handleRequestDeleted = useCallback((requestId: string) => {
-    let wasNew = false;
+  const handleRequestDeleted = useCallback(async (requestId: string) => {
+    // Store the deleted request for potential rollback
+    const deletedRequest = prefetchedRequests.find((item) => item.id === requestId);
+    const deletedIndex = prefetchedRequests.findIndex((item) => item.id === requestId);
+    const wasNew = deletedRequest?.detail.status === 'new';
 
-    setPrefetchedRequests((prev) => prev.filter((item) => {
-      if (item.id === requestId) {
-        wasNew = item.detail.status === 'new';
-      }
-      return item.id !== requestId;
-    }));
+    // Optimistically remove from UI
+    setPrefetchedRequests((prev) => prev.filter((item) => item.id !== requestId));
 
     if (context.variant === 'agency' && wasNew) {
       setNewRequestsCount((prev) => Math.max(0, (prev || 0) - 1));
@@ -210,7 +259,34 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       setSelectedComments([]);
       setIsModalOpen(false);
     }
-  }, [context.variant, selectedRequestId, setNewRequestsCount]);
+
+    // Call API to delete from database
+    try {
+      await deleteRequest(requestId);
+      toast.success('Request deleted');
+    } catch (error) {
+      // Rollback optimistic update on error
+      if (deletedRequest) {
+        setPrefetchedRequests((prev) => {
+          const withoutDeleted = prev.filter((item) => item.id !== requestId);
+          if (deletedIndex >= 0 && deletedIndex < withoutDeleted.length) {
+            return [
+              ...withoutDeleted.slice(0, deletedIndex),
+              deletedRequest,
+              ...withoutDeleted.slice(deletedIndex),
+            ];
+          } else {
+            return [...withoutDeleted, deletedRequest];
+          }
+        });
+
+        if (context.variant === 'agency' && wasNew) {
+          setNewRequestsCount((prev) => (prev || 0) + 1);
+        }
+      }
+      toast.error('Failed to delete request');
+    }
+  }, [context.variant, prefetchedRequests, selectedRequestId, setNewRequestsCount]);
 
   const handleModalClose = useCallback(() => {
     setIsModalOpen(false);
@@ -243,8 +319,9 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       toast.error('Request unavailable for conversion');
       return;
     }
+    setIsConverting(true);
     try {
-      await convertRequestToTask(requestId, {
+      const result = await convertRequestToTask(requestId, {
         connectionId,
         title,
         description,
@@ -258,12 +335,29 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       toast.success('Task created from request');
       handleConvertModalClose();
       handleRequestUpdate(requestId, { status: 'accepted' });
-      // Real-time subscription will handle UI updates
+      
+      // Notify TasksCardClient to update optimistically
+      // Dispatch a custom event that TasksCardClient can listen to
+      window.dispatchEvent(new CustomEvent('taskCreated', {
+        detail: {
+          taskId: result.taskId,
+          connectionId,
+          title,
+          description,
+          status,
+          project,
+          assignee,
+          dueDateRaw,
+          clientVisible,
+        }
+      }));
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to convert request to task:', error);
       }
       toast.error('Failed to convert request');
+    } finally {
+      setIsConverting(false);
     }
   }, [connectionId, handleConvertModalClose, handleRequestUpdate]);
 
@@ -537,6 +631,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
         isOpen={isConvertModalOpen}
         onClose={handleConvertModalClose}
         onSubmit={handleConvertSubmit}
+        isSubmitting={isConverting}
         connectionId={connectionId}
         request={convertRequest}
         agencyMembers={snapshot.agencyMembers ?? []}

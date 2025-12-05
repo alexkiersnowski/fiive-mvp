@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useConnection } from "../ConnectionContext";
 import { TaskDetailModal } from "../tasks/TaskDetailModal";
 import { NewTaskModal } from "../tasks/NewTaskModal";
-import { fetchTaskById } from "../tasks/actions";
+import { fetchTaskById, deleteTask } from "../tasks/actions";
 import type { Task } from "../server";
 import { sortMembersWithActiveFirst, type MemberSummary } from "../utils/memberSorting";
 
@@ -121,6 +121,56 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
     setPrefetchedTasks(tasks);
   }, [tasks]);
 
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in all tasks that reference this project
+      setPrefetchedTasks((prev) =>
+        prev.map((task) => {
+          if (task.detail.project?.id === projectId) {
+            return {
+              ...task,
+              detail: {
+                ...task.detail,
+                project: {
+                  ...task.detail.project,
+                  name: title,
+                },
+              },
+            };
+          }
+          return task;
+        })
+      );
+
+      // Update selected task if it references this project
+      setSelectedTask((prev) => {
+        if (prev && prev.project?.id === projectId) {
+          return {
+            ...prev,
+            project: {
+              ...prev.project,
+              name: title,
+            },
+          };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId]);
+
   const isAgency = context.variant === "agency";
   const title = "Tasks";
   const description = isAgency
@@ -174,6 +224,102 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
     }),
     []
   );
+
+  // Listen for task creation events (e.g., from RequestsCard converting a request to task)
+  useEffect(() => {
+    const handleTaskCreated = async (event: CustomEvent) => {
+      const { taskId, connectionId: eventConnectionId, title, description, status, project, assignee, dueDateRaw, clientVisible } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Create optimistic task entry
+      const isoNow = new Date().toISOString();
+      const displayDate = formatTaskDate(isoNow) || isoNow;
+
+      const assigneeMember = assignee?.id
+        ? sortedMembers.find((member) => member.id === assignee.id)
+        : undefined;
+
+      const optimisticTask: PrefetchedTask = {
+        id: taskId,
+        title,
+        createdAt: displayDate,
+        dueDate: dueDateRaw ?? null,
+        detail: {
+          taskId,
+          title,
+          description: description || '',
+          client: {
+            id: snapshot.partner.id,
+            name: snapshot.partner.name,
+            logoUrl: snapshot.partner.logo || undefined,
+          },
+          agency: {
+            id: snapshot.agency.id,
+            name: snapshot.agency.name,
+            logoUrl: snapshot.agency.logo || undefined,
+          },
+          submittedBy: {
+            id: context.user.id,
+            name: `${context.user.firstName} ${context.user.lastName}`.trim() || 'You',
+            email: context.user.email,
+            avatarUrl: context.user.avatarUrl,
+          },
+          assignee: assigneeMember
+            ? {
+                id: assigneeMember.id,
+                name: `${assigneeMember.firstName} ${assigneeMember.lastName}`,
+                email: assigneeMember.email,
+                avatarUrl: assigneeMember.avatarUrl,
+              }
+            : null,
+          project: project ?? null,
+          status: status || 'to_do',
+          createdAt: displayDate,
+          createdByOrgId: context.organization.id,
+          createdByOrgType: context.variant === 'agency' ? 'agency' : 'client',
+          dueDate: dueDateRaw ?? null,
+          dueDateRaw: dueDateRaw ?? null,
+          clientVisible: clientVisible ?? false,
+          clientVisibilityLocked: Boolean(assigneeMember && assigneeMember.orgType === 'client'),
+          sourceRequestId: null,
+          linkedRequest: null,
+        },
+        comments: [],
+      };
+
+      // Optimistically add to the list
+      setPrefetchedTasks((prev) => {
+        const filtered = prev.filter((item) => item.id !== taskId);
+        const next = [optimisticTask, ...filtered];
+        return next.slice(0, 4);
+      });
+
+      // Fetch the actual task from server to replace optimistic entry
+      try {
+        const fetched = await fetchTaskById(connectionId, taskId);
+        if (fetched) {
+          const mapped = mapTaskToPrefetched(fetched);
+          setPrefetchedTasks((prev) => {
+            const filtered = prev.filter((item) => item.id !== taskId);
+            const next = [mapped, ...filtered];
+            return next.slice(0, 4);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch created task:', error);
+        // Keep optimistic entry if fetch fails
+      }
+    };
+
+    window.addEventListener('taskCreated', handleTaskCreated as EventListener);
+    return () => {
+      window.removeEventListener('taskCreated', handleTaskCreated as EventListener);
+    };
+  }, [connectionId, context, snapshot, sortedMembers, mapTaskToPrefetched]);
 
   const handleRowClick = useCallback(
     (taskId: string) => {
@@ -249,7 +395,12 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
   );
 
   const handleTaskDeleted = useCallback(
-    (taskId: string) => {
+    async (taskId: string) => {
+      // Store the deleted task for potential rollback
+      const deletedTask = prefetchedTasks.find((item) => item.id === taskId);
+      const deletedIndex = prefetchedTasks.findIndex((item) => item.id === taskId);
+
+      // Optimistically remove from UI
       setPrefetchedTasks((prev) => prev.filter((item) => item.id !== taskId));
 
       if (selectedTaskId === taskId) {
@@ -258,8 +409,31 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
         setSelectedComments([]);
         setIsDetailModalOpen(false);
       }
+
+      // Call API to delete from database
+      try {
+        await deleteTask(taskId);
+        toast.success('Task deleted');
+      } catch (error) {
+        // Rollback optimistic update on error
+        if (deletedTask) {
+          setPrefetchedTasks((prev) => {
+            const withoutDeleted = prev.filter((item) => item.id !== taskId);
+            if (deletedIndex >= 0 && deletedIndex < withoutDeleted.length) {
+              return [
+                ...withoutDeleted.slice(0, deletedIndex),
+                deletedTask,
+                ...withoutDeleted.slice(deletedIndex),
+              ];
+            } else {
+              return [...withoutDeleted, deletedTask];
+            }
+          });
+        }
+        toast.error('Failed to delete task');
+      }
     },
-    [selectedTaskId]
+    [prefetchedTasks, selectedTaskId]
   );
 
   const handleDetailModalClose = useCallback(() => {

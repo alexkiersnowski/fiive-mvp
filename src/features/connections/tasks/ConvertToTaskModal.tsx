@@ -16,6 +16,7 @@ import { Eye, EyeSlash, Check, CaretDown, User, X } from '@phosphor-icons/react'
 import { parse, format } from 'date-fns'
 import { toast } from 'sonner'
 import { fetchProjectsForConnection, fetchMembersForConnection } from './actions'
+import { Spinner } from '@/components/ui/shadcn-io/spinner'
 
 type TaskStatus = 'to_do' | 'in_progress' | 'on_hold' | 'done'
 
@@ -157,6 +158,36 @@ export function ConvertToTaskModal({
       })
     }
   }, [projects])
+
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in projectOptions list
+      setProjectOptions((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+
+      // Update projectValue if it matches the updated project
+      setProjectValue((prev) => {
+        if (prev && prev.id === projectId) {
+          return { ...prev, name: title };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId])
 
   useEffect(() => {
     if (!isOpen) return
@@ -525,7 +556,7 @@ export function ConvertToTaskModal({
                   </div>
                 </div>
 
-                <div className="flex items中心 gap-4 h-6">
+                <div className="flex items-center gap-4 h-6">
                   <div className="w-2/5 min-w-0">
                     <p className="text-sm-regular text-secondary truncate">Project</p>
                   </div>
@@ -677,8 +708,13 @@ export function ConvertToTaskModal({
               A new task will be created and linked to this request
             </span>
             <div className="flex items-center gap-2">
-              <Button onClick={handleSubmit} disabled={disableCreate} className="!h-10 cursor-pointer">
-                {isSubmitting ? 'Creating…' : 'Create'}
+              <Button onClick={handleSubmit} disabled={disableCreate} className="!h-10 cursor-pointer relative">
+                <span className={isSubmitting ? "invisible" : ""}>Create</span>
+                {isSubmitting && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Spinner size={16} />
+                  </div>
+                )}
               </Button>
             </div>
           </div>

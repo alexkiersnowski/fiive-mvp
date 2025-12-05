@@ -70,7 +70,25 @@ export default function AuthLayout({
     try {
       await onSubmit(data)
     } catch (error) {
-      console.error('Form submission error:', error)
+      // Next.js redirect() throws a special error - don't treat it as an error
+      if (error && typeof error === 'object' && 'digest' in error) {
+        const digest = (error as any).digest
+        if (typeof digest === 'string' && digest.includes('NEXT_REDIRECT')) {
+          // This is a redirect - let it propagate
+          throw error
+        }
+      }
+      
+      // Extract error message
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'An unexpected error occurred. Please try again.'
+      
+      // Set error on form field for inline display only
+      form.setError('email', {
+        type: 'server',
+        message: errorMessage
+      })
     }
   }
   return (

@@ -536,6 +536,7 @@ export default function TasksCardClient({
             }));
           }}
           isGlobalView={true}
+          organizationType={context.organization.type as 'agency' | 'client'}
         />
       )}
     </Card>

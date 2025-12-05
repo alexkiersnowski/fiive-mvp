@@ -115,12 +115,14 @@ interface TaskDetailModalProps {
   }>) => void
   isGlobalView?: boolean
   isDisconnected?: boolean // Optional prop for when used outside ConnectionProvider
+  organizationType?: 'agency' | 'client' // Optional prop for when used outside ConnectionProvider
 }
 
-export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false, isDisconnected: propIsDisconnected }: TaskDetailModalProps) {
+export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false, isDisconnected: propIsDisconnected, organizationType: propOrganizationType }: TaskDetailModalProps) {
   // Use prop if provided, otherwise try to get from context
   const connectionContext = useConnectionSafe()
   const isDisconnected = propIsDisconnected !== undefined ? propIsDisconnected : connectionContext.isDisconnected
+  const isClientOrg = propOrganizationType === 'client' || ('context' in connectionContext && connectionContext.context?.organization?.type === 'client')
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // All fields are editable (no restrictions)
@@ -211,7 +213,7 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {!isDisconnected && (
+                {!isDisconnected && !isClientOrg && (
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 

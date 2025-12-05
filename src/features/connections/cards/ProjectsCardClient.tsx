@@ -205,8 +205,23 @@ export default function ProjectsCardClient({
 
         return nextSelected;
       });
+
+      // Dispatch event to notify RequestsCard and TasksCard of project updates
+      if (updates.title !== undefined) {
+        const event = new CustomEvent('projectUpdated', {
+          detail: {
+            projectId,
+            connectionId,
+            title: updates.title,
+          }
+        });
+        window.dispatchEvent(event);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[ProjectsCard] Dispatched projectUpdated event:', { projectId, connectionId, title: updates.title });
+        }
+      }
     },
-    []
+    [connectionId]
   );
 
   const handleProjectDeleted = useCallback(
