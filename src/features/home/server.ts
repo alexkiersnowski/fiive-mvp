@@ -395,9 +395,9 @@ export const getHomeCountsAggregated = cache(async (
   // Handle assigned tasks count (client context only)
   let assignedTasksCount = 0;
   if (context.variant === 'client' && restResults.length > 0) {
-    const membershipsResult = restResults[0];
+    const membershipsResult = restResults[0] as { data: Array<{ user_id: string }> | null; error: { message: string } | null };
     if (!membershipsResult.error && membershipsResult.data) {
-      const clientOrgUserIds = membershipsResult.data.map((m: { user_id: string }) => m.user_id);
+      const clientOrgUserIds = membershipsResult.data.map((m) => m.user_id);
       
       if (clientOrgUserIds.length > 0) {
         const assignedTasksResult = await supabase
