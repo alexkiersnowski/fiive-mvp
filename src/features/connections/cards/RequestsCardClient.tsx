@@ -135,11 +135,11 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
 
       // Update selected request if it references this project
       setSelectedRequest((prev) => {
-        if (prev && prev.project?.id === projectId) {
+        if (prev && prev.project && prev.project.id === projectId) {
           return {
             ...prev,
             project: {
-              ...prev.project,
+              id: prev.project.id,
               name: title,
             },
           };

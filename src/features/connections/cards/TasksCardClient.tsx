@@ -153,11 +153,11 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
 
       // Update selected task if it references this project
       setSelectedTask((prev) => {
-        if (prev && prev.project?.id === projectId) {
+        if (prev && prev.project && prev.project.id === projectId) {
           return {
             ...prev,
             project: {
-              ...prev.project,
+              id: prev.project.id,
               name: title,
             },
           };
