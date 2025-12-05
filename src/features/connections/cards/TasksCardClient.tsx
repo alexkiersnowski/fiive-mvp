@@ -140,7 +140,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
               detail: {
                 ...task.detail,
                 project: {
-                  ...task.detail.project,
+                  id: task.detail.project.id,
                   name: title,
                 },
               },
@@ -309,7 +309,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
             return next.slice(0, 4);
           });
         }
-      } catch {
+      } catch (_error) {
         // Keep optimistic entry if fetch fails
       }
     };
@@ -413,7 +413,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       try {
         await deleteTask(taskId);
         toast.success('Task deleted');
-      } catch (error) {
+      } catch (_error) {
         // Rollback optimistic update on error
         if (deletedTask) {
           setPrefetchedTasks((prev) => {

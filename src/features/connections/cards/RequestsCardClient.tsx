@@ -122,7 +122,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
               detail: {
                 ...request.detail,
                 project: {
-                  ...request.detail.project,
+                  id: request.detail.project.id,
                   name: title,
                 },
               },
@@ -264,7 +264,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     try {
       await deleteRequest(requestId);
       toast.success('Request deleted');
-    } catch (error) {
+    } catch (_error) {
       // Rollback optimistic update on error
       if (deletedRequest) {
         setPrefetchedRequests((prev) => {
