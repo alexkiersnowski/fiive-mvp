@@ -105,6 +105,9 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     }
     return undefined
   })
+  
+  // Track if date was explicitly cleared (for optimistic updates)
+  const [isDateCleared, setIsDateCleared] = React.useState(false)
 
   // Reset temp value when value prop changes
   React.useEffect(() => {
@@ -117,11 +120,14 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       if (props.value) {
         try {
           setSelectedDate(new Date(props.value))
+          setIsDateCleared(false) // Reset cleared flag when value is set
         } catch {
           setSelectedDate(undefined)
+          setIsDateCleared(false)
         }
       } else {
         setSelectedDate(undefined)
+        setIsDateCleared(false) // Reset cleared flag when value becomes empty from server
       }
     }
   }, [props.value, props.type])
@@ -435,12 +441,16 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     const multiline = 'multiline' in props ? props.multiline : false
     const linkifyUrls = 'linkifyUrls' in props ? props.linkifyUrls : false
     const validationText = 'validationText' in props ? props.validationText : undefined
-    const displayValue = formatDisplayValue(props.value)
+    // Use tempValue for optimistic updates when it differs from props.value (similar to badge type)
+    // This ensures immediate UI feedback before server revalidation
+    // When tempValue is empty string and props.value is not, use tempValue to show placeholder immediately (optimistic clear)
+    const valueToDisplay = tempValue !== props.value ? tempValue : props.value
+    const displayValue = formatDisplayValue(valueToDisplay)
     
     // For multiline text with linkifyUrls enabled, apply linkification to make URLs clickable
-    const renderedContent = multiline && linkifyUrls && props.value ? (
+    const renderedContent = multiline && linkifyUrls && valueToDisplay ? (
       <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-        {linkifyText(props.value)}
+        {linkifyText(valueToDisplay)}
       </span>
     ) : displayValue
     
@@ -462,7 +472,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
           )}
           style={{
             cursor: props.nonInteractive ? 'default' : 'pointer',
-            ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {}),
+            ...(!valueToDisplay ? { color: 'var(--color-base-text-tertiary)' } : {}),
             ...(multiline ? { overflowWrap: 'break-word', wordBreak: 'break-word' } : {}),
             ...(props.style || {})
           }}
@@ -677,9 +687,17 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       if (props.nonInteractive) return;
       e.stopPropagation()
       setSelectedDate(undefined)
+      setIsDateCleared(true) // Mark as cleared for optimistic update
       props.onSave('')
       setIsPopoverOpen(false)
     }
+    
+    // Use selectedDate for optimistic updates when it exists, falling back to props.value
+    // Format selectedDate using the same pattern as display format
+    // If explicitly cleared, show placeholder immediately (optimistic)
+    const displayDate = selectedDate 
+      ? format(selectedDate, dateFormatString)
+      : (isDateCleared ? (props.placeholder || 'Select date') : (props.value || props.placeholder || 'Select date'))
     
     return (
       <Popover open={!props.nonInteractive && isPopoverOpen} onOpenChange={(open) => !props.nonInteractive && setIsPopoverOpen(open)}>
@@ -693,11 +711,12 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
             )}
             style={{
               cursor: props.nonInteractive ? 'default' : 'pointer',
-              ...(!props.value ? { color: 'var(--color-base-text-tertiary)' } : {})
+              ...(!displayDate || displayDate === props.placeholder || displayDate === 'Select date' ? { color: 'var(--color-base-text-tertiary)' } : {})
             }}
           >
-            <span>{props.value || props.placeholder || 'Select date'}</span>
-            {props.value && !props.nonInteractive && isPopoverOpen && (
+            <span>{displayDate}</span>
+            {/* Show clear button when there's a value to clear (check selectedDate for optimistic updates or props.value for server state) */}
+            {(selectedDate !== undefined || (props.value && props.value !== props.placeholder && props.value !== 'Select date')) && !props.nonInteractive && isPopoverOpen && (
               <XCircle 
                 size={16} 
                 weight="fill" 

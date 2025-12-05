@@ -110,7 +110,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
         {/* Total Contract Value Row */}
         <div className="flex items-center gap-4">
           <div className="w-2/5 min-w-0">
-            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Total Contract Value' : 'Next delivery'}</p>
+            <p className="text-sm-regular text-secondary truncate">{isAgency ? 'Total contract value' : 'Next delivery'}</p>
           </div>
           <div className="w-3/5 min-w-0">
             {isAgency ? (
