@@ -134,13 +134,14 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       // Update project name in all tasks that reference this project
       setPrefetchedTasks((prev) =>
         prev.map((task) => {
-          if (task.detail.project?.id === projectId && task.detail.project) {
+          const project = task.detail.project;
+          if (project?.id === projectId) {
             return {
               ...task,
               detail: {
                 ...task.detail,
                 project: {
-                  id: task.detail.project.id,
+                  id: project.id,
                   name: title,
                 },
               },
