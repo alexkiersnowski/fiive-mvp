@@ -532,8 +532,8 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       
       // Default to neutral badge styling (like "Design" in request table)
       return (
-        <Badge variant="neutral" className="text-xs">
-          {displayLabel}
+        <Badge variant="neutral" className="text-xs !flex-shrink min-w-0 max-w-full">
+          <span className="truncate">{displayLabel}</span>
         </Badge>
       )
     }
@@ -543,7 +543,8 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
         <PopoverTrigger asChild>
           <div
             className={cn(
-              "py-1 px-1 rounded flex items-center justify-between gap-2",
+              "py-1 px-1 rounded flex items-center gap-2 min-w-0 w-full max-w-full",
+              (props.clearable && tempValue && isPopoverOpen) ? "justify-between" : "justify-start",
               !props.disableHoverTransition && "transition-colors duration-75",
               !props.nonInteractive && (isHovered || isPopoverOpen) && "bg-[var(--color-interactive-surface-hover)]",
               props.className
@@ -641,7 +642,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
                         
                         return (
                           <Badge variant="neutral" className="text-xs">
-                            {option.label}
+                            <span className="truncate">{option.label}</span>
                           </Badge>
                         )
                       })()}

@@ -602,7 +602,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                   return (
                     <TableCell 
                       className="w-[18.75%] py-0"
-                      onClick={isDisconnected ? undefined : (e) => e.stopPropagation()}
                     >
                       <TaskBadge 
                         variant={task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done'} 
@@ -710,11 +709,11 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                 </TableCell>
 
                 <TableCell className="w-[18.75%] py-0">
-                  {task.project ? (
+                  {task.project && (
                     <Badge variant="neutral" className="text-xs">
-                      {task.project.name}
+                      <span className="truncate">{task.project.name}</span>
                     </Badge>
-                  ) : null}
+                  )}
                 </TableCell>
 
                 {isAgency && (

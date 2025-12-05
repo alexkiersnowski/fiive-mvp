@@ -98,6 +98,39 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
     return 'Project'
   }
   
+  // Handle copy link
+  const handleCopyLink = () => {
+    if (!projectData?.projectId || !connectionId) return
+    if (typeof window === 'undefined') return
+
+    const currentPath = window.location.pathname
+    const routeSegment = currentPath.startsWith('/agencies/')
+      ? 'agencies'
+      : currentPath.startsWith('/clients/')
+        ? 'clients'
+        : variant === 'agency'
+          ? 'clients' // Agencies view clients
+          : 'agencies' // Clients view agencies
+
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      toast.error('Clipboard unavailable')
+      return
+    }
+
+    const fullUrl = `${window.location.origin}/${routeSegment}/${connectionId}/projects/${projectData.projectId}`
+
+    clipboard.writeText(fullUrl)
+      .then(() => {
+        toast.success('Link copied to clipboard')
+        setIsActionsDropdownOpen(false)
+      })
+      .catch((error) => {
+        console.error('Failed to copy project link:', error)
+        toast.error('Failed to copy link')
+      })
+  }
+  
   // Handle delete project click (opens confirmation dialog)
   const handleDeleteProject = () => {
     setDeleteDialogOpen(true)
@@ -157,7 +190,7 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                <DropdownMenuItem onClick={handleCopyLink}>
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>

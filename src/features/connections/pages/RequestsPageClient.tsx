@@ -722,7 +722,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   }>>([])
   const [convertRequest, setConvertRequest] = useState<ModalRequest | null>(null)
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
-  const [_isConverting, _setIsConverting] = useState(false)
+  const [isConverting, setIsConverting] = useState(false)
 
   function getRequestById(requestId: string) {
     return requests.find(r => r.id === requestId)
@@ -832,6 +832,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       toast.error('Request unavailable for conversion')
       return
     }
+    setIsConverting(true)
     try {
       await convertRequestToTask(requestId, {
         connectionId,
@@ -854,6 +855,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       }
       toast.error('Failed to convert request')
     } finally {
+      setIsConverting(false)
     }
   }
 
@@ -1120,6 +1122,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         isOpen={isConvertModalOpen}
         onClose={handleConvertModalClose}
         onSubmit={handleConvertSubmit}
+        isSubmitting={isConverting}
         connectionId={connectionId}
         request={convertRequest}
         agencyMembers={agencyMembers}

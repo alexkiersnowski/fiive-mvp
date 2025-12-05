@@ -539,7 +539,7 @@ export function ConvertToTaskModal({
 
             <div className="w-px bg-neutral-alpha-4 flex-shrink-0 mb-10" />
 
-            <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
+            <div className="flex-[1] flex flex-col gap-2 min-w-0 pl-8 mb-10">
               <h3 className="text-md-medium text-primary">Details</h3>
               <div className="flex flex-col gap-2 mt-2">
                 <div className="flex items-center gap-4 h-6">
@@ -560,20 +560,22 @@ export function ConvertToTaskModal({
                   <div className="w-2/5 min-w-0">
                     <p className="text-sm-regular text-secondary truncate">Project</p>
                   </div>
-                  <div className="w-3/5 min-w-0">
-                    <InlineEdit
-                      type="badge"
-                      value={projectValue ? projectValue.id : ''}
-                      options={projectOptions.map(p => ({ value: p.id, label: p.name }))}
-                      onSave={handleProjectSave}
-                      placeholder="None (account task)"
-                      searchPlaceholder="Search projects…"
-                      clearable={!!projectValue}
-                      popoverWidth="240px"
-                      badgeBorderRadius="4px"
-                      maxHeight="210px"
-                      className="h-6"
-                    />
+                  <div className="w-3/5 min-w-0 max-w-full">
+                    <div className="min-w-0 max-w-full">
+                      <InlineEdit
+                        type="badge"
+                        value={projectValue ? projectValue.id : ''}
+                        options={projectOptions.map(p => ({ value: p.id, label: p.name }))}
+                        onSave={handleProjectSave}
+                        placeholder="None (account task)"
+                        searchPlaceholder="Search projects…"
+                        clearable={!!projectValue}
+                        popoverWidth="240px"
+                        badgeBorderRadius="4px"
+                        maxHeight="210px"
+                        className="h-6"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -681,19 +683,6 @@ export function ConvertToTaskModal({
                           </>
                         )}
                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {request?.project && (
-                  <div className="flex items-center gap-4 h-6">
-                    <div className="w-2/5 min-w-0">
-                      <p className="text-sm-regular text-secondary truncate">Request project</p>
-                    </div>
-                    <div className="w-3/5 min-w-0">
-                      <Badge variant="neutral" className="text-xs">
-                        {request.project.name}
-                      </Badge>
                     </div>
                   </div>
                 )}

@@ -67,6 +67,7 @@ type PrefetchedRequest = {
 interface RequestsCardClientProps {
   connectionId: string;
   requests: PrefetchedRequest[];
+  prefetchedNextRequest?: PrefetchedRequest | null;
   projects: ProjectOption[];
 }
 
@@ -84,12 +85,16 @@ const formatRequestDate = (isoDate: string | null | undefined) => {
   }).format(parsedDate);
 };
 
-export function RequestsCardClient({ connectionId, requests, projects }: RequestsCardClientProps) {
+export function RequestsCardClient({ connectionId, requests, prefetchedNextRequest = null, projects: initialProjects }: RequestsCardClientProps) {
   const { snapshot, context, setNewRequestsCount } = useConnection();
   const router = useRouter();
   const pathname = usePathname();
 
   const [prefetchedRequests, setPrefetchedRequests] = useState<PrefetchedRequest[]>(requests);
+  // Store prefetched next request for instant replacement on delete
+  const [prefetchedRequest, setPrefetchedRequest] = useState<PrefetchedRequest | null>(prefetchedNextRequest);
+  // Maintain projects in state to keep in sync with events
+  const [projects, setProjects] = useState<ProjectOption[]>(initialProjects);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<RequestDetailPayload | null>(null);
   const [selectedComments, setSelectedComments] = useState<CommentItem[]>([]);
@@ -102,6 +107,57 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
   useEffect(() => {
     setPrefetchedRequests(requests);
   }, [requests]);
+
+  // Sync prefetched request when prop changes
+  useEffect(() => {
+    setPrefetchedRequest(prefetchedNextRequest);
+  }, [prefetchedNextRequest]);
+
+  // Sync projects when prop changes (e.g., on page refresh)
+  useEffect(() => {
+    setProjects(initialProjects);
+  }, [initialProjects]);
+
+  // Listen for project creation and updates to keep projects list in sync
+  useEffect(() => {
+    const handleProjectCreated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Add new project to projects list (avoid duplicates)
+      setProjects((prev) => {
+        if (prev.some(p => p.id === projectId)) {
+          return prev;
+        }
+        return [{ id: projectId, name: title }, ...prev];
+      });
+    };
+
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in projects list
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+    };
+
+    window.addEventListener('projectCreated', handleProjectCreated as EventListener);
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectCreated', handleProjectCreated as EventListener);
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId]);
 
   // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
   useEffect(() => {
@@ -247,7 +303,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     const deletedIndex = prefetchedRequests.findIndex((item) => item.id === requestId);
     const wasNew = deletedRequest?.detail.status === 'new';
 
-    // Optimistically remove from UI
+    // Optimistically remove from UI immediately
     setPrefetchedRequests((prev) => prev.filter((item) => item.id !== requestId));
 
     if (context.variant === 'agency' && wasNew) {
@@ -261,6 +317,79 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       setIsModalOpen(false);
     }
 
+    // Instantly display prefetched next request if available
+    let nextRequest: PrefetchedRequest | null = null;
+    const previousPrefetchedRequest = prefetchedRequest; // Store for potential rollback
+    if (prefetchedRequest) {
+      nextRequest = prefetchedRequest;
+      setPrefetchedRequests((prev) => {
+        // Only add if we don't already have it (avoid duplicates)
+        if (!prev.find(r => r.id === nextRequest!.id)) {
+          return [...prev, nextRequest!];
+        }
+        return prev;
+      });
+      // Clear the prefetched request since we've used it
+      setPrefetchedRequest(null);
+
+      // Prefetch the next request (6th one) for future deletions
+      // Fetch starting from offset 5 with limit 1
+      const { fetchRequestsForConnection, fetchCommentsForRequests } = await import('../requests/actions');
+      fetchRequestsForConnection(connectionId, {
+        limit: 1,
+        offset: 5,
+      }).then(result => {
+        if (result.requests.length > 0) {
+          const fetchedRequest = result.requests[0];
+          // Map to PrefetchedRequest format
+          const newPrefetched: PrefetchedRequest = {
+            id: fetchedRequest.id,
+            title: fetchedRequest.title,
+            createdAt: fetchedRequest.createdAt,
+            detail: {
+              requestId: fetchedRequest.id,
+              title: fetchedRequest.title,
+              description: fetchedRequest.description,
+              client: fetchedRequest.client,
+              agency: fetchedRequest.agency,
+              submittedBy: fetchedRequest.submittedBy,
+              assignee: fetchedRequest.assignee,
+              project: fetchedRequest.project,
+              status: fetchedRequest.status,
+              createdAt: fetchedRequest.createdAt,
+              createdByOrgId: fetchedRequest.createdByOrgId,
+              createdByOrgType: fetchedRequest.createdByOrgType,
+            },
+            comments: [],
+          };
+          setPrefetchedRequest(newPrefetched);
+
+          // Prefetch comments for the new prefetched request
+          fetchCommentsForRequests([newPrefetched.id]).then(commentsRecord => {
+            const rawComments = commentsRecord[newPrefetched.id] || [];
+            const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+              id: comment.id,
+              userId: comment.userId,
+              userName: comment.userName,
+              userAvatar: comment.userAvatar,
+              createdAt: comment.createdAt instanceof Date
+                ? comment.createdAt.toISOString()
+                : new Date(comment.createdAt).toISOString(),
+              text: comment.text,
+            }));
+            setPrefetchedRequest(prev => prev ? {
+              ...prev,
+              comments: serializedComments,
+            } : null);
+          }).catch(error => {
+            console.error('Error fetching comments for prefetched request:', error);
+          });
+        }
+      }).catch(error => {
+        console.error('Error prefetching next request:', error);
+      });
+    }
+
     // Call API to delete from database
     try {
       await deleteRequest(requestId);
@@ -269,25 +398,34 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       // Rollback optimistic update on error
       if (deletedRequest) {
         setPrefetchedRequests((prev) => {
-          const withoutDeleted = prev.filter((item) => item.id !== requestId);
-          if (deletedIndex >= 0 && deletedIndex < withoutDeleted.length) {
+          // Remove the optimistically added next request if it was added
+          const withoutNext = nextRequest 
+            ? prev.filter(r => r.id !== nextRequest!.id)
+            : prev;
+          // Insert deleted request back in the same position
+          if (deletedIndex >= 0 && deletedIndex < withoutNext.length) {
             return [
-              ...withoutDeleted.slice(0, deletedIndex),
+              ...withoutNext.slice(0, deletedIndex),
               deletedRequest,
-              ...withoutDeleted.slice(deletedIndex),
+              ...withoutNext.slice(deletedIndex),
             ];
           } else {
-            return [...withoutDeleted, deletedRequest];
+            return [...withoutNext, deletedRequest];
           }
         });
 
-        if (context.variant === 'agency' && wasNew) {
-          setNewRequestsCount((prev) => (prev || 0) + 1);
+        // Restore prefetched request if we used it
+        if (nextRequest && previousPrefetchedRequest) {
+          setPrefetchedRequest(previousPrefetchedRequest);
         }
+      }
+
+      if (context.variant === 'agency' && wasNew) {
+        setNewRequestsCount((prev) => (prev || 0) + 1);
       }
       toast.error('Failed to delete request');
     }
-  }, [context.variant, prefetchedRequests, selectedRequestId, setNewRequestsCount]);
+  }, [connectionId, context.variant, prefetchedRequests, prefetchedRequest, selectedRequestId, setNewRequestsCount]);
 
   const handleModalClose = useCallback(() => {
     setIsModalOpen(false);
@@ -472,8 +610,16 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     };
 
     setPrefetchedRequests((prev) => {
-      const next = [optimisticEntry, ...prev.filter((item) => item.id !== payload.tempId)];
-      return next.slice(0, 4);
+      const filtered = prev.filter((item) => item.id !== payload.tempId);
+      const next = [optimisticEntry, ...filtered];
+      const displayed = next.slice(0, 4);
+      
+      // If we had 4 displayed and now have 5+, push the 5th to prefetched
+      if (next.length > 4) {
+        setPrefetchedRequest(next[4]);
+      }
+      
+      return displayed;
     });
 
     if (context.variant === 'agency') {
@@ -483,17 +629,44 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
 
   const handleNewRequestCreated = useCallback(async ({ requestId, tempId }: { requestId: string; tempId?: string }) => {
     try {
-      const fetched = await fetchRequestById(connectionId, requestId);
+      const { fetchRequestById, fetchCommentsForRequests } = await import('../requests/actions');
+      const [fetched, commentsRecord] = await Promise.all([
+        fetchRequestById(connectionId, requestId),
+        fetchCommentsForRequests([requestId]),
+      ]);
+
       if (!fetched) {
         return;
       }
 
-      const mapped = mapRequestToPrefetched(fetched);
+      const rawComments = commentsRecord[requestId] || [];
+      const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+        id: comment.id,
+        userId: comment.userId,
+        userName: comment.userName,
+        userAvatar: comment.userAvatar,
+        createdAt: comment.createdAt instanceof Date
+          ? comment.createdAt.toISOString()
+          : new Date(comment.createdAt).toISOString(),
+        text: comment.text,
+      }));
+
+      const mapped: PrefetchedRequest = {
+        ...mapRequestToPrefetched(fetched),
+        comments: serializedComments,
+      };
 
       setPrefetchedRequests((prev) => {
         const filtered = prev.filter((item) => item.id !== tempId && item.id !== mapped.id);
         const next = [mapped, ...filtered];
-        return next.slice(0, 4);
+        const displayed = next.slice(0, 4);
+        
+        // If we had 4 displayed and now have 5+, push the 5th to prefetched
+        if (next.length > 4) {
+          setPrefetchedRequest(next[4]);
+        }
+        
+        return displayed;
       });
 
       if (!tempId && context.variant === 'agency' && fetched.status === 'new') {

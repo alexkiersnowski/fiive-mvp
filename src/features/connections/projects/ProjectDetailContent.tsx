@@ -675,6 +675,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                   textClass="text-md-regular"
                   multiline={true}
                   linkifyUrls={true}
+                  maxLength={10000}
                   className="px-0"
                   style={{ fontSize: '15px', lineHeight: '22px' }}
                 />

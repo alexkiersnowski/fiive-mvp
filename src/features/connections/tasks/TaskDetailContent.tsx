@@ -300,6 +300,33 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     }
   }, [initialProjects])
 
+  // Listen for project creation (e.g., when a new project is created in ProjectsCard)
+  useEffect(() => {
+    const handleProjectCreated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Add new project to projects list (avoid duplicates)
+      setProjects((prev) => {
+        // Check if project already exists
+        if (prev.some(p => p.id === projectId)) {
+          return prev;
+        }
+        // Add new project to the list
+        return [{ id: projectId, name: title }, ...prev];
+      });
+    };
+
+    window.addEventListener('projectCreated', handleProjectCreated as EventListener);
+    return () => {
+      window.removeEventListener('projectCreated', handleProjectCreated as EventListener);
+    };
+  }, [connectionId]);
+
   // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
   useEffect(() => {
     const handleProjectUpdated = (event: CustomEvent) => {
@@ -1041,6 +1068,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               textClass="text-md-regular"
               multiline={true}
               linkifyUrls={true}
+              maxLength={10000}
               className="px-0"
               style={{ fontSize: '15px', lineHeight: '22px' }}
             />
@@ -1126,7 +1154,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       <div className="w-px bg-neutral-alpha-4 flex-shrink-0 mb-10"/>
 
       {/* Right Column */}
-      <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
+      <div className="flex-[1] flex flex-col gap-2 min-w-0 pl-8 mb-10">
           <h3 className="text-md-medium text-primary">
           Details
         </h3>
@@ -1171,29 +1199,30 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
             <div className="w-2/5 min-w-0">
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
-            <div className="w-3/5 min-w-0">
+            <div className="w-3/5 min-w-0 max-w-full">
               {isDisconnected ? (
-                <span className="text-sm-regular text-tertiary ml-1">
-                  {taskProject ? taskProject.name : 'None (account task)'}
-                </span>
-              ) : variant === 'agency' ? (
-                <InlineEdit
-                  type="badge"
-                  value={taskProject ? taskProject.id : ''}
-                  options={projects.map(p => ({ value: p.id, label: p.name }))}
-                  onSave={handleProjectSave}
-                  searchPlaceholder="Search projects…"
-                  clearable={!!taskProject}
-                  placeholder="None (account task)"
-                  popoverWidth="240px"
-                  badgeBorderRadius="4px"
-                  maxHeight="210px"
-                  className="h-6"
-                />
+                <div className="min-w-0">
+                  <span className="text-sm-regular text-tertiary ml-1 truncate">
+                    {taskProject ? taskProject.name : 'None (account task)'}
+                  </span>
+                </div>
               ) : (
-                <span className="text-sm-regular text-tertiary ml-1">
-                  {taskProject ? taskProject.name : 'None (account task)'}
-                </span>
+                <div className="min-w-0 max-w-full">
+                  <InlineEdit
+                    type="badge"
+                    value={taskProject ? taskProject.id : ''}
+                    options={projects.map(p => ({ value: p.id, label: p.name }))}
+                    onSave={handleProjectSave}
+                    searchPlaceholder="Search projects…"
+                    clearable={variant === 'agency' ? !!taskProject : false}
+                    placeholder="None (account task)"
+                    popoverWidth="240px"
+                    badgeBorderRadius="4px"
+                    maxHeight="210px"
+                    className="h-6"
+                    nonInteractive={variant === 'client'}
+                  />
+                </div>
               )}
             </div>
           </div>

@@ -80,6 +80,7 @@ type PrefetchedTask = {
 interface TasksCardClientProps {
   connectionId: string;
   tasks: PrefetchedTask[];
+  prefetchedNextTask?: PrefetchedTask | null;
   projects: ProjectOption[];
   members: MemberSummary[];
 }
@@ -105,12 +106,16 @@ const getTaskMetadata = (task: PrefetchedTask) => {
   return formatTaskDate(task.createdAt) || "—";
 };
 
-export function TasksCardClient({ connectionId, tasks, projects, members }: TasksCardClientProps) {
+export function TasksCardClient({ connectionId, tasks, prefetchedNextTask = null, projects: initialProjects, members }: TasksCardClientProps) {
   const { snapshot, context } = useConnection();
   const router = useRouter();
   const pathname = usePathname();
 
   const [prefetchedTasks, setPrefetchedTasks] = useState<PrefetchedTask[]>(tasks);
+  // Store prefetched next task for instant replacement on delete
+  const [prefetchedTask, setPrefetchedTask] = useState<PrefetchedTask | null>(prefetchedNextTask);
+  // Maintain projects in state to keep in sync with events
+  const [projects, setProjects] = useState<ProjectOption[]>(initialProjects);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<TaskDetailPayload | null>(null);
   const [selectedComments, setSelectedComments] = useState<CommentItem[]>([]);
@@ -120,6 +125,57 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
   useEffect(() => {
     setPrefetchedTasks(tasks);
   }, [tasks]);
+
+  // Sync prefetched task when prop changes
+  useEffect(() => {
+    setPrefetchedTask(prefetchedNextTask);
+  }, [prefetchedNextTask]);
+
+  // Sync projects when prop changes (e.g., on page refresh)
+  useEffect(() => {
+    setProjects(initialProjects);
+  }, [initialProjects]);
+
+  // Listen for project creation and updates to keep projects list in sync
+  useEffect(() => {
+    const handleProjectCreated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Add new project to projects list (avoid duplicates)
+      setProjects((prev) => {
+        if (prev.some(p => p.id === projectId)) {
+          return prev;
+        }
+        return [{ id: projectId, name: title }, ...prev];
+      });
+    };
+
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in projects list
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+    };
+
+    window.addEventListener('projectCreated', handleProjectCreated as EventListener);
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectCreated', handleProjectCreated as EventListener);
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId]);
 
   // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
   useEffect(() => {
@@ -296,18 +352,53 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       setPrefetchedTasks((prev) => {
         const filtered = prev.filter((item) => item.id !== taskId);
         const next = [optimisticTask, ...filtered];
-        return next.slice(0, 4);
+        const displayed = next.slice(0, 4);
+        
+        // If we had 4 displayed and now have 5+, push the 5th to prefetched
+        if (next.length > 4) {
+          setPrefetchedTask(next[4]);
+        }
+        
+        return displayed;
       });
 
       // Fetch the actual task from server to replace optimistic entry
       try {
-        const fetched = await fetchTaskById(connectionId, taskId);
+        const { fetchTaskById, fetchCommentsForTasks } = await import('../tasks/actions');
+        const [fetched, commentsRecord] = await Promise.all([
+          fetchTaskById(connectionId, taskId),
+          fetchCommentsForTasks([taskId]),
+        ]);
+        
         if (fetched) {
-          const mapped = mapTaskToPrefetched(fetched);
+          const rawComments = commentsRecord[taskId] || [];
+          const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+            id: comment.id,
+            userId: comment.userId,
+            userName: comment.userName,
+            userAvatar: comment.userAvatar,
+            createdAt: comment.createdAt instanceof Date
+              ? comment.createdAt.toISOString()
+              : new Date(comment.createdAt).toISOString(),
+            text: comment.text,
+          }));
+
+          const mapped: PrefetchedTask = {
+            ...mapTaskToPrefetched(fetched),
+            comments: serializedComments,
+          };
+          
           setPrefetchedTasks((prev) => {
             const filtered = prev.filter((item) => item.id !== taskId);
             const next = [mapped, ...filtered];
-            return next.slice(0, 4);
+            const displayed = next.slice(0, 4);
+            
+            // If we had 4 displayed and now have 5+, push the 5th to prefetched
+            if (next.length > 4) {
+              setPrefetchedTask(next[4]);
+            }
+            
+            return displayed;
           });
         }
       } catch (_error) {
@@ -400,7 +491,7 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       const deletedTask = prefetchedTasks.find((item) => item.id === taskId);
       const deletedIndex = prefetchedTasks.findIndex((item) => item.id === taskId);
 
-      // Optimistically remove from UI
+      // Optimistically remove from UI immediately
       setPrefetchedTasks((prev) => prev.filter((item) => item.id !== taskId));
 
       if (selectedTaskId === taskId) {
@@ -408,6 +499,86 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
         setSelectedTask(null);
         setSelectedComments([]);
         setIsDetailModalOpen(false);
+      }
+
+      // Instantly display prefetched next task if available
+      let nextTask: PrefetchedTask | null = null;
+      const previousPrefetchedTask = prefetchedTask; // Store for potential rollback
+      if (prefetchedTask) {
+        nextTask = prefetchedTask;
+        setPrefetchedTasks((prev) => {
+          // Only add if we don't already have it (avoid duplicates)
+          if (!prev.find(t => t.id === nextTask!.id)) {
+            return [...prev, nextTask!];
+          }
+          return prev;
+        });
+        // Clear the prefetched task since we've used it
+        setPrefetchedTask(null);
+
+        // Prefetch the next task (6th one) for future deletions
+        // Fetch starting from offset 5 with limit 1
+        const { fetchTasksForConnection, fetchCommentsForTasks } = await import('../tasks/actions');
+        fetchTasksForConnection(connectionId, {
+          limit: 1,
+          offset: 5,
+        }).then(result => {
+          if (result.tasks.length > 0) {
+            const fetchedTask = result.tasks[0];
+            // Map to PrefetchedTask format
+            const newPrefetched: PrefetchedTask = {
+              id: fetchedTask.id,
+              title: fetchedTask.title,
+              createdAt: fetchedTask.createdAt,
+              dueDate: fetchedTask.dueDate ?? undefined,
+              detail: {
+                taskId: fetchedTask.id,
+                title: fetchedTask.title,
+                description: fetchedTask.description,
+                client: fetchedTask.client,
+                agency: fetchedTask.agency,
+                submittedBy: fetchedTask.submittedBy,
+                assignee: fetchedTask.assignee,
+                project: fetchedTask.project,
+                status: fetchedTask.status,
+                createdAt: fetchedTask.createdAt,
+                createdByOrgId: fetchedTask.createdByOrgId,
+                createdByOrgType: fetchedTask.createdByOrgType,
+                dueDate: fetchedTask.dueDate ?? null,
+                dueDateRaw: fetchedTask.dueDateRaw ?? null,
+                clientVisible: fetchedTask.clientVisible,
+                clientVisibilityLocked: fetchedTask.clientVisibilityLocked,
+                sourceRequestId: fetchedTask.sourceRequestId ?? null,
+                linkedRequest: fetchedTask.linkedRequest ?? null,
+              },
+              comments: [],
+            };
+            setPrefetchedTask(newPrefetched);
+
+            // Prefetch comments for the new prefetched task
+            fetchCommentsForTasks([newPrefetched.id]).then(commentsRecord => {
+              const rawComments = commentsRecord[newPrefetched.id] || [];
+              const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+                id: comment.id,
+                userId: comment.userId,
+                userName: comment.userName,
+                userAvatar: comment.userAvatar,
+                createdAt: comment.createdAt instanceof Date
+                  ? comment.createdAt.toISOString()
+                  : new Date(comment.createdAt).toISOString(),
+                text: comment.text,
+              }));
+              setPrefetchedTask(prev => prev ? {
+                ...prev,
+                comments: serializedComments,
+              } : null);
+            }).catch(error => {
+              console.error('Error fetching comments for prefetched task:', error);
+            });
+          }
+        }).catch(error => {
+          console.error('Error prefetching next task:', error);
+        });
       }
 
       // Call API to delete from database
@@ -418,22 +589,31 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
         // Rollback optimistic update on error
         if (deletedTask) {
           setPrefetchedTasks((prev) => {
-            const withoutDeleted = prev.filter((item) => item.id !== taskId);
-            if (deletedIndex >= 0 && deletedIndex < withoutDeleted.length) {
+            // Remove the optimistically added next task if it was added
+            const withoutNext = nextTask 
+              ? prev.filter(t => t.id !== nextTask!.id)
+              : prev;
+            // Insert deleted task back in the same position
+            if (deletedIndex >= 0 && deletedIndex < withoutNext.length) {
               return [
-                ...withoutDeleted.slice(0, deletedIndex),
+                ...withoutNext.slice(0, deletedIndex),
                 deletedTask,
-                ...withoutDeleted.slice(deletedIndex),
+                ...withoutNext.slice(deletedIndex),
               ];
             } else {
-              return [...withoutDeleted, deletedTask];
+              return [...withoutNext, deletedTask];
             }
           });
+
+          // Restore prefetched task if we used it
+          if (nextTask && previousPrefetchedTask) {
+            setPrefetchedTask(previousPrefetchedTask);
+          }
         }
         toast.error('Failed to delete task');
       }
     },
-    [prefetchedTasks, selectedTaskId]
+    [connectionId, prefetchedTasks, prefetchedTask, selectedTaskId]
   );
 
   const handleDetailModalClose = useCallback(() => {
@@ -548,8 +728,16 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
       };
 
       setPrefetchedTasks((prev) => {
-        const next = [optimisticEntry, ...prev.filter((item) => item.id !== payload.tempId)];
-        return next.slice(0, 4);
+        const filtered = prev.filter((item) => item.id !== payload.tempId);
+        const next = [optimisticEntry, ...filtered];
+        const displayed = next.slice(0, 4);
+        
+        // If we had 4 displayed and now have 5+, push the 5th to prefetched
+        if (next.length > 4) {
+          setPrefetchedTask(next[4]);
+        }
+        
+        return displayed;
       });
     },
     [context.organization.id, context.user, context.variant, snapshot.agency, snapshot.partner, sortedMembers]
@@ -558,15 +746,42 @@ export function TasksCardClient({ connectionId, tasks, projects, members }: Task
   const handleNewTaskCreated = useCallback(
     async ({ taskId, tempId }: { taskId: string; tempId?: string }) => {
       try {
-        const fetched = await fetchTaskById(connectionId, taskId);
+        const { fetchTaskById, fetchCommentsForTasks } = await import('../tasks/actions');
+        const [fetched, commentsRecord] = await Promise.all([
+          fetchTaskById(connectionId, taskId),
+          fetchCommentsForTasks([taskId]),
+        ]);
+
         if (!fetched) return;
 
-        const mapped = mapTaskToPrefetched(fetched);
+        const rawComments = commentsRecord[taskId] || [];
+        const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+          id: comment.id,
+          userId: comment.userId,
+          userName: comment.userName,
+          userAvatar: comment.userAvatar,
+          createdAt: comment.createdAt instanceof Date
+            ? comment.createdAt.toISOString()
+            : new Date(comment.createdAt).toISOString(),
+          text: comment.text,
+        }));
+
+        const mapped: PrefetchedTask = {
+          ...mapTaskToPrefetched(fetched),
+          comments: serializedComments,
+        };
 
         setPrefetchedTasks((prev) => {
           const filtered = prev.filter((item) => item.id !== tempId && item.id !== mapped.id);
           const next = [mapped, ...filtered];
-          return next.slice(0, 4);
+          const displayed = next.slice(0, 4);
+          
+          // If we had 4 displayed and now have 5+, push the 5th to prefetched
+          if (next.length > 4) {
+            setPrefetchedTask(next[4]);
+          }
+          
+          return displayed;
         });
       } catch (error) {
         console.error("Failed to reconcile new task:", error);

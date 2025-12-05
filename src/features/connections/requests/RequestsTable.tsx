@@ -619,11 +619,11 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     <TableCell className="w-[15%] py-0">
                       {request.project ? (
                         <Badge variant="neutral" className="text-xs">
-                          {request.project.name}
+                          <span className="truncate">{request.project.name}</span>
                         </Badge>
                       ) : (
                         <Badge variant="neutral" className="text-xs">
-                          General request
+                          <span className="truncate">General request</span>
                         </Badge>
                       )}
                     </TableCell>
@@ -694,11 +694,11 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     <TableCell className="w-[15%] py-0">
                       {request.project ? (
                         <Badge variant="neutral" className="text-xs">
-                          {request.project.name}
+                          <span className="truncate">{request.project.name}</span>
                         </Badge>
                       ) : (
                         <Badge variant="neutral" className="text-xs">
-                          General request
+                          <span className="truncate">General request</span>
                         </Badge>
                       )}
                     </TableCell>

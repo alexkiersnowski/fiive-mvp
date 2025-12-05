@@ -154,18 +154,34 @@ export function RequestDetailModal({
   // Handle copy link
   const handleCopyLink = () => {
     if (!requestData?.requestId || !connectionId) return
-    
-    // Determine baseRoute based on variant
-    // Agencies view clients, clients view agencies
-    const baseRoute = variant === 'agency' ? 'clients' : 'agencies'
-    const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestData.requestId}`
-    
-    navigator.clipboard.writeText(fullUrl).then(() => {
-      toast.success('Link copied to clipboard')
-      setIsActionsDropdownOpen(false)
-    }).catch(() => {
-      toast.error('Failed to copy link')
-    })
+    if (typeof window === 'undefined') return
+
+    const currentPath = window.location.pathname
+    const routeSegment = currentPath.startsWith('/agencies/')
+      ? 'agencies'
+      : currentPath.startsWith('/clients/')
+        ? 'clients'
+        : variant === 'agency'
+          ? 'clients' // Agencies view clients
+          : 'agencies' // Clients view agencies
+
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      toast.error('Clipboard unavailable')
+      return
+    }
+
+    const fullUrl = `${window.location.origin}/${routeSegment}/${connectionId}/requests/${requestData.requestId}`
+
+    clipboard.writeText(fullUrl)
+      .then(() => {
+        toast.success('Link copied to clipboard')
+        setIsActionsDropdownOpen(false)
+      })
+      .catch((error) => {
+        console.error('Failed to copy request link:', error)
+        toast.error('Failed to copy link')
+      })
   }
   
   // Handle delete request (optimistic)

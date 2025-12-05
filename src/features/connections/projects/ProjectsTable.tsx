@@ -534,7 +534,6 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
                 {isDisconnected || !isAgency ? (
                   <TableCell 
                     className="w-[15%] py-0"
-                    onClick={isDisconnected ? undefined : (e) => e.stopPropagation()}
                   >
                     <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
                   </TableCell>

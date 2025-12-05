@@ -410,19 +410,21 @@ export function NewTaskModal({
 
               {/* Project - Only show if not in global mode OR if connection is selected in global mode */}
               {(!isGlobal || selectedConnectionId) && (
-                <InlineEdit
-                  type="badge"
-                  value={projectId}
-                  options={projects.map(p => ({ value: p.id, label: p.name }))}
-                  onSave={setProjectId}
-                  placeholder="Add project"
-                  searchPlaceholder="Search projects…"
-                  clearable={!!projectId}
-                  popoverWidth="240px"
-                  badgeBorderRadius="4px"
-                  maxHeight="210px"
-                  className="h-6"
-                />
+                <div className="min-w-0 max-w-[150px]">
+                  <InlineEdit
+                    type="badge"
+                    value={projectId}
+                    options={projects.map(p => ({ value: p.id, label: p.name }))}
+                    onSave={setProjectId}
+                    placeholder="Add project"
+                    searchPlaceholder="Search projects…"
+                    clearable={!!projectId}
+                    popoverWidth="240px"
+                    badgeBorderRadius="4px"
+                    maxHeight="210px"
+                    className="h-6"
+                  />
+                </div>
               )}
 
               {/* Assignee - Only for agency view */}

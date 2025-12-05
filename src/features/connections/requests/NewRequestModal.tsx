@@ -324,20 +324,22 @@ export function NewRequestModal({
               )}
 
               {/* Project */}
-              <InlineEdit
-                type="badge"
-                value={projectId}
-                options={projectOptions}
-                onSave={setProjectId}
-                placeholder="General request"
-                searchPlaceholder="Search projects…"
-                clearable={false}
-                dividerIndex={0}
-                popoverWidth="240px"
-                badgeBorderRadius="4px"
-                maxHeight="210px"
-                className="h-6"
-              />
+              <div className="min-w-0 max-w-[150px]">
+                <InlineEdit
+                  type="badge"
+                  value={projectId}
+                  options={projectOptions}
+                  onSave={setProjectId}
+                  placeholder="General request"
+                  searchPlaceholder="Search projects…"
+                  clearable={false}
+                  dividerIndex={0}
+                  popoverWidth="240px"
+                  badgeBorderRadius="4px"
+                  maxHeight="210px"
+                  className="h-6"
+                />
+              </div>
 
               {/* Assignee - Only for agency view */}
               {variant === 'agency' && (

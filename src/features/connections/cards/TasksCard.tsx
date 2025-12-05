@@ -22,7 +22,7 @@ interface TasksCardProps {
 }
 
 async function defaultFetchTasks(connectionId: string) {
-  const { tasks } = await getTasksForConnection(connectionId, { limit: 4, offset: 0 });
+  const { tasks } = await getTasksForConnection(connectionId, { limit: 5, offset: 0 });
   return tasks;
 }
 
@@ -155,6 +155,10 @@ export default async function TasksCard({
     };
   });
 
+  // Split into displayed (first 4) and prefetched (5th)
+  const displayedTasks = prefetchedTasks.slice(0, 4);
+  const prefetchedNextTask = prefetchedTasks[4] || null;
+
   const projectOptions: ProjectOption[] = projectsResult.projects.map((project) => ({
     id: project.id,
     name: project.title || 'Untitled project',
@@ -173,7 +177,8 @@ export default async function TasksCard({
   return (
     <TasksCardClient
       connectionId={connectionId}
-      tasks={prefetchedTasks}
+      tasks={displayedTasks}
+      prefetchedNextTask={prefetchedNextTask}
       projects={projectOptions}
       members={assignableMembers}
     />

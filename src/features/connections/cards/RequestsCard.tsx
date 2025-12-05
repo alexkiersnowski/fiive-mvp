@@ -21,7 +21,7 @@ interface RequestsCardProps {
 }
 
 async function defaultFetchRecentRequests(connectionId: string) {
-  return getRecentRequestsForConnection(connectionId, { limit: 4 });
+  return getRecentRequestsForConnection(connectionId, { limit: 5 });
 }
 
 type PrefetchedComment = {
@@ -153,6 +153,10 @@ export default async function RequestsCard({
     };
   });
 
+  // Split into displayed (first 4) and prefetched (5th)
+  const displayedRequests = prefetchedRequests.slice(0, 4);
+  const prefetchedNextRequest = prefetchedRequests[4] || null;
+
   const projectOptions: ProjectOption[] = projectsResult.projects.map((project) => ({
     id: project.id,
     name: project.title || 'Untitled project',
@@ -161,7 +165,8 @@ export default async function RequestsCard({
   return (
     <RequestsCardClient
       connectionId={connectionId}
-      requests={prefetchedRequests}
+      requests={displayedRequests}
+      prefetchedNextRequest={prefetchedNextRequest}
       projects={projectOptions}
     />
   );

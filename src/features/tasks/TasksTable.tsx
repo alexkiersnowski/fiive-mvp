@@ -829,9 +829,13 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                 <TableCell className="w-[12%] py-0">
                   {task.project ? (
                     <Badge variant="neutral" className="text-xs">
-                      {task.project.name}
+                      <span className="truncate">{task.project.name}</span>
                     </Badge>
-                  ) : null}
+                  ) : (
+                    <Badge variant="neutral" className="text-xs">
+                      <span className="truncate">None (account task)</span>
+                    </Badge>
+                  )}
                 </TableCell>
 
                 {isAgency && (

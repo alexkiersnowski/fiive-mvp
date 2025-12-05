@@ -517,6 +517,40 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     setComments(initialComments)
   }, [initialComments, mode])
 
+  // Listen for project creation (e.g., when a new project is created in ProjectsCard)
+  useEffect(() => {
+    const handleProjectCreated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[RequestDetailContent] Received projectCreated event:', { projectId, eventConnectionId, connectionId, title });
+      }
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[RequestDetailContent] Ignoring event - connectionId mismatch:', { eventConnectionId, connectionId });
+        }
+        return;
+      }
+
+      // Add new project to projects list (avoid duplicates)
+      setProjects((prev) => {
+        // Check if project already exists
+        if (prev.some(p => p.id === projectId)) {
+          return prev;
+        }
+        // Add new project to the list
+        return [{ id: projectId, name: title }, ...prev];
+      });
+    };
+
+    window.addEventListener('projectCreated', handleProjectCreated as EventListener);
+    return () => {
+      window.removeEventListener('projectCreated', handleProjectCreated as EventListener);
+    };
+  }, [connectionId]);
+
   // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
   useEffect(() => {
     const handleProjectUpdated = (event: CustomEvent) => {
@@ -1016,6 +1050,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                   textClass="text-md-regular"
                   multiline={true}
                   linkifyUrls={true}
+                  maxLength={10000}
                   className="px-0"
                   style={{ fontSize: '15px', lineHeight: '22px' }}
                 />
@@ -1072,7 +1107,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       <div className="w-px bg-neutral-alpha-4 flex-shrink-0 mb-10"/>
 
       {/* Right Column */}
-      <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
+      <div className="flex-[1] flex flex-col gap-2 min-w-0 pl-8 mb-10">
           <h3 className="text-md-medium text-primary">
           Details
         </h3>
@@ -1132,32 +1167,34 @@ export function RequestDetailContent({ requestId, title, description, client, ag
             <div className="w-2/5 min-w-0">
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
-            <div className="w-3/5 min-w-0">
+            <div className="w-3/5 min-w-0 max-w-full">
               {isDisconnected ? (
-                <div className="h-6 flex items-center">
+                <div className="h-6 flex items-center min-w-0">
                   <p className="text-sm-regular text-primary truncate ml-1">
                     {requestProject ? requestProject.name : 'General request'}
                   </p>
                 </div>
               ) : (
-                <InlineEdit
-                  type="badge"
-                  value={requestProject ? requestProject.id : 'general'}
-                  options={[
-                    { value: 'general', label: 'General request' },
-                    ...projects.map(p => ({ value: p.id, label: p.name }))
-                  ]}
-                  onSave={handleProjectSave}
-                  searchPlaceholder="Search projects…"
-                  clearable={false}
-                  dividerIndex={0}
-                  placeholder="General request"
-                  popoverWidth="240px"
-                  badgeBorderRadius="4px"
-                  maxHeight="210px"
-                  className="h-6"
-                  nonInteractive={!canEdit}
-                />
+                <div className="min-w-0 max-w-full">
+                  <InlineEdit
+                    type="badge"
+                    value={requestProject ? requestProject.id : 'general'}
+                    options={[
+                      { value: 'general', label: 'General request' },
+                      ...projects.map(p => ({ value: p.id, label: p.name }))
+                    ]}
+                    onSave={handleProjectSave}
+                    searchPlaceholder="Search projects…"
+                    clearable={false}
+                    dividerIndex={0}
+                    placeholder="General request"
+                    popoverWidth="240px"
+                    badgeBorderRadius="4px"
+                    maxHeight="210px"
+                    className="h-6"
+                    nonInteractive={!canEdit}
+                  />
+                </div>
               )}
             </div>
           </div>

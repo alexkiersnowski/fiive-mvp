@@ -55,6 +55,7 @@ type ProjectDetailPayload = {
 interface ProjectsCardClientProps {
   connectionId: string;
   projects: Project[];
+  prefetchedNextProject?: Project | null;
   agencyMembers: Array<{
     id: string;
     firstName: string;
@@ -85,6 +86,7 @@ const formatCreatedAt = (isoDate?: string | null) => {
 export default function ProjectsCardClient({
   connectionId,
   projects,
+  prefetchedNextProject = null,
   agencyMembers,
 }: ProjectsCardClientProps) {
   const { snapshot, context } = useConnection();
@@ -92,6 +94,8 @@ export default function ProjectsCardClient({
   const pathname = usePathname();
 
   const [prefetchedProjects, setPrefetchedProjects] = useState<Project[]>(projects);
+  // Store prefetched next project for instant replacement on delete
+  const [prefetchedProject, setPrefetchedProject] = useState<Project | null>(prefetchedNextProject);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectDetailPayload | null>(null);
   const [selectedComments, setSelectedComments] = useState<CommentItem[]>([]);
@@ -101,6 +105,11 @@ export default function ProjectsCardClient({
   useEffect(() => {
     setPrefetchedProjects(projects);
   }, [projects]);
+
+  // Sync prefetched project when prop changes
+  useEffect(() => {
+    setPrefetchedProject(prefetchedNextProject);
+  }, [prefetchedNextProject]);
 
   const isAgency = context.variant === "agency";
   const title = "Projects";
@@ -225,7 +234,12 @@ export default function ProjectsCardClient({
   );
 
   const handleProjectDeleted = useCallback(
-    (projectId: string) => {
+    async (projectId: string) => {
+      // Store the deleted project for potential rollback
+      const deletedProject = prefetchedProjects.find((item) => item.id === projectId);
+      const deletedIndex = prefetchedProjects.findIndex((item) => item.id === projectId);
+
+      // Optimistically remove from UI immediately
       setPrefetchedProjects((prev) => prev.filter((item) => item.id !== projectId));
 
       if (selectedProjectId === projectId) {
@@ -234,8 +248,72 @@ export default function ProjectsCardClient({
         setSelectedComments([]);
         setIsDetailModalOpen(false);
       }
+
+      // Instantly display prefetched next project if available
+      let nextProject: Project | null = null;
+      const previousPrefetchedProject = prefetchedProject; // Store for potential rollback
+      if (prefetchedProject) {
+        nextProject = prefetchedProject;
+        setPrefetchedProjects((prev) => {
+          // Only add if we don't already have it (avoid duplicates)
+          if (!prev.find(p => p.id === nextProject!.id)) {
+            return [...prev, nextProject!];
+          }
+          return prev;
+        });
+        // Clear the prefetched project since we've used it
+        setPrefetchedProject(null);
+
+        // Prefetch the next project (6th one) for future deletions
+        // Fetch starting from offset 5 with limit 1
+        const { fetchProjectsForConnection } = await import('../projects/actions');
+        fetchProjectsForConnection(connectionId, {
+          limit: 1,
+          offset: 5,
+        }).then(result => {
+          if (result.projects.length > 0) {
+            const newPrefetched = result.projects[0];
+            setPrefetchedProject(newPrefetched);
+          }
+        }).catch(error => {
+          console.error('Error prefetching next project:', error);
+        });
+      }
+
+      // Call API to delete from database
+      try {
+        const { deleteProject } = await import('../projects/actions');
+        await deleteProject(projectId);
+        toast.success('Project deleted');
+      } catch (_error) {
+        // Rollback optimistic update on error
+        if (deletedProject) {
+          setPrefetchedProjects((prev) => {
+            // Remove the optimistically added next project if it was added
+            const withoutNext = nextProject 
+              ? prev.filter(p => p.id !== nextProject!.id)
+              : prev;
+            // Insert deleted project back in the same position
+            if (deletedIndex >= 0 && deletedIndex < withoutNext.length) {
+              return [
+                ...withoutNext.slice(0, deletedIndex),
+                deletedProject,
+                ...withoutNext.slice(deletedIndex),
+              ];
+            } else {
+              return [...withoutNext, deletedProject];
+            }
+          });
+
+          // Restore prefetched project if we used it
+          if (nextProject && previousPrefetchedProject) {
+            setPrefetchedProject(previousPrefetchedProject);
+          }
+        }
+        toast.error('Failed to delete project');
+      }
     },
-    [selectedProjectId]
+    [connectionId, prefetchedProjects, prefetchedProject, selectedProjectId]
   );
 
   const handleDetailModalClose = useCallback(() => {
@@ -304,8 +382,16 @@ export default function ProjectsCardClient({
       };
 
       setPrefetchedProjects((prev) => {
-        const next = [optimisticProject, ...prev.filter((item) => item.id !== payload.tempId)];
-        return next.slice(0, 2);
+        const filtered = prev.filter((item) => item.id !== payload.tempId);
+        const next = [optimisticProject, ...filtered];
+        const displayed = next.slice(0, 4);
+        
+        // If we had 4 displayed and now have 5+, push the 5th to prefetched
+        if (next.length > 4) {
+          setPrefetchedProject(next[4]);
+        }
+        
+        return displayed;
       });
     },
     [connectionId, context.organization, context.user, context.variant, snapshot.agency, snapshot.partner]
@@ -322,8 +408,28 @@ export default function ProjectsCardClient({
         setPrefetchedProjects((prev) => {
           const filtered = prev.filter((item) => item.id !== tempId && item.id !== fetched.id);
           const next = [fetched, ...filtered];
-          return next.slice(0, 2);
+          const displayed = next.slice(0, 4);
+          
+          // If we had 4 displayed and now have 5+, push the 5th to prefetched
+          if (next.length > 4) {
+            setPrefetchedProject(next[4]);
+          }
+          
+          return displayed;
         });
+
+        // Dispatch event to notify RequestDetailContent and TaskDetailContent of new project
+        const event = new CustomEvent('projectCreated', {
+          detail: {
+            projectId: fetched.id,
+            connectionId,
+            title: fetched.title,
+          }
+        });
+        window.dispatchEvent(event);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[ProjectsCard] Dispatched projectCreated event:', { projectId: fetched.id, connectionId, title: fetched.title });
+        }
       } catch (error) {
         console.error("Failed to reconcile new project:", error);
       }
@@ -404,9 +510,9 @@ export default function ProjectsCardClient({
                     }
                   }}
                 >
-                  <TableCell className="w-[40%] py-2">
+                  <TableCell className="w-[40%] py-2 truncate">
                     <span
-                      className="text-sm-regular truncate"
+                      className="text-sm-regular"
                       style={{ color: "var(--color-base-text-primary)" }}
                     >
                       {project.title?.trim() || "Untitled project"}

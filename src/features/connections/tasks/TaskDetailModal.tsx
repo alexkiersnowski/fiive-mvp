@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext'
+import { deleteTask } from './actions'
 import type { Task } from '../server'
 
 // Helper hook to safely use connection context
@@ -132,15 +133,28 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
     return 'Task'
   }
   
-  // Handle delete task (optimistic)
+  // Handle delete task
   const handleDeleteTask = async () => {
     if (!taskData?.taskId) return
     
     // Close modal immediately
     onClose()
     
-    // Notify parent - parent handles optimistic update, toast, and server action
+    // Notify parent for optimistic update
     onTaskDeleted?.(taskData.taskId)
+    
+    // Actually delete the task from the database
+    try {
+      await deleteTask(taskData.taskId)
+      toast.success('Task deleted')
+      // Real-time subscription will handle UI updates
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error deleting task:', error)
+      }
+      toast.error('Failed to delete task')
+      // Note: Optimistic update already happened, but real-time will reconcile
+    }
   }
 
   const handleCopyLink = useCallback(() => {
@@ -155,8 +169,8 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
       : currentPath.startsWith('/clients/')
         ? 'clients'
         : variant === 'agency'
-          ? 'agencies'
-          : 'clients'
+          ? 'clients' // Agencies view clients
+          : 'agencies' // Clients view agencies
 
     const clipboard = navigator?.clipboard
     if (!clipboard?.writeText) {
@@ -169,12 +183,13 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
     clipboard.writeText(fullUrl)
       .then(() => {
         toast.success('Link copied to clipboard')
+        setIsActionsDropdownOpen(false)
       })
       .catch((error) => {
         console.error('Failed to copy task link:', error)
         toast.error('Failed to copy link')
       })
-  }, [taskData, connectionId, variant])
+  }, [taskData, connectionId, variant, setIsActionsDropdownOpen])
   
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
