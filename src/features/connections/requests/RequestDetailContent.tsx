@@ -1168,13 +1168,6 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
             <div className="w-3/5 min-w-0 max-w-full">
-              {isDisconnected ? (
-                <div className="h-6 flex items-center min-w-0">
-                  <p className="text-sm-regular text-primary truncate ml-1">
-                    {requestProject ? requestProject.name : 'General request'}
-                  </p>
-                </div>
-              ) : (
                 <div className="min-w-0 max-w-full">
                   <InlineEdit
                     type="badge"
@@ -1192,10 +1185,9 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                     badgeBorderRadius="4px"
                     maxHeight="210px"
                     className="h-6"
-                    nonInteractive={!canEdit}
+                  nonInteractive={isDisconnected || !canEdit}
                   />
                 </div>
-              )}
             </div>
           </div>
 

@@ -319,7 +319,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isDisconnected ? "No contact assigned" : (isInternal ? "To be invited" : "Assign contact")}
+                    text={isDisconnected ? "Unassigned" : (isInternal ? "To be invited" : "Assign contact")}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -375,7 +375,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isDisconnected ? "No contact assigned" : "Assign contact"}
+                    text={isDisconnected ? "Unassigned" : "Assign contact"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -425,7 +425,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isDisconnected ? "No contact assigned" : "Unassigned"}
+                    text="Unassigned"
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -478,7 +478,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isDisconnected ? "No contact assigned" : "Unassigned"}
+                    text="Unassigned"
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}

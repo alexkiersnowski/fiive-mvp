@@ -1200,13 +1200,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
             <div className="w-3/5 min-w-0 max-w-full">
-              {isDisconnected ? (
-                <div className="min-w-0">
-                  <span className="text-sm-regular text-tertiary ml-1 truncate">
-                    {taskProject ? taskProject.name : 'None (account task)'}
-                  </span>
-                </div>
-              ) : (
                 <div className="min-w-0 max-w-full">
                   <InlineEdit
                     type="badge"
@@ -1220,10 +1213,9 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                     badgeBorderRadius="4px"
                     maxHeight="210px"
                     className="h-6"
-                    nonInteractive={variant === 'client'}
+                  nonInteractive={isDisconnected || variant === 'client'}
                   />
                 </div>
-              )}
             </div>
           </div>
 

@@ -86,7 +86,7 @@ const formatRequestDate = (isoDate: string | null | undefined) => {
 };
 
 export function RequestsCardClient({ connectionId, requests, prefetchedNextRequest = null, projects: initialProjects }: RequestsCardClientProps) {
-  const { snapshot, context, setNewRequestsCount } = useConnection();
+  const { snapshot, context, setNewRequestsCount, isDisconnected } = useConnection();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -748,17 +748,19 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
         </p>
       )}
 
-      <div className="mt-auto flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 shadow-none cursor-pointer transition-all duration-75"
-          onClick={handleNewRequestButtonClick}
-        >
-          <Plus size={16} weight="regular" />
-          {buttonText}
-        </Button>
-      </div>
+      {!isDisconnected && (
+        <div className="mt-auto flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 shadow-none cursor-pointer transition-all duration-75"
+            onClick={handleNewRequestButtonClick}
+          >
+            <Plus size={16} weight="regular" />
+            {buttonText}
+          </Button>
+        </div>
+      )}
 
       <RequestDetailModal
         requestData={selectedRequest}

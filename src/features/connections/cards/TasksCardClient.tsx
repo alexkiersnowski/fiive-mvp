@@ -107,7 +107,7 @@ const getTaskMetadata = (task: PrefetchedTask) => {
 };
 
 export function TasksCardClient({ connectionId, tasks, prefetchedNextTask = null, projects: initialProjects, members }: TasksCardClientProps) {
-  const { snapshot, context } = useConnection();
+  const { snapshot, context, isDisconnected } = useConnection();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -884,19 +884,21 @@ export function TasksCardClient({ connectionId, tasks, prefetchedNextTask = null
         <p className="text-xs-regular text-tertiary">{description}</p>
       )}
 
-      <div className="mt-auto flex justify-end">
-        {isAgency && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-            onClick={handleNewTaskButtonClick}
-          >
-            <Plus size={16} weight="regular" />
-            Add task
-          </Button>
-        )}
-      </div>
+      {!isDisconnected && (
+        <div className="mt-auto flex justify-end">
+          {isAgency && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 shadow-none cursor-pointer transition-all duration-75"
+              onClick={handleNewTaskButtonClick}
+            >
+              <Plus size={16} weight="regular" />
+              Add task
+            </Button>
+          )}
+        </div>
+      )}
 
       <TaskDetailModal
         taskData={selectedTask}

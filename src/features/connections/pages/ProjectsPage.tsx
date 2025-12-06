@@ -1,5 +1,4 @@
 import { Card } from '@/components/ui/card';
-import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { getProjectsForConnection, getAgencyMembersForConnection } from '../server';
 import ProjectsPageClient from './ProjectsPageClient';
 import { PAGE_SIZE } from '../constants';
@@ -27,14 +26,12 @@ export async function ProjectsPage({ connectionId, searchParams }: ProjectsPageP
 
   return (
     <Card className="w-full gap-0 h-full">
-      <ErrorBoundary>
-        <ProjectsPageClient 
-          connectionId={connectionId} 
-          initialProjects={projectsData.projects} 
-          initialTotalCount={projectsData.totalCount}
-          agencyMembers={agencyMembers} 
-        />
-      </ErrorBoundary>
+      <ProjectsPageClient 
+        connectionId={connectionId} 
+        initialProjects={projectsData.projects} 
+        initialTotalCount={projectsData.totalCount}
+        agencyMembers={agencyMembers} 
+      />
     </Card>
   );
 }

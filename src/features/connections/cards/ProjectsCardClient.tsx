@@ -89,7 +89,7 @@ export default function ProjectsCardClient({
   prefetchedNextProject = null,
   agencyMembers,
 }: ProjectsCardClientProps) {
-  const { snapshot, context } = useConnection();
+  const { snapshot, context, isDisconnected } = useConnection();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -559,19 +559,21 @@ export default function ProjectsCardClient({
         <p className="text-xs-regular text-tertiary">{description}</p>
       )}
 
-      <div className="mt-auto flex justify-end">
-        {isAgency && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-            onClick={handleNewProjectButtonClick}
-          >
-            <Plus size={16} weight="regular" />
-            Add project
-          </Button>
-        )}
-      </div>
+      {!isDisconnected && (
+        <div className="mt-auto flex justify-end">
+          {isAgency && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 shadow-none cursor-pointer transition-all duration-75"
+              onClick={handleNewProjectButtonClick}
+            >
+              <Plus size={16} weight="regular" />
+              Add project
+            </Button>
+          )}
+        </div>
+      )}
 
       <ProjectDetailModal
         projectData={selectedProject}

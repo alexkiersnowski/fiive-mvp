@@ -655,7 +655,6 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
         .from('connections')
         .select('id', { count: 'exact', head: true })
         .eq('client_id', context.orgId)
-        .neq('connection_status', 'disconnected')
     ]);
 
     if (topConnectionsResult.error) {
@@ -730,8 +729,7 @@ export const getUnifiedHomeData = cache(async (context: EnhancedModeContext) => 
     supabase
       .from('connections')
       .select('id', { count: 'exact', head: true })
-      .eq('agency_id', context.orgId)
-      .neq('connection_status', 'disconnected'),
+      .eq('agency_id', context.orgId),
     // Healthy count
     supabase
       .from('connections')

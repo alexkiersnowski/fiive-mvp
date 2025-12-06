@@ -75,6 +75,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                   { value: 'offboarded', label: 'Offboarded' }
                 ]}
                 nonInteractive={isDisconnected}
+                placeholder={isDisconnected && !snapshot.connection.engagementStatus ? 'No status' : undefined}
                 onSave={async (newValue) => {
                   try {
                     const result = await updateEngagementStatus(
@@ -117,7 +118,11 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
               <InlineEdit
                 type="text"
                 value={snapshot.connection.contractValue || ''}
-                placeholder={`E.g. ${getCurrencySymbol(snapshot.agency.currencyCode)}250,000`}
+                placeholder={
+                  isDisconnected && !snapshot.connection.contractValue
+                    ? 'No value'
+                    : `E.g. ${getCurrencySymbol(snapshot.agency.currencyCode)}250,000`
+                }
                 editingPlaceholder="250,000"
                 currency={getCurrencySymbol(snapshot.agency.currencyCode)}
                 numeric={true}
@@ -165,7 +170,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
               <InlineEdit
                 type="date"
                 value={snapshot.connection.contractEnd || ''}
-                placeholder="Add date"
+                placeholder={isDisconnected && !snapshot.connection.contractEnd ? 'No date' : 'Add date'}
                 dateFormat="d MMM yyyy"
                 nonInteractive={isDisconnected}
                 onSave={async (newValue) => {
@@ -214,6 +219,7 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                   { value: 'critical', label: 'Critical' }
                 ]}
                 nonInteractive={isDisconnected}
+                placeholder={isDisconnected && !snapshot.connection.health ? 'No health' : 'Add health'}
                 onSave={async (newValue) => {
                   try {
                     const result = await updateHealthStatus(
@@ -238,7 +244,6 @@ export default function DetailsCard({ context }: { context: EnhancedModeContext 
                 }}
                 clearable={true}
                 badgeComponent="health"
-                placeholder="Add health"
                 className="h-[28px] truncate"
               />
             ) : (

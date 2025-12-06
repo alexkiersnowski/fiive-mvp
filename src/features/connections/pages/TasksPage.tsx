@@ -1,5 +1,4 @@
 import { Card } from '@/components/ui/card';
-import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { getTasksForConnection, getConnectionMembers, getProjectOptionsForConnection, getCommentsForTasks } from '../server';
 import TasksPageClient from './TasksPageClient';
 import { PAGE_SIZE } from '../constants';
@@ -48,16 +47,14 @@ export async function TasksPage({ connectionId }: TasksPageProps) {
 
   return (
     <Card className="w-full gap-0 h-full">
-      <ErrorBoundary>
-        <TasksPageClient 
-          connectionId={connectionId} 
-          initialTasks={tasksData.tasks} 
-          initialTotalCount={tasksData.totalCount}
-          agencyMembers={assignableMembers}
-          projects={projects}
-          initialCommentsByTask={serializedComments}
-        />
-      </ErrorBoundary>
+      <TasksPageClient 
+        connectionId={connectionId} 
+        initialTasks={tasksData.tasks} 
+        initialTotalCount={tasksData.totalCount}
+        agencyMembers={assignableMembers}
+        projects={projects}
+        initialCommentsByTask={serializedComments}
+      />
     </Card>
   );
 }
