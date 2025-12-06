@@ -3,6 +3,7 @@ import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
 import { getRequestsSnapshot, getAgencyMembersForActiveOrg, getConnectionsForGlobalView, getGlobalNewRequestsCount, getConnectionIdsForContext } from '@/features/requests/server';
 import { getCommentsForRequests } from '@/features/connections/server';
+import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { RequestsContent } from './RequestsContent';
 
 interface RequestsPageProps {
@@ -29,15 +30,24 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
   // Fetch connection IDs once and share across queries to avoid redundant fetches
   const connectionIds = await getConnectionIdsForContext(context);
 
+  // Prefetch allowed connection IDs for paywall checks (only for agencies)
+  const billingStatus = context.organization.billing_status || 'free';
+  const allowedConnectionIdsPromise = context.variant === 'agency'
+    ? getAllowedConnectionIds(context.orgId, billingStatus)
+    : Promise.resolve(null);
+
   const snapshotStartTime = performance.now();
-  const snapshot = await getRequestsSnapshot(context, {
-    search: resolvedSearchParams.search || '',
-    limit: 50,
-    sort: resolvedSearchParams.sort || 'created',
-    assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-    createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
-    connectionIds // Share connection IDs to avoid redundant query
-  });
+  const [snapshot, allowedConnectionIds] = await Promise.all([
+    getRequestsSnapshot(context, {
+      search: resolvedSearchParams.search || '',
+      limit: 50,
+      sort: resolvedSearchParams.sort || 'created',
+      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+      createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+      connectionIds // Share connection IDs to avoid redundant query
+    }),
+    allowedConnectionIdsPromise
+  ]);
   console.log(`[Performance] getRequestsSnapshot: ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
 
   // Fetch all independent data in parallel after snapshot (snapshot needed for request IDs)
@@ -70,6 +80,7 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
       agencyMembers={agencyMembers}
       connections={connections}
       newRequestsCount={newRequestsCount}
+      allowedConnectionIds={allowedConnectionIds}
     />
   );
 }

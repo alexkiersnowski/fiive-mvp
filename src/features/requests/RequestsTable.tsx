@@ -16,6 +16,8 @@ import { ProfileCard } from '@/components/ui/profile-card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, CaretDown, Check, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { PaywallModal } from '@/components/ui/paywall-modal'
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateRequestAssignee, updateRequestStatus } from '@/features/connections/requests/actions'
 import type { Request } from './types'
 import type { VirtualItem } from '@tanstack/react-virtual'
@@ -56,14 +58,18 @@ interface RequestsTableProps {
   }>
   sortValue?: string
   onSortChange?: (value: string) => void
+  allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, sortOptions = [], sortValue: propSortValue = 'created', onSortChange }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, sortOptions = [], sortValue: propSortValue = 'created', onSortChange, allowedConnectionIds = null }: RequestsTableProps) {
   const _router = useRouter()
   
   const [searchQuery, setSearchQuery] = useState('')
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
   
   // Assignee ref for combobox functionality
   const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
@@ -134,10 +140,24 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       // Set loading guard
       isMutingAssignee.current = true
       
-      try {
-        await updateRequestAssignee(requestId, memberId)
-        // Real-time subscription will handle UI updates
-      } catch (error) {
+      await runWithPaywallCheck(
+        async () => {
+          await updateRequestAssignee(requestId, memberId)
+        },
+        () => {
+          // Success - real-time subscription will handle UI updates
+        },
+        () => {
+          setIsPaywallModalOpen(true)
+          // Revert parent state on paywall
+          if (onRequestUpdate) {
+            const originalRequest = requests.find(r => r.id === requestId)
+            if (originalRequest) {
+              onRequestUpdate(requestId, { assignee: originalRequest.assignee })
+            }
+          }
+        }
+      ).catch((error) => {
         if (process.env.NODE_ENV !== 'production') {
           console.error('Failed to update assignee:', error)
         }
@@ -149,10 +169,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             onRequestUpdate(requestId, { assignee: originalRequest.assignee })
           }
         }
-      } finally {
+      }).finally(() => {
         // Clear loading guard
         isMutingAssignee.current = false
-      }
+      })
     }
   }
 
@@ -209,28 +229,42 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       onRequestUpdate(requestId, { status: typedStatus })
     }
     
-    // Set loading guard
-    isMutingStatus.current = true
-    
-    try {
-      await updateRequestStatus(requestId, typedStatus)
-      // Real-time subscription will handle UI updates
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Failed to update status:', error)
-      }
-      toast.error('Failed to update status')
-      // Revert parent state on error
-      if (onRequestUpdate) {
-        const originalRequest = requests.find(r => r.id === requestId)
-        if (originalRequest) {
-          onRequestUpdate(requestId, { status: originalRequest.status })
+      // Set loading guard
+      isMutingStatus.current = true
+      
+      await runWithPaywallCheck(
+        async () => {
+          await updateRequestStatus(requestId, typedStatus)
+        },
+        () => {
+          // Success - real-time subscription will handle UI updates
+        },
+        () => {
+          setIsPaywallModalOpen(true)
+          // Revert parent state on paywall
+          if (onRequestUpdate) {
+            const originalRequest = requests.find(r => r.id === requestId)
+            if (originalRequest) {
+              onRequestUpdate(requestId, { status: originalRequest.status })
+            }
+          }
         }
-      }
-    } finally {
-      // Clear loading guard
-      isMutingStatus.current = false
-    }
+      ).catch((error) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to update status:', error)
+        }
+        toast.error('Failed to update status')
+        // Revert parent state on error
+        if (onRequestUpdate) {
+          const originalRequest = requests.find(r => r.id === requestId)
+          if (originalRequest) {
+            onRequestUpdate(requestId, { status: originalRequest.status })
+          }
+        }
+      }).finally(() => {
+        // Clear loading guard
+        isMutingStatus.current = false
+      })
   }
 
   // Profile Card handler
@@ -792,6 +826,12 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           }}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   )
 }

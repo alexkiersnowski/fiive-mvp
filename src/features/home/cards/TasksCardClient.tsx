@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TaskDetailModal } from "@/features/connections/tasks/TaskDetailModal";
+import { PaywallModal } from "@/components/ui/paywall-modal";
 import { fetchTaskByIdGlobal, fetchCommentsForTaskGlobal, fetchTasksSnapshot } from "@/features/tasks/actions";
 import { toast } from "sonner";
 import type { Task } from "@/features/tasks/types";
@@ -25,6 +26,7 @@ import { dispatchTaskDueDateChanged, dispatchTaskStatusChanged, dispatchTaskDele
 import { dispatchTaskAssignedChanged, dispatchTaskAssignedDeleted } from "./stats/TasksAssignedCard";
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { formatRequestDate } from '@/features/connections/formatters';
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 
 interface TasksCardClientProps extends StatsCardProps {
   tasks: Task[];
@@ -38,6 +40,7 @@ interface TasksCardClientProps extends StatsCardProps {
     jobTitle?: string;
   }>;
   initialComments?: Record<string, Comment[]>;
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
 
@@ -48,6 +51,7 @@ export default function TasksCardClient({
   context,
   agencyMembers = [],
   initialComments = {},
+  allowedConnectionIds = null,
 }: TasksCardClientProps) {
   const router = useRouter();
   const isAgency = context.variant === "agency";
@@ -69,6 +73,9 @@ export default function TasksCardClient({
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   // Initialize comments with prefetched data
   const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>(initialComments);
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
   
   // Track client org user IDs for event dispatching (only for client context)
   const [clientOrgUserIds, setClientOrgUserIds] = useState<Set<string>>(new Set());
@@ -228,31 +235,17 @@ export default function TasksCardClient({
     // Try to get task from local state first
     const localTask = localTasks.find(t => t.id === taskId);
     
-    if (localTask) {
-      // Use local task data
-      setSelectedTask(localTask);
-      setIsTaskDetailModalOpen(true);
-      
-      // Use prefetched comments if available, otherwise fetch
-      if (commentsByTask[taskId]) {
-        // Comments already available, no need to fetch
-      } else {
-        // Fetch comments if not prefetched
-        try {
-          const comments = await fetchCommentsForTaskGlobal(taskId);
-          setCommentsByTask(prev => ({
-            ...prev,
-            [taskId]: comments
-          }));
-        } catch (error) {
-          console.error('Error fetching comments:', error);
-        }
-      }
-    } else {
-      // Fetch task if not in local state
-      try {
-        const task = await fetchTaskByIdGlobal(taskId, context);
-        if (task) {
+    if (!localTask) {
+      // If not in local state, fetch from server (will trigger paywall check)
+      await runWithPaywallCheck(
+        async () => {
+          const task = await fetchTaskByIdGlobal(taskId, context);
+          if (!task) {
+            throw new Error('Task not found');
+          }
+          return task;
+        },
+        (task) => {
           setSelectedTask(task);
           setIsTaskDetailModalOpen(true);
           
@@ -261,21 +254,52 @@ export default function TasksCardClient({
             // Comments already available, no need to fetch
           } else {
             // Fetch comments if not prefetched
-            const comments = await fetchCommentsForTaskGlobal(taskId);
-            setCommentsByTask(prev => ({
-              ...prev,
-              [taskId]: comments
-            }));
+            fetchCommentsForTaskGlobal(taskId).then(comments => {
+              setCommentsByTask(prev => ({
+                ...prev,
+                [taskId]: comments
+              }));
+            }).catch(error => {
+              console.error('Error fetching comments:', error);
+            });
           }
-        } else {
-          toast.error('Task not found');
+        },
+        () => {
+          setIsPaywallModalOpen(true);
         }
-      } catch (error) {
-        console.error('Error fetching task:', error);
-        toast.error('Failed to load task');
+      );
+      return;
+    }
+
+    // Check paywall client-side using prefetched allowedConnectionIds
+    const billingStatus = context.organization.billing_status || 'free';
+    if (context.variant === 'agency' && billingStatus === 'free' && allowedConnectionIds != null) {
+      if (!allowedConnectionIds.includes(localTask.connectionId)) {
+        // Restricted connection - show paywall immediately
+        setIsPaywallModalOpen(true);
+        return;
       }
     }
-  }, [localTasks, context, commentsByTask]);
+
+    // Allowed - open modal instantly with local data
+    setSelectedTask(localTask);
+    setIsTaskDetailModalOpen(true);
+    
+    // Use prefetched comments if available, otherwise fetch
+    if (commentsByTask[taskId]) {
+      // Comments already available, no need to fetch
+    } else {
+      // Fetch comments if not prefetched
+      fetchCommentsForTaskGlobal(taskId).then(comments => {
+        setCommentsByTask(prev => ({
+          ...prev,
+          [taskId]: comments
+        }));
+      }).catch(error => {
+        console.error('Error fetching comments:', error);
+      });
+    }
+  }, [localTasks, context, commentsByTask, allowedConnectionIds]);
 
   const handleTaskDetailModalClose = useCallback(() => {
     setIsTaskDetailModalOpen(false);
@@ -650,6 +674,12 @@ export default function TasksCardClient({
           organizationType={context.organization.type as 'agency' | 'client'}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </Card>
   );
 }

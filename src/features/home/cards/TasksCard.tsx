@@ -4,7 +4,11 @@ import { getTasksPreview } from '@/features/home/server';
 import type { StatsCardProps } from '../types';
 import TasksCardClient from './TasksCardClient';
 
-export default async function TasksCard({ snapshot, context }: StatsCardProps) {
+interface TasksCardProps extends StatsCardProps {
+  allowedConnectionIds?: string[] | null;
+}
+
+export default async function TasksCard({ snapshot, context, allowedConnectionIds }: TasksCardProps) {
   // Fetch top 5 tasks (4 displayed + 1 prefetched for instant replacement on delete)
   // using lightweight preview query
   const tasks = await getTasksPreview(context, 5);
@@ -29,6 +33,7 @@ export default async function TasksCard({ snapshot, context }: StatsCardProps) {
       context={context}
       agencyMembers={agencyMembers}
       initialComments={initialComments}
+      allowedConnectionIds={allowedConnectionIds}
     />
   );
 }

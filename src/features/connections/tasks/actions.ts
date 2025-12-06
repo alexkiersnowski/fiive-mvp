@@ -148,24 +148,42 @@ export async function convertRequestToTask(
 export async function updateTaskAssignee(taskId: string, assigneeUserId: string | null) {
   const supabase = await createClient();
 
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first (needed for both paywall check and assignee logic)
+  const { data: taskInfo, error: taskError } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .single();
+
+  if (taskError) {
+    if (isDev()) {
+      console.error('Failed to fetch task before updating assignee:', taskError);
+    }
+    throw new Error('Failed to update task assignee');
+  }
+
+  const connectionId = taskInfo?.connection_id;
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && connectionId) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      connectionId,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+
   let shouldSetClientVisible = false;
 
   if (assigneeUserId) {
-    const { data: taskInfo, error: taskError } = await supabase
-      .from('tasks')
-      .select('connection_id')
-      .eq('id', taskId)
-      .is('deleted_at', null)
-      .single();
-
-    if (taskError) {
-      if (isDev()) {
-        console.error('Failed to fetch task before updating assignee:', taskError);
-      }
-      throw new Error('Failed to update task assignee');
-    }
-
-    const connectionId = taskInfo?.connection_id;
 
     if (connectionId) {
       const { data: connectionData, error: connectionError } = await supabase
@@ -241,10 +259,16 @@ export async function updateTaskStatus(
   const supabase = await createClient();
   const now = new Date().toISOString();
   
-  // First, get the current status to determine if we're changing to/from 'done'
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // First, get the current status and connection_id to determine if we're changing to/from 'done'
   const { data: currentTask, error: fetchError } = await supabase
     .from('tasks')
-    .select('status')
+    .select('status, connection_id')
     .eq('id', taskId)
     .is('deleted_at', null)
     .single();
@@ -254,6 +278,16 @@ export async function updateTaskStatus(
       console.error('Failed to fetch current task status:', fetchError);
     }
     throw new Error('Failed to update task status');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && currentTask?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      currentTask.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
   }
 
   const updates: Record<string, unknown> = {
@@ -294,6 +328,38 @@ export async function updateTaskStatus(
  */
 export async function updateTaskTitle(taskId: string, title: string) {
   const supabase = await createClient();
+  
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: taskInfo, error: taskError } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .single();
+
+  if (taskError) {
+    if (isDev()) {
+      console.error('Failed to fetch task before updating title:', taskError);
+    }
+    throw new Error('Failed to update task title');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && taskInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      taskInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .update({
@@ -302,7 +368,7 @@ export async function updateTaskTitle(taskId: string, title: string) {
     })
     .eq('id', taskId)
     .is('deleted_at', null)
-    .select('id, title')
+    .select('id, title, connection_id')
     .single();
 
   if (error) {
@@ -321,6 +387,38 @@ export async function updateTaskTitle(taskId: string, title: string) {
  */
 export async function updateTaskDescription(taskId: string, description: string) {
   const supabase = await createClient();
+  
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: taskInfo, error: taskError } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .single();
+
+  if (taskError) {
+    if (isDev()) {
+      console.error('Failed to fetch task before updating description:', taskError);
+    }
+    throw new Error('Failed to update task description');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && taskInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      taskInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .update({
@@ -329,7 +427,7 @@ export async function updateTaskDescription(taskId: string, description: string)
     })
     .eq('id', taskId)
     .is('deleted_at', null)
-    .select('id, description')
+    .select('id, description, connection_id')
     .single();
 
   if (error) {
@@ -348,6 +446,38 @@ export async function updateTaskDescription(taskId: string, description: string)
  */
 export async function updateTaskProject(taskId: string, projectId: string | null) {
   const supabase = await createClient();
+  
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: taskInfo, error: taskError } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .single();
+
+  if (taskError) {
+    if (isDev()) {
+      console.error('Failed to fetch task before updating project:', taskError);
+    }
+    throw new Error('Failed to update task project');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && taskInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      taskInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .update({
@@ -356,7 +486,7 @@ export async function updateTaskProject(taskId: string, projectId: string | null
     })
     .eq('id', taskId)
     .is('deleted_at', null)
-    .select('id, project_id')
+    .select('id, project_id, connection_id')
     .single();
 
   if (error) {
@@ -375,6 +505,38 @@ export async function updateTaskProject(taskId: string, projectId: string | null
  */
 export async function updateTaskDueDate(taskId: string, dueDate: string | null) {
   const supabase = await createClient();
+  
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: taskInfo, error: taskError } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .single();
+
+  if (taskError) {
+    if (isDev()) {
+      console.error('Failed to fetch task before updating due date:', taskError);
+    }
+    throw new Error('Failed to update task due date');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && taskInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      taskInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .update({
@@ -383,7 +545,7 @@ export async function updateTaskDueDate(taskId: string, dueDate: string | null) 
     })
     .eq('id', taskId)
     .is('deleted_at', null)
-    .select('id, due_date')
+    .select('id, due_date, connection_id')
     .single();
 
   if (error) {
@@ -402,6 +564,38 @@ export async function updateTaskDueDate(taskId: string, dueDate: string | null) 
  */
 export async function updateTaskClientVisible(taskId: string, clientVisible: boolean) {
   const supabase = await createClient();
+  
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: taskInfo, error: taskError } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .single();
+
+  if (taskError) {
+    if (isDev()) {
+      console.error('Failed to fetch task before updating client visibility:', taskError);
+    }
+    throw new Error('Failed to update client visibility');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && taskInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      taskInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .update({
@@ -410,7 +604,7 @@ export async function updateTaskClientVisible(taskId: string, clientVisible: boo
     })
     .eq('id', taskId)
     .is('deleted_at', null)
-    .select('id, client_visible')
+    .select('id, client_visible, connection_id')
     .single();
 
   if (error) {

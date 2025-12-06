@@ -68,6 +68,37 @@ export async function createRequest(
 export async function updateRequestAssignee(requestId: string, assigneeUserId: string | null) {
   const supabase = await createClient();
   
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: requestInfo, error: requestError } = await supabase
+    .from('requests')
+    .select('connection_id')
+    .eq('id', requestId)
+    .is('deleted_at', null)
+    .single();
+
+  if (requestError) {
+    if (isDev()) {
+      console.error('Failed to fetch request before updating assignee:', requestError);
+    }
+    throw new Error('Failed to update request assignee');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && requestInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      requestInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+  
   if (isDev()) {
     console.log('updateRequestAssignee called with:', { requestId, assigneeUserId });
   }
@@ -79,7 +110,7 @@ export async function updateRequestAssignee(requestId: string, assigneeUserId: s
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select('id, assignee_user_id, updated_at')
+    .select('id, assignee_user_id, updated_at, connection_id')
     .single();
   
   if (error) {
@@ -104,6 +135,37 @@ export async function updateRequestStatus(
 ) {
   const supabase = await createClient();
   
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: requestInfo, error: requestError } = await supabase
+    .from('requests')
+    .select('connection_id')
+    .eq('id', requestId)
+    .is('deleted_at', null)
+    .single();
+
+  if (requestError) {
+    if (isDev()) {
+      console.error('Failed to fetch request before updating status:', requestError);
+    }
+    throw new Error('Failed to update request status');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && requestInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      requestInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+  
   if (isDev()) {
     console.log('updateRequestStatus called with:', { requestId, status });
   }
@@ -115,7 +177,7 @@ export async function updateRequestStatus(
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select('id, status, updated_at')
+    .select('id, status, updated_at, connection_id')
     .single();
   
   if (error) {
@@ -137,6 +199,37 @@ export async function updateRequestStatus(
 export async function updateRequestTitle(requestId: string, title: string) {
   const supabase = await createClient();
   
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: requestInfo, error: requestError } = await supabase
+    .from('requests')
+    .select('connection_id')
+    .eq('id', requestId)
+    .is('deleted_at', null)
+    .single();
+
+  if (requestError) {
+    if (isDev()) {
+      console.error('Failed to fetch request before updating title:', requestError);
+    }
+    throw new Error('Failed to update request title');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && requestInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      requestInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+  
   if (isDev()) {
     console.log('updateRequestTitle called with:', { requestId, title });
   }
@@ -148,7 +241,7 @@ export async function updateRequestTitle(requestId: string, title: string) {
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select('id, title, updated_at')
+    .select('id, title, updated_at, connection_id')
     .single();
   
   if (error) {
@@ -170,6 +263,37 @@ export async function updateRequestTitle(requestId: string, title: string) {
 export async function updateRequestDescription(requestId: string, description: string) {
   const supabase = await createClient();
   
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: requestInfo, error: requestError } = await supabase
+    .from('requests')
+    .select('connection_id')
+    .eq('id', requestId)
+    .is('deleted_at', null)
+    .single();
+
+  if (requestError) {
+    if (isDev()) {
+      console.error('Failed to fetch request before updating description:', requestError);
+    }
+    throw new Error('Failed to update request description');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && requestInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      requestInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+  
   if (isDev()) {
     console.log('updateRequestDescription called with:', { requestId, description });
   }
@@ -181,7 +305,7 @@ export async function updateRequestDescription(requestId: string, description: s
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select('id, description, updated_at')
+    .select('id, description, updated_at, connection_id')
     .single();
   
   if (error) {
@@ -203,6 +327,37 @@ export async function updateRequestDescription(requestId: string, description: s
 export async function updateRequestProject(requestId: string, projectId: string | null) {
   const supabase = await createClient();
   
+  // Get context and check paywall
+  const context = await getActiveContext();
+  if (!context) {
+    throw new Error('Authentication required');
+  }
+
+  // Fetch connection_id first for paywall check
+  const { data: requestInfo, error: requestError } = await supabase
+    .from('requests')
+    .select('connection_id')
+    .eq('id', requestId)
+    .is('deleted_at', null)
+    .single();
+
+  if (requestError) {
+    if (isDev()) {
+      console.error('Failed to fetch request before updating project:', requestError);
+    }
+    throw new Error('Failed to update request project');
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency' && requestInfo?.connection_id) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      requestInfo.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+  
   if (isDev()) {
     console.log('updateRequestProject called with:', { requestId, projectId });
   }
@@ -214,7 +369,7 @@ export async function updateRequestProject(requestId: string, projectId: string 
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select('id, project_id, updated_at')
+    .select('id, project_id, updated_at, connection_id')
     .single();
   
   if (error) {

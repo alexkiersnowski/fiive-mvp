@@ -87,7 +87,7 @@ const CLIENT_CARDS: CardConfig[] = [
   }
 ];
 
-export function homeCardRegistry(context: EnhancedModeContext): CardConfig[] {
+export function homeCardRegistry(context: EnhancedModeContext, allowedConnectionIds?: string[] | null): CardConfig[] {
   // Return pre-defined cards based on context variant
   if (context.variant === 'agency') {
     return AGENCY_CARDS;

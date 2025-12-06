@@ -3,6 +3,7 @@ import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
 import { getTasksSnapshot, getAgencyMembersForActiveOrg, getClientMembersForActiveOrg, getConnectionsForGlobalView, getMembersForAllConnections } from '@/features/tasks/server';
 import { getCommentsForTasks } from '@/features/connections/server';
+import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { TasksContent } from './TasksContent';
 
 interface TasksPageProps {
@@ -26,13 +27,22 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const resolvedSearchParams = await searchParams;
   const assignedToMe = resolvedSearchParams.assigned === 'me';
 
+  // Prefetch allowed connection IDs for paywall checks (only for agencies)
+  const billingStatus = context.organization.billing_status || 'free';
+  const allowedConnectionIdsPromise = context.variant === 'agency'
+    ? getAllowedConnectionIds(context.orgId, billingStatus)
+    : Promise.resolve(null);
+
   const snapshotStartTime = performance.now();
-  const snapshot = await getTasksSnapshot(context, {
-    search: resolvedSearchParams.search || '',
-    limit: 50,
-    sort: resolvedSearchParams.sort || 'due_date',
-    assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined
-  });
+  const [snapshot, allowedConnectionIds] = await Promise.all([
+    getTasksSnapshot(context, {
+      search: resolvedSearchParams.search || '',
+      limit: 50,
+      sort: resolvedSearchParams.sort || 'due_date',
+      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined
+    }),
+    allowedConnectionIdsPromise
+  ]);
   console.log(`[Performance] getTasksSnapshot: ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
 
   // Fetch all independent data in parallel after snapshot (snapshot needed for task IDs)
@@ -70,6 +80,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       clientMembers={clientMembers}
       connections={connections}
       membersByConnection={membersByConnection}
+      allowedConnectionIds={allowedConnectionIds}
     />
   );
 }

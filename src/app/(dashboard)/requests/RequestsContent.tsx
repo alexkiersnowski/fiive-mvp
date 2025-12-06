@@ -10,6 +10,8 @@ import { NewRequestModal } from '@/features/connections/requests/NewRequestModal
 import { fetchMoreRequests, fetchRequestByIdGlobal, fetchCommentsForRequestGlobal } from '@/features/requests/actions';
 import { fetchProjectsForConnection } from '@/features/connections/requests/actions';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '@/features/connections/tasks/ConvertToTaskModal';
+import { PaywallModal } from '@/components/ui/paywall-modal';
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 import { convertRequestToTask } from '@/features/connections/tasks/actions';
 import type { RequestsSnapshot, Request } from '@/features/requests/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
@@ -35,6 +37,7 @@ interface RequestsContentProps {
     logoUrl?: string
   }>;
   newRequestsCount?: number;
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
 export function RequestsContent({ 
@@ -45,7 +48,8 @@ export function RequestsContent({
   initialComments = {},
   agencyMembers = [],
   connections = [],
-  newRequestsCount
+  newRequestsCount,
+  allowedConnectionIds = null
 }: RequestsContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -98,6 +102,9 @@ export function RequestsContent({
   // Comments map keyed by requestId for instant lookup
   // Initialize with server-fetched comments for instant availability
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments);
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
 
   // Sort options - different for agency vs client views
   const sortOptions = context.variant === 'agency'
@@ -368,31 +375,17 @@ export function RequestsContent({
     // Try to get request from local state first
     const localRequest = requests.find(r => r.id === requestId);
     
-    if (localRequest) {
-      // Use local request data
-      setSelectedRequest(localRequest);
-      setIsRequestDetailModalOpen(true);
-      
-      // Use prefetched comments if available, otherwise fetch
-      if (commentsByRequest[requestId]) {
-        // Comments already available, no need to fetch
-      } else {
-        // Fetch comments if not prefetched
-        try {
-          const comments = await fetchCommentsForRequestGlobal(requestId);
-          setCommentsByRequest(prev => ({
-            ...prev,
-            [requestId]: comments
-          }));
-        } catch (error) {
-          console.error('Error fetching comments:', error);
-        }
-      }
-    } else {
-      // Fetch request if not in local state
-      try {
-        const request = await fetchRequestByIdGlobal(requestId, context);
-        if (request) {
+    if (!localRequest) {
+      // If not in local state, fetch from server (will trigger paywall check)
+      await runWithPaywallCheck(
+        async () => {
+          const request = await fetchRequestByIdGlobal(requestId, context);
+          if (!request) {
+            throw new Error('Request not found');
+          }
+          return request;
+        },
+        (request) => {
           setSelectedRequest(request);
           setIsRequestDetailModalOpen(true);
           
@@ -401,21 +394,52 @@ export function RequestsContent({
             // Comments already available, no need to fetch
           } else {
             // Fetch comments if not prefetched
-            const comments = await fetchCommentsForRequestGlobal(requestId);
-            setCommentsByRequest(prev => ({
-              ...prev,
-              [requestId]: comments
-            }));
+            fetchCommentsForRequestGlobal(requestId).then(comments => {
+              setCommentsByRequest(prev => ({
+                ...prev,
+                [requestId]: comments
+              }));
+            }).catch(error => {
+              console.error('Error fetching comments:', error);
+            });
           }
-        } else {
-          toast.error('Request not found');
+        },
+        () => {
+          setIsPaywallModalOpen(true);
         }
-      } catch (error) {
-        console.error('Error fetching request:', error);
-        toast.error('Failed to load request');
+      );
+      return;
+    }
+
+    // Check paywall client-side using prefetched allowedConnectionIds
+    const billingStatus = context.organization.billing_status || 'free';
+    if (context.variant === 'agency' && billingStatus === 'free' && allowedConnectionIds != null) {
+      if (!allowedConnectionIds.includes(localRequest.connectionId)) {
+        // Restricted connection - show paywall immediately
+        setIsPaywallModalOpen(true);
+        return;
       }
     }
-  }, [requests, context, commentsByRequest]);
+
+    // Allowed - open modal instantly with local data
+    setSelectedRequest(localRequest);
+    setIsRequestDetailModalOpen(true);
+    
+    // Use prefetched comments if available, otherwise fetch
+    if (commentsByRequest[requestId]) {
+      // Comments already available, no need to fetch
+    } else {
+      // Fetch comments if not prefetched
+      fetchCommentsForRequestGlobal(requestId).then(comments => {
+        setCommentsByRequest(prev => ({
+          ...prev,
+          [requestId]: comments
+        }));
+      }).catch(error => {
+        console.error('Error fetching comments:', error);
+      });
+    }
+  }, [requests, context, commentsByRequest, allowedConnectionIds]);
   
   const handleRequestDetailModalClose = useCallback(() => {
     setIsRequestDetailModalOpen(false);
@@ -631,6 +655,7 @@ export function RequestsContent({
           sortValue={sortValue}
           onSortChange={handleSortChange}
           onConvertToTask={handleRequestConvertToTask}
+          allowedConnectionIds={allowedConnectionIds}
         />
       </div>
 
@@ -746,6 +771,12 @@ export function RequestsContent({
         variant={context.variant}
         isGlobal={true}
         onConnectionSelect={handleConnectionSelect}
+      />
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
       />
     </div>
   );

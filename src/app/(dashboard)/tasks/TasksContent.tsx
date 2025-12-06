@@ -9,6 +9,8 @@ import { TaskDetailModal } from '@/features/connections/tasks/TaskDetailModal';
 import { NewTaskModal } from '@/features/connections/tasks/NewTaskModal';
 import { fetchMoreTasks, refreshTasksData, fetchTaskByIdGlobal, fetchCommentsForTaskGlobal } from '@/features/tasks/actions';
 import { fetchProjectsForConnection } from '@/features/connections/tasks/actions';
+import { PaywallModal } from '@/components/ui/paywall-modal';
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 import type { TasksSnapshot, Task } from '@/features/tasks/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { Comment } from '@/features/connections/server';
@@ -51,6 +53,7 @@ interface TasksContentProps {
     orgName?: string
     orgType?: 'agency' | 'client'
   }>>;
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
 export function TasksContent({ 
@@ -63,6 +66,7 @@ export function TasksContent({
   clientMembers = [],
   connections = [],
   membersByConnection = {},
+  allowedConnectionIds = null
 }: TasksContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -97,6 +101,9 @@ export function TasksContent({
   
   // Comments map keyed by taskId for instant lookup
   const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>(initialComments);
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
 
   // Calculate client team member IDs (all members of the client organization)
   // This filters tasks where assignee_user_id is a member of the client organization
@@ -447,50 +454,70 @@ export function TasksContent({
   }, [selectedConnectionId, context]);
 
   const handleTaskClick = useCallback(async (taskId: string) => {
+    // Try to get task from local state first
     const localTask = tasks.find(t => t.id === taskId);
     
-    if (localTask) {
-      setSelectedTask(localTask);
-      setIsTaskDetailModalOpen(true);
-      
-      if (commentsByTask[taskId]) {
-        // Comments already available
-      } else {
-        try {
-          const comments = await fetchCommentsForTaskGlobal(taskId);
-          setCommentsByTask(prev => ({
-            ...prev,
-            [taskId]: comments
-          }));
-        } catch (error) {
-          console.error('Error fetching comments:', error);
-        }
-      }
-    } else {
-      try {
-        const task = await fetchTaskByIdGlobal(taskId, context);
-        if (task) {
+    if (!localTask) {
+      // If not in local state, fetch from server (will trigger paywall check)
+      await runWithPaywallCheck(
+        async () => {
+          const task = await fetchTaskByIdGlobal(taskId, context);
+          if (!task) {
+            throw new Error('Task not found');
+          }
+          return task;
+        },
+        (task) => {
           setSelectedTask(task);
           setIsTaskDetailModalOpen(true);
           
           if (commentsByTask[taskId]) {
             // Comments already available
           } else {
-            const comments = await fetchCommentsForTaskGlobal(taskId);
-            setCommentsByTask(prev => ({
-              ...prev,
-              [taskId]: comments
-            }));
+            fetchCommentsForTaskGlobal(taskId).then(comments => {
+              setCommentsByTask(prev => ({
+                ...prev,
+                [taskId]: comments
+              }));
+            }).catch(error => {
+              console.error('Error fetching comments:', error);
+            });
           }
-        } else {
-          toast.error('Task not found');
+        },
+        () => {
+          setIsPaywallModalOpen(true);
         }
-      } catch (error) {
-        console.error('Error fetching task:', error);
-        toast.error('Failed to load task');
+      );
+      return;
+    }
+
+    // Check paywall client-side using prefetched allowedConnectionIds
+    const billingStatus = context.organization.billing_status || 'free';
+    if (context.variant === 'agency' && billingStatus === 'free' && allowedConnectionIds != null) {
+      if (!allowedConnectionIds.includes(localTask.connectionId)) {
+        // Restricted connection - show paywall immediately
+        setIsPaywallModalOpen(true);
+        return;
       }
     }
-  }, [tasks, context, commentsByTask]);
+
+    // Allowed - open modal instantly with local data
+    setSelectedTask(localTask);
+    setIsTaskDetailModalOpen(true);
+    
+    if (commentsByTask[taskId]) {
+      // Comments already available
+    } else {
+      fetchCommentsForTaskGlobal(taskId).then(comments => {
+        setCommentsByTask(prev => ({
+          ...prev,
+          [taskId]: comments
+        }));
+      }).catch(error => {
+        console.error('Error fetching comments:', error);
+      });
+    }
+  }, [tasks, context, commentsByTask, allowedConnectionIds]);
   
   const handleTaskDetailModalClose = useCallback(() => {
     setIsTaskDetailModalOpen(false);
@@ -691,6 +718,7 @@ export function TasksContent({
           sortOptions={sortOptions}
           sortValue={sortValue}
           onSortChange={handleSortChange}
+          allowedConnectionIds={allowedConnectionIds}
         />
       </div>
 
@@ -768,6 +796,12 @@ export function TasksContent({
           onConnectionSelect={handleConnectionSelect}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   );
 }

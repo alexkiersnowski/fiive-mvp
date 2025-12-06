@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { escapeForILike } from '@/lib/utils';
-import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
+import { getActiveContext, type EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 import * as formatters from './formatters';
 import { sortTasks, type TaskSortMode } from './tasks/taskSort';
@@ -1916,6 +1916,17 @@ export const getRequestById = cache(async (
     return null;
   }
   
+  // Check paywall for agencies accessing restricted connections
+  const context = await getActiveContext()
+  if (context && context.variant === 'agency') {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess')
+    await assertConnectionAccessOrThrow(
+      connectionId,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    )
+  }
+  
   // Fetch client and agency organization details in parallel
   const [clientOrgResult, agencyOrgResult] = await Promise.all([
     supabase
@@ -2340,6 +2351,17 @@ export const getTaskById = cache(async (
       console.error('Error fetching connection for task detail:', connectionError)
     }
     return null
+  }
+
+  // Check paywall for agencies accessing restricted connections
+  const context = await getActiveContext()
+  if (context && context.variant === 'agency') {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess')
+    await assertConnectionAccessOrThrow(
+      connectionId,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    )
   }
 
   const [clientOrgResult, agencyOrgResult] = await Promise.all([

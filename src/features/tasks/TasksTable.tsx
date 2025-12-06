@@ -15,6 +15,8 @@ import { ProfileCard } from '@/components/ui/profile-card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Plus, SortAscending, DotsThree, MagnifyingGlass, LinkSimple, Trash, User, Eye, EyeSlash, CaretDown, Check, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { PaywallModal } from '@/components/ui/paywall-modal'
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateTaskAssignee, updateTaskStatus } from '@/features/connections/tasks/actions'
 import type { Task } from './types'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
@@ -67,12 +69,16 @@ interface TasksTableProps {
   }>
   sortValue?: string
   onSortChange?: (value: string) => void
+  allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
-export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, sortOptions = [], sortValue: propSortValue = 'due_date', onSortChange }: TasksTableProps) {
+export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, sortOptions = [], sortValue: propSortValue = 'due_date', onSortChange, allowedConnectionIds = null }: TasksTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
   
   // Track client org user IDs for event dispatching (only for client context)
   const [clientOrgUserIds, setClientOrgUserIds] = useState<Set<string>>(new Set())
@@ -210,9 +216,24 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       
       isMutingAssignee.current = true
       
-      try {
-        await updateTaskAssignee(taskId, memberId)
-      } catch (error) {
+      await runWithPaywallCheck(
+        async () => {
+          await updateTaskAssignee(taskId, memberId)
+        },
+        () => {
+          // Success - real-time subscription will handle UI updates
+        },
+        () => {
+          setIsPaywallModalOpen(true)
+          // Revert optimistic update on paywall
+          if (onTaskUpdate) {
+            const originalTask = tasks.find(t => t.id === taskId)
+            if (originalTask) {
+              onTaskUpdate(taskId, { assignee: originalTask.assignee })
+            }
+          }
+        }
+      ).catch((error) => {
         if (process.env.NODE_ENV !== 'production') {
           console.error('Failed to update assignee:', error)
         }
@@ -223,9 +244,9 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
             onTaskUpdate(taskId, { assignee: originalTask.assignee })
           }
         }
-      } finally {
+      }).finally(() => {
         isMutingAssignee.current = false
-      }
+      })
     }
   }
 
@@ -322,9 +343,24 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     
     isMutingStatus.current = true
     
-    try {
-      await updateTaskStatus(taskId, typedStatus)
-    } catch (error) {
+    await runWithPaywallCheck(
+      async () => {
+        await updateTaskStatus(taskId, typedStatus)
+      },
+      () => {
+        // Success - real-time subscription will handle UI updates
+      },
+      () => {
+        setIsPaywallModalOpen(true)
+        // Revert optimistic update on paywall
+        if (onTaskUpdate) {
+          const originalTask = tasks.find(t => t.id === taskId)
+          if (originalTask) {
+            onTaskUpdate(taskId, { status: originalTask.status })
+          }
+        }
+      }
+    ).catch((error) => {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to update status:', error)
       }
@@ -335,9 +371,9 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
           onTaskUpdate(taskId, { status: originalTask.status })
         }
       }
-    } finally {
+    }).finally(() => {
       isMutingStatus.current = false
-    }
+    })
   }
 
   // Profile Card state
@@ -942,6 +978,12 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
           }}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   )
 }

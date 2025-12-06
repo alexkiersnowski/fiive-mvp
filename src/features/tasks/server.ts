@@ -1121,6 +1121,16 @@ export async function getTaskByIdGlobalUncached(
     return null;
   }
 
+  // Check paywall for agencies accessing restricted connections
+  if (context.variant === 'agency') {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess');
+    await assertConnectionAccessOrThrow(
+      task.connection_id,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    );
+  }
+
   // Fetch client and agency organization details in parallel
   const [clientOrgResult, agencyOrgResult] = await Promise.all([
     supabase

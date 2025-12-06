@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { RequestDetailModal } from "@/features/connections/requests/RequestDetailModal";
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from "@/features/connections/tasks/ConvertToTaskModal";
+import { PaywallModal } from "@/components/ui/paywall-modal";
 import { convertRequestToTask } from "@/features/connections/tasks/actions";
 import { fetchRequestByIdGlobal, fetchCommentsForRequestGlobal, fetchRequestsSnapshot } from "@/features/requests/actions";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ import type { StatsCardProps } from "../types";
 import type { Comment } from "@/features/connections/server";
 import { dispatchRequestStatusChanged, dispatchRequestDeleted } from "./stats/NewRequestsCard";
 import { dispatchRequestInReviewStatusChanged, dispatchRequestInReviewDeleted } from "./stats/RequestsInReviewCard";
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 
 interface RequestsCardClientProps extends StatsCardProps {
   requests: Request[];
@@ -38,6 +40,7 @@ interface RequestsCardClientProps extends StatsCardProps {
     jobTitle?: string;
   }>;
   initialComments?: Record<string, Comment[]>;
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
 export default function RequestsCardClient({
@@ -47,6 +50,7 @@ export default function RequestsCardClient({
   context,
   agencyMembers = [],
   initialComments = {},
+  allowedConnectionIds = null,
 }: RequestsCardClientProps) {
   const router = useRouter();
   const isAgency = context.variant === "agency";
@@ -68,6 +72,9 @@ export default function RequestsCardClient({
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   // Initialize comments with prefetched data
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments);
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
   
   // Convert to task modal state
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
@@ -121,31 +128,17 @@ export default function RequestsCardClient({
     // Try to get request from local state first
     const localRequest = localRequests.find(r => r.id === requestId);
     
-    if (localRequest) {
-      // Use local request data
-      setSelectedRequest(localRequest);
-      setIsRequestDetailModalOpen(true);
-      
-      // Use prefetched comments if available, otherwise fetch
-      if (commentsByRequest[requestId]) {
-        // Comments already available, no need to fetch
-      } else {
-        // Fetch comments if not prefetched
-        try {
-          const comments = await fetchCommentsForRequestGlobal(requestId);
-          setCommentsByRequest(prev => ({
-            ...prev,
-            [requestId]: comments
-          }));
-        } catch (error) {
-          console.error('Error fetching comments:', error);
-        }
-      }
-    } else {
-      // Fetch request if not in local state
-      try {
-        const request = await fetchRequestByIdGlobal(requestId, context);
-        if (request) {
+    if (!localRequest) {
+      // If not in local state, fetch from server (will trigger paywall check)
+      await runWithPaywallCheck(
+        async () => {
+          const request = await fetchRequestByIdGlobal(requestId, context);
+          if (!request) {
+            throw new Error('Request not found');
+          }
+          return request;
+        },
+        (request) => {
           setSelectedRequest(request);
           setIsRequestDetailModalOpen(true);
           
@@ -154,21 +147,52 @@ export default function RequestsCardClient({
             // Comments already available, no need to fetch
           } else {
             // Fetch comments if not prefetched
-            const comments = await fetchCommentsForRequestGlobal(requestId);
-            setCommentsByRequest(prev => ({
-              ...prev,
-              [requestId]: comments
-            }));
+            fetchCommentsForRequestGlobal(requestId).then(comments => {
+              setCommentsByRequest(prev => ({
+                ...prev,
+                [requestId]: comments
+              }));
+            }).catch(error => {
+              console.error('Error fetching comments:', error);
+            });
           }
-        } else {
-          toast.error('Request not found');
+        },
+        () => {
+          setIsPaywallModalOpen(true);
         }
-      } catch (error) {
-        console.error('Error fetching request:', error);
-        toast.error('Failed to load request');
+      );
+      return;
+    }
+
+    // Check paywall client-side using prefetched allowedConnectionIds
+    const billingStatus = context.organization.billing_status || 'free';
+    if (context.variant === 'agency' && billingStatus === 'free' && allowedConnectionIds != null) {
+      if (!allowedConnectionIds.includes(localRequest.connectionId)) {
+        // Restricted connection - show paywall immediately
+        setIsPaywallModalOpen(true);
+        return;
       }
     }
-  }, [localRequests, context, commentsByRequest]);
+
+    // Allowed - open modal instantly with local data
+    setSelectedRequest(localRequest);
+    setIsRequestDetailModalOpen(true);
+    
+    // Use prefetched comments if available, otherwise fetch
+    if (commentsByRequest[requestId]) {
+      // Comments already available, no need to fetch
+    } else {
+      // Fetch comments if not prefetched
+      fetchCommentsForRequestGlobal(requestId).then(comments => {
+        setCommentsByRequest(prev => ({
+          ...prev,
+          [requestId]: comments
+        }));
+      }).catch(error => {
+        console.error('Error fetching comments:', error);
+      });
+    }
+  }, [localRequests, context, commentsByRequest, allowedConnectionIds]);
 
   const handleRequestDetailModalClose = useCallback(() => {
     setIsRequestDetailModalOpen(false);
@@ -646,6 +670,12 @@ export default function RequestsCardClient({
           variant={context.variant}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </Card>
   );
 }
