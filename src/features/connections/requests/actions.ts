@@ -79,7 +79,7 @@ export async function updateRequestAssignee(requestId: string, assigneeUserId: s
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select()
+    .select('id, assignee_user_id, updated_at')
     .single();
   
   if (error) {
@@ -115,7 +115,7 @@ export async function updateRequestStatus(
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select()
+    .select('id, status, updated_at')
     .single();
   
   if (error) {
@@ -148,7 +148,7 @@ export async function updateRequestTitle(requestId: string, title: string) {
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select()
+    .select('id, title, updated_at')
     .single();
   
   if (error) {
@@ -181,7 +181,7 @@ export async function updateRequestDescription(requestId: string, description: s
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select()
+    .select('id, description, updated_at')
     .single();
   
   if (error) {
@@ -214,7 +214,7 @@ export async function updateRequestProject(requestId: string, projectId: string 
       updated_at: new Date().toISOString()
     })
     .eq('id', requestId)
-    .select()
+    .select('id, project_id, updated_at')
     .single();
   
   if (error) {
@@ -268,12 +268,11 @@ export async function fetchCommentsForRequests(requestIds: string[]) {
 
 /**
  * Fetch projects for a connection (server action for client components)
+ * Uses lightweight getProjectOptionsForConnection instead of full project fetch
  */
 export async function fetchProjectsForConnection(connectionId: string) {
-  const { getProjectsForConnection } = await import('../server')
-  const result = await getProjectsForConnection(connectionId, { limit: 2000, offset: 0 })
-  // Return just the projects array with id and title
-  return result.projects.map(p => ({ id: p.id, name: p.title }))
+  const { getProjectOptionsForConnection } = await import('../server')
+  return await getProjectOptionsForConnection(connectionId)
 }
 
 /**
@@ -353,7 +352,7 @@ export async function deleteComment(commentId: string) {
     })
     .eq('id', commentId)
     .eq('created_by_user_id', context.user.id) // Only allow deleting own comments
-    .select()
+    .select('id, deleted_at, updated_at')
     .single();
   
   if (error) {
@@ -415,7 +414,7 @@ export async function deleteRequest(requestId: string) {
       deleted_by_user_id: context.user.id
     })
     .eq('id', requestId)
-    .select()
+    .select('id, deleted_at, deleted_by_user_id')
     .single();
   
   if (error) {

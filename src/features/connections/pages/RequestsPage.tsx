@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { getRequestsForConnection, getAgencyMembersForConnection, getProjectsForConnection, getCommentsForRequests } from '../server';
+import { getRequestsForConnection, getAgencyMembersForConnection, getProjectOptionsForConnection, getCommentsForRequests } from '../server';
 import RequestsPageClient from './RequestsPageClient';
 import { PAGE_SIZE } from '../constants';
 
@@ -10,10 +10,10 @@ interface RequestsPageProps {
 
 // Server component that fetches data from Supabase
 export async function RequestsPage({ connectionId }: RequestsPageProps) {
-  const [requestsData, agencyMembers, projectsData] = await Promise.all([
+  const [requestsData, agencyMembers, projects] = await Promise.all([
     getRequestsForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
     getAgencyMembersForConnection(connectionId),
-    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
+    getProjectOptionsForConnection(connectionId)
   ]);
 
   // Fetch comments for initial requests in parallel (after requests are fetched)
@@ -22,8 +22,7 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
     ? await getCommentsForRequests(requestIds)
     : {};
 
-  // Transform projects to the format expected by RequestDetailContent
-  const projects = projectsData.projects.map(p => ({ id: p.id, name: p.title }));
+  // getProjectOptionsForConnection already returns { id, name } format, no transformation needed
 
   return (
     <Card className="w-full gap-0 h-full">

@@ -55,5 +55,6 @@ export type RequestsPaginationOptions = {
   sort?: string;
   assignedToUserId?: string;
   createdByUserId?: string;
+  connectionIds?: string[]; // Optional: share connection IDs to avoid redundant queries
 };
 

@@ -785,6 +785,8 @@ export const getRequestsForConnection = cache(async (
   }
   
   // Build the base query for filtering (used for both count and data)
+  // Note: Uses idx_requests_connection_not_deleted index for optimal performance
+  // Exact counts require scanning matching rows, but the index makes this efficient
   let baseQuery = supabase
     .from('requests')
     .select('*', { count: 'exact', head: true })
@@ -888,11 +890,20 @@ export const getRequestsForConnection = cache(async (
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
   
-  const [countResult, requestsResult, clientOrgResult, agencyOrgResult] = await Promise.all([
+  // Build newCount query to run in parallel (only needed for agency view, but fetch always for consistency)
+  const newCountQuery = supabase
+    .from('requests')
+    .select('*', { count: 'exact', head: true })
+    .eq('connection_id', connectionId)
+    .eq('status', 'new')
+    .is('deleted_at', null);
+  
+  const [countResult, requestsResult, clientOrgResult, agencyOrgResult, newCountResult] = await Promise.all([
     baseQuery,
     requestsQuery,
     clientOrgPromise,
-    agencyOrgPromise
+    agencyOrgPromise,
+    newCountQuery
   ]);
   
   const requestsTime = isDev ? performance.now() - requestsStartTime : 0;
@@ -1076,14 +1087,9 @@ export const getRequestsForConnection = cache(async (
     console.log(`[Performance] getRequestsForConnection: ${totalTime.toFixed(2)}ms (requests: ${requestsTime.toFixed(2)}ms, parallel: ${parallelTime.toFixed(2)}ms)`);
   }
   
+  // Extract newCount from parallel query result
+  const { count: newStatusCount, error: newCountError } = newCountResult;
   let newCount = 0;
-  const { count: newStatusCount, error: newCountError } = await supabase
-    .from('requests')
-    .select('*', { count: 'exact', head: true })
-    .eq('connection_id', connectionId)
-    .eq('status', 'new')
-    .is('deleted_at', null);
-
   if (!newCountError && newStatusCount !== null) {
     newCount = newStatusCount;
   } else if (isDev && newCountError) {
@@ -2104,6 +2110,222 @@ export const getRequestById = cache(async (
   };
 });
 
+/**
+ * Batch function to fetch multiple requests by IDs efficiently.
+ * Replaces N+1 pattern of calling getRequestById individually.
+ */
+export const getRequestsByIds = cache(async (
+  connectionId: string,
+  requestIds: string[]
+): Promise<Request[]> => {
+  if (requestIds.length === 0) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('getRequestsByIds called with:', { connectionId, requestIdsCount: requestIds.length });
+  }
+  
+  // Fetch the connection to get client_id and agency_id (using cached function)
+  const { connection, error: connectionError } = await getConnectionInfo(connectionId);
+  
+  if (connectionError || !connection) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching connection:', {
+        error: connectionError,
+        connectionId,
+        connection
+      });
+    }
+    return [];
+  }
+  
+  // Fetch client and agency organization details in parallel
+  const [clientOrgResult, agencyOrgResult] = await Promise.all([
+    supabase
+      .from('organizations')
+      .select('id, name, logo_url')
+      .eq('id', connection.client_id)
+      .single(),
+    supabase
+      .from('organizations')
+      .select('id, name, logo_url')
+      .eq('id', connection.agency_id)
+      .single()
+  ]);
+  
+  const { data: clientOrg, error: clientOrgError } = clientOrgResult;
+  const { data: agencyOrg, error: agencyOrgError } = agencyOrgResult;
+  
+  if (clientOrgError && process.env.NODE_ENV !== 'production') {
+    console.error('Error fetching client organization:', clientOrgError);
+  }
+  
+  if (agencyOrgError && process.env.NODE_ENV !== 'production') {
+    console.error('Error fetching agency organization:', agencyOrgError);
+  }
+  
+  // Fetch all requests in a single query
+  const { data: requests, error } = await supabase
+    .from('requests')
+    .select(`
+      id,
+      title,
+      description,
+      status,
+      project_id,
+      created_by_user_id,
+      assignee_user_id,
+      created_at,
+      created_by_org_id,
+      connection_id
+    `)
+    .in('id', requestIds)
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null);
+  
+  if (error || !requests || requests.length === 0) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching requests:', error);
+    }
+    return [];
+  }
+  
+  // Collect all unique user IDs and project IDs
+  const userIds = new Set<string>();
+  const projectIds = new Set<string>();
+  const orgIds = new Set<string>();
+  
+  requests.forEach(request => {
+    if (request.created_by_user_id) userIds.add(request.created_by_user_id);
+    if (request.assignee_user_id) userIds.add(request.assignee_user_id);
+    if (request.project_id) projectIds.add(request.project_id);
+    if (request.created_by_org_id) orgIds.add(request.created_by_org_id);
+  });
+  
+  // Fetch all profiles, memberships, org types, and projects in parallel
+  const profilesPromise = userIds.size > 0
+    ? supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email, avatar_url, job_title')
+        .in('id', Array.from(userIds))
+    : Promise.resolve({ data: null, error: null });
+  
+  const membershipsPromise = userIds.size > 0
+    ? supabase
+        .from('memberships')
+        .select(`
+          user_id,
+          org_id,
+          organizations!inner(
+            id,
+            name,
+            logo_url
+          )
+        `)
+        .in('user_id', Array.from(userIds))
+    : Promise.resolve({ data: null, error: null });
+  
+  const orgTypesPromise = orgIds.size > 0
+    ? supabase
+        .from('organizations')
+        .select('id, type')
+        .in('id', Array.from(orgIds))
+    : Promise.resolve({ data: null, error: null });
+  
+  const projectsPromise = projectIds.size > 0
+    ? supabase
+        .from('projects')
+        .select('id, name')
+        .in('id', Array.from(projectIds))
+        .is('deleted_at', null)
+    : Promise.resolve({ data: null, error: null });
+  
+  // Execute all queries in parallel
+  const [profilesResult, membershipsResult, orgTypesResult, projectsResult] = await Promise.all([
+    profilesPromise,
+    membershipsPromise,
+    orgTypesPromise,
+    projectsPromise
+  ]);
+  
+  // Build maps for efficient lookup
+  const profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
+  if (!profilesResult.error && profilesResult.data) {
+    profilesResult.data.forEach(profile => {
+      profilesMap[profile.id] = profile;
+    });
+  }
+  
+  const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  if (!membershipsResult.error && membershipsResult.data) {
+    membershipsResult.data.forEach(membership => {
+      const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
+      if (org) {
+        userOrgMap[membership.user_id] = {
+          orgId: org.id,
+          orgName: org.name,
+          orgLogo: org.logo_url || undefined
+        };
+      }
+    });
+  }
+  
+  const orgTypeMap: Record<string, 'agency' | 'client'> = {};
+  if (!orgTypesResult.error && orgTypesResult.data) {
+    orgTypesResult.data.forEach(org => {
+      orgTypeMap[org.id] = org.type as 'agency' | 'client';
+    });
+  }
+  
+  const projectsMap: Record<string, { id: string; name: string }> = {};
+  if (!projectsResult.error && projectsResult.data) {
+    projectsResult.data.forEach(project => {
+      projectsMap[project.id] = { id: project.id, name: project.name };
+    });
+  }
+  
+  // Map requests to Request objects
+  return requests.map(request => {
+    const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] : null;
+    const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] : null;
+    const project = request.project_id ? projectsMap[request.project_id] || null : null;
+    const orgType = request.created_by_org_id ? orgTypeMap[request.created_by_org_id] : undefined;
+    
+    return {
+      id: request.id,
+      connectionId: connectionId,
+      title: request.title,
+      description: request.description || '',
+      status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled',
+      project: project,
+      submittedBy: formatters.buildSubmittedBy(
+        request.created_by_user_id,
+        submittedByProfile,
+        userOrgMap
+      ),
+      assignee: formatters.buildAssignee(request.assignee_user_id, assigneeProfile),
+      client: formatters.buildOrganization(
+        clientOrg?.id || connection.client_id,
+        clientOrg?.name,
+        clientOrg?.logo_url,
+        'Unknown Client'
+      ),
+      agency: formatters.buildOrganization(
+        agencyOrg?.id || connection.agency_id,
+        agencyOrg?.name,
+        agencyOrg?.logo_url,
+        'Unknown Agency'
+      ),
+      createdAt: formatters.formatRequestDate(request.created_at),
+      createdByOrgId: request.created_by_org_id,
+      createdByOrgType: orgType
+    };
+  });
+});
+
 export const getTaskById = cache(async (
   taskId: string,
   connectionId: string
@@ -2821,6 +3043,8 @@ export const getProjectsForConnection = cache(async (
   }
   
   // Fetch requests and tasks counts for all projects in parallel
+  // Note: We fetch only project_id column (minimal data) and count in memory
+  // The indexes idx_requests_project_connection and idx_tasks_project_connection optimize these queries
   const projectIds = projectsData.map(p => p.id);
   const requestsCountMap: Record<string, number> = {};
   const tasksCountMap: Record<string, number> = {};
@@ -2829,6 +3053,7 @@ export const getProjectsForConnection = cache(async (
     const chunkSize = 200
     
     // Helper function to fetch requests counts for a chunk
+    // Only fetches project_id column (minimal data) - optimized by idx_requests_project_connection
     const fetchRequestsCountsForChunk = async (chunk: string[]) => {
       const { data: requestRows, error: requestsCountError } = await supabase
         .from('requests')
@@ -2849,6 +3074,7 @@ export const getProjectsForConnection = cache(async (
     }
     
     // Helper function to fetch tasks counts for a chunk
+    // Only fetches project_id column (minimal data) - optimized by idx_tasks_project_connection
     const fetchTasksCountsForChunk = async (chunk: string[]) => {
       const { data: taskRows, error: tasksCountError } = await supabase
         .from('tasks')
@@ -2942,13 +3168,53 @@ export const getProjectsForConnection = cache(async (
   return { projects: formattedProjects, totalCount };
 });
 
+/**
+ * Lightweight function to fetch only project id and name for dropdowns.
+ * Much faster than getProjectsForConnection as it doesn't fetch profiles, counts, etc.
+ */
+export const getProjectOptionsForConnection = cache(async (
+  connectionId: string
+): Promise<Array<{ id: string; name: string }>> => {
+  const supabase = await createClient();
+  
+  const { connection, error: connectionError } = await getConnectionInfo(connectionId);
+  
+  if (connectionError || !connection) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching connection for project options:', connectionError);
+    }
+    return [];
+  }
+  
+  const { data: projects, error } = await supabase
+    .from('projects')
+    .select('id, name')
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null)
+    .order('name', { ascending: true });
+  
+  if (error || !projects) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching project options:', error);
+    }
+    return [];
+  }
+  
+  return projects.map((project) => ({
+    id: project.id,
+    name: project.name || 'Untitled project',
+  }));
+});
+
 export const getProjectById = cache(async (
   projectId: string,
   connectionId: string
 ): Promise<Project | null> => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  const startTime = isDev ? performance.now() : 0;
   const supabase = await createClient();
   
-  if (process.env.NODE_ENV !== 'production') {
+  if (isDev) {
     console.log('getProjectById called with:', { projectId, connectionId });
   }
   
@@ -3105,44 +3371,47 @@ export const getProjectById = cache(async (
   // Note: created_by_org_id column does not exist in schema, so orgType is always undefined
   const _orgType: 'agency' | 'client' | undefined = undefined;
   
-  // Fetch requests count for this project
-  let requestsCount = 0;
-  const { count: requestsCountResult, error: requestsCountError } = await supabase
-    .from('requests')
-    .select('*', { count: 'exact', head: true })
-    .eq('project_id', project.id)
-    .eq('connection_id', connectionId)
-    .is('deleted_at', null);
+  // Fetch requests and tasks counts in parallel using optimized queries
+  // Select only project_id (minimal data) to leverage idx_requests_project_connection and idx_tasks_project_connection indexes
+  const countsStartTime = isDev ? performance.now() : 0;
+  const [requestsCountResult, tasksCountResult] = await Promise.all([
+    supabase
+      .from('requests')
+      .select('project_id')
+      .eq('project_id', project.id)
+      .eq('connection_id', connectionId)
+      .is('deleted_at', null),
+    supabase
+      .from('tasks')
+      .select('project_id')
+      .eq('project_id', project.id)
+      .eq('connection_id', connectionId)
+      .is('deleted_at', null)
+  ]);
+  const countsTime = isDev ? performance.now() - countsStartTime : 0;
   
-  if (!requestsCountError && requestsCountResult !== null) {
-    requestsCount = requestsCountResult;
-  }
+  // Count in memory (faster than count: 'exact' and leverages indexes better)
+  const requestsCount = requestsCountResult.data?.length || 0;
+  const tasksCount = tasksCountResult.data?.length || 0;
   
-  if (process.env.NODE_ENV !== 'production' && requestsCountError) {
-    console.error('Error fetching requests count for project:', requestsCountError);
-  }
-  
-  // Fetch tasks count for this project
-  let tasksCount = 0;
-  const { count: tasksCountResult, error: tasksCountError } = await supabase
-    .from('tasks')
-    .select('*', { count: 'exact', head: true })
-    .eq('project_id', project.id)
-    .eq('connection_id', connectionId)
-    .is('deleted_at', null);
-  
-  if (!tasksCountError && tasksCountResult !== null) {
-    tasksCount = tasksCountResult;
-  }
-  
-  if (process.env.NODE_ENV !== 'production' && tasksCountError) {
-    console.error('Error fetching tasks count for project:', tasksCountError);
+  if (isDev) {
+    if (requestsCountResult.error) {
+      console.error('Error fetching requests count for project:', requestsCountResult.error);
+    }
+    if (tasksCountResult.error) {
+      console.error('Error fetching tasks count for project:', tasksCountResult.error);
+    }
   }
   
   // Format dates
   const startDate = formatters.formatProjectDate(project.start_date);
   const endDate = formatters.formatProjectDate(project.end_date);
   const createdAt = formatters.formatRequestDate(project.created_at);
+  
+  if (isDev) {
+    const totalTime = performance.now() - startTime;
+    console.log(`[Performance] getProjectById: ${totalTime.toFixed(2)}ms (counts: ${countsTime.toFixed(2)}ms)`);
+  }
   
   return {
     id: project.id,

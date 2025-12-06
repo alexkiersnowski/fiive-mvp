@@ -47,7 +47,7 @@ interface TasksTableProps {
     orgName?: string
     orgType?: 'agency' | 'client'
   }>>
-  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null }) => void
+  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; completedAtRaw?: string | null; createdAtRaw?: string | null }) => void
   currentOrgId: string
   onLoadMore?: (virtualRows: VirtualItem[]) => void
   onSearchChange?: (query: string) => void
@@ -294,12 +294,13 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     const oldCompletedAt = currentTask?.completedAtRaw ?? null;
     
     // When status changes to 'done', completed_at is set. When it changes from 'done', completed_at is cleared.
-    // For now, we'll dispatch the event and let the real-time subscription handle the actual completed_at change.
-    // The event will be dispatched with the old completed_at, and the real-time update will provide the new one.
     const newCompletedAt = typedStatus === 'done' ? new Date().toISOString() : null;
     
     if (onTaskUpdate) {
-      onTaskUpdate(taskId, { status: typedStatus })
+      onTaskUpdate(taskId, { 
+        status: typedStatus,
+        completedAtRaw: newCompletedAt
+      })
     }
     
     // Dispatch event if status changed to/from 'done' (affects assigned count) - only for client context
@@ -584,22 +585,22 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                       borderBottom: '1px solid var(--color-neutral-4)',
                     }}
                   >
-                    <TableHead className="w-[25%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    <TableHead className={`${isAgency ? "w-[25%]" : "w-[27%]"} py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate`}>
                       Title
                     </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    <TableHead className={`${isAgency ? "w-[12%]" : "w-[13%]"} py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate`}>
                       Status
                     </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    <TableHead className={`${isAgency ? "w-[15%]" : "w-[17%]"} py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate`}>
                       {isAgency ? 'Client' : 'Agency'}
                     </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    <TableHead className={`${isAgency ? "w-[15%]" : "w-[17%]"} py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate`}>
                       Assignee
                     </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    <TableHead className={`${isAgency ? "w-[12%]" : "w-[13%]"} py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate`}>
                       Due date
                     </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
+                    <TableHead className={`${isAgency ? "w-[12%]" : "w-[13%]"} py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate`}>
                       Project
                     </TableHead>
                     {isAgency && (
@@ -649,7 +650,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
             emptyState={isEmptyState ? emptyState : undefined}
             renderRow={(task) => (
               <>
-                <TableCell className="w-[25%] py-0 truncate">
+                <TableCell className={isAgency ? "w-[25%] py-0 truncate" : "w-[27%] py-0 truncate"}>
                   {task.title}
                 </TableCell>
 
@@ -660,7 +661,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                   if (canEditStatus) {
                     return (
                       <TableCell 
-                        className="w-[12%] py-0" 
+                        className={isAgency ? "w-[12%] py-0" : "w-[13%] py-0"} 
                         onClick={(e) => e.stopPropagation()}
                       >
                         <InlineEdit
@@ -680,6 +681,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                             handleStatusChange(task.id, newStatus)
                           }}
                           badgeComponent="task"
+                          disablePopoverAnimation
+                          disableHoverTransition
                           className="truncate h-6 rounded-[8px]"
                         />
                       </TableCell>
@@ -687,19 +690,21 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                   }
                   
                   return (
-                    <TableCell className="w-[12%] py-0">
-                      <TaskBadge 
-                        variant={task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done'} 
-                        size="sm" 
-                        showText={true}
-                        className="inline-flex"
-                      />
+                    <TableCell className={isAgency ? "w-[12%] py-0" : "w-[13%] py-0"}>
+                      <div className="pl-1">
+                        <TaskBadge 
+                          variant={task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done'} 
+                          size="sm" 
+                          showText={true}
+                          className="inline-flex"
+                        />
+                      </div>
                     </TableCell>
                   );
                 })()}
 
                 {/* Client/Agency column */}
-                <TableCell className="w-[15%] py-0">
+                <TableCell className={isAgency ? "w-[15%] py-0" : "w-[17%] py-0"}>
                   <div className="flex items-center gap-2">
                     {isAgency ? (
                       <>
@@ -736,7 +741,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                 </TableCell>
 
                 <TableCell 
-                  className="w-[15%] py-0"
+                  className={isAgency ? "w-[15%] py-0" : "w-[17%] py-0"}
                   onClick={(e: React.MouseEvent) => e.stopPropagation()}
                 >
                   {isAgency ? (
@@ -817,7 +822,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                   )}
                 </TableCell>
 
-                <TableCell className="w-[12%] py-0 truncate">
+                <TableCell className={isAgency ? "w-[12%] py-0 truncate" : "w-[13%] py-0 truncate"}>
                   <span 
                     className="text-sm-regular" 
                     style={task.dueDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
@@ -826,14 +831,10 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                   </span>
                 </TableCell>
 
-                <TableCell className="w-[12%] py-0">
-                  {task.project ? (
+                <TableCell className={isAgency ? "w-[12%] py-0" : "w-[13%] py-0"}>
+                  {task.project && (
                     <Badge variant="neutral" className="text-xs">
                       <span className="truncate">{task.project.name}</span>
-                    </Badge>
-                  ) : (
-                    <Badge variant="neutral" className="text-xs">
-                      <span className="truncate">None (account task)</span>
                     </Badge>
                   )}
                 </TableCell>

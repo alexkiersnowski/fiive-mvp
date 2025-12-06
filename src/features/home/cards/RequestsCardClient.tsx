@@ -16,6 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RequestDetailModal } from "@/features/connections/requests/RequestDetailModal";
+import { ConvertToTaskModal, type ConvertToTaskModalValues } from "@/features/connections/tasks/ConvertToTaskModal";
+import { convertRequestToTask } from "@/features/connections/tasks/actions";
 import { fetchRequestByIdGlobal, fetchCommentsForRequestGlobal, fetchRequestsSnapshot } from "@/features/requests/actions";
 import { toast } from "sonner";
 import type { Request } from "@/features/requests/types";
@@ -66,6 +68,36 @@ export default function RequestsCardClient({
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   // Initialize comments with prefetched data
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments);
+  
+  // Convert to task modal state
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [convertRequest, setConvertRequest] = useState<{
+    requestId: string;
+    title: string;
+    description: string;
+    client?: { id: string; name: string; logoUrl?: string };
+    agency?: { id: string; name: string; logoUrl?: string };
+    submittedBy?: { id: string; name: string; email: string; avatarUrl?: string };
+    assignee?: { id: string; name: string; email: string; avatarUrl?: string } | null;
+    project?: { id: string; name: string } | null;
+    createdAt?: string;
+    createdByOrgId?: string;
+    createdByOrgType?: 'agency' | 'client';
+  } | null>(null);
+  const [convertConnectionId, setConvertConnectionId] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [members, setMembers] = useState<Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    avatarUrl?: string;
+    jobTitle?: string;
+    orgId?: string;
+    orgName?: string;
+    orgType?: 'agency' | 'client';
+  }>>(agencyMembers);
 
   // Sync local requests when props change
   useEffect(() => {
@@ -140,7 +172,10 @@ export default function RequestsCardClient({
 
   const handleRequestDetailModalClose = useCallback(() => {
     setIsRequestDetailModalOpen(false);
-    setSelectedRequest(null);
+    // Allow modal exit animation before clearing data
+    setTimeout(() => {
+      setSelectedRequest(null);
+    }, 300);
   }, []);
 
   const handleExpandRequest = useCallback(() => {
@@ -185,6 +220,128 @@ export default function RequestsCardClient({
       });
     }
   }, [selectedRequest, localRequests]);
+
+  const handleRequestConvertToTask = useCallback((request: Request) => {
+    if (!request.connectionId) {
+      toast.error('Unable to convert request: connection not found');
+      return;
+    }
+    
+    // Set the request data and connection ID
+    // The RequestDetailModal already handles closing itself with a 175ms delay
+    // before calling onConvertToTask, so this will be called after it starts closing
+    setConvertConnectionId(request.connectionId);
+    setConvertRequest({
+      requestId: request.id,
+      title: request.title,
+      description: request.description || '',
+      client: request.client,
+      agency: request.agency,
+      submittedBy: request.submittedBy,
+      assignee: request.assignee ?? null,
+      project: request.project ?? null,
+      createdAt: request.createdAt,
+      createdByOrgId: request.createdByOrgId,
+      createdByOrgType: request.createdByOrgType,
+    });
+    
+    // Include the request's project in the initial projects array to prevent flicker
+    // ConvertToTaskModal will fetch the full projects list in the background
+    if (request.project) {
+      setProjects([{ id: request.project.id, name: request.project.name }]);
+    } else {
+      setProjects([]);
+    }
+    
+    // Open the convert modal immediately (matching connections implementation)
+    // ConvertToTaskModal will handle fetching projects/members if needed
+    setIsConvertModalOpen(true);
+    
+    // Fetch projects and members in the background (ConvertToTaskModal also does this, but we do it here too for members)
+    Promise.all([
+      import('@/features/connections/tasks/actions').then(m => m.fetchProjectsForConnection(request.connectionId)),
+      import('@/features/connections/tasks/actions').then(m => m.fetchMembersForConnection(request.connectionId)),
+    ]).then(([projectsData, membersData]) => {
+      // Update projects list (ensuring request's project is included)
+      const mappedProjects = projectsData.map(p => ({ id: p.id, name: p.name }));
+      if (request.project) {
+        const hasProject = mappedProjects.some(p => p.id === request.project!.id);
+        if (!hasProject) {
+          mappedProjects.unshift({ id: request.project.id, name: request.project.name });
+        }
+      }
+      setProjects(mappedProjects);
+      
+      // Combine agency and client members, deduplicate by id
+      const combined = [...membersData.agencyMembers, ...membersData.clientMembers];
+      const dedupedMap = new Map<string, typeof combined[0]>();
+      combined.forEach(member => {
+        if (!dedupedMap.has(member.id)) {
+          dedupedMap.set(member.id, member);
+        }
+      });
+      setMembers(Array.from(dedupedMap.values()));
+    }).catch(error => {
+      console.error('Error fetching projects/members for convert modal:', error);
+    });
+  }, []);
+
+  const handleConvertModalClose = useCallback(() => {
+    setIsConvertModalOpen(false);
+    setTimeout(() => {
+      setConvertRequest(null);
+      setConvertConnectionId(null);
+    }, 300);
+  }, []);
+
+  const handleConvertSubmit = useCallback(async (values: ConvertToTaskModalValues) => {
+    if (!convertRequest?.requestId || !convertConnectionId) {
+      toast.error('Request unavailable for conversion');
+      return;
+    }
+    
+    setIsConverting(true);
+    try {
+      const result = await convertRequestToTask(convertRequest.requestId, {
+        connectionId: convertConnectionId,
+        title: values.title,
+        description: values.description,
+        status: values.status,
+        projectId: values.project?.id ?? null,
+        assigneeUserId: values.assignee?.id ?? null,
+        dueDateRaw: values.dueDateRaw,
+        clientVisible: values.clientVisible,
+      });
+
+      toast.success('Task created from request');
+      handleConvertModalClose();
+      handleRequestUpdate(convertRequest.requestId, { status: 'accepted' });
+      
+      // Dispatch taskCreated event for TasksCardClient to handle optimistically
+      window.dispatchEvent(new CustomEvent('taskCreated', {
+        detail: {
+          taskId: result.taskId,
+          connectionId: convertConnectionId,
+          title: values.title,
+          description: values.description,
+          status: values.status,
+          project: values.project,
+          assignee: values.assignee,
+          dueDateRaw: values.dueDateRaw,
+          clientVisible: values.clientVisible,
+          client: convertRequest.client,
+          agency: convertRequest.agency,
+        }
+      }));
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to convert request to task:', error);
+      }
+      toast.error('Failed to convert request');
+    } finally {
+      setIsConverting(false);
+    }
+  }, [convertRequest, convertConnectionId, handleConvertModalClose, handleRequestUpdate]);
 
   const handleRequestDeleted = useCallback(async (requestId: string) => {
     // Store the deleted request for potential rollback
@@ -448,6 +605,13 @@ export default function RequestsCardClient({
             handleRequestUpdate(requestId, updates);
           }}
           onRequestDeleted={handleRequestDeleted}
+          onConvertToTask={(request) => {
+            if (!request) return;
+            const fullRequest = localRequests.find(r => r.id === request.requestId);
+            if (fullRequest) {
+              handleRequestConvertToTask(fullRequest);
+            }
+          }}
           connectionId={selectedRequest.connectionId}
           currentOrgId={context.orgId}
           variant={context.variant}
@@ -465,6 +629,21 @@ export default function RequestsCardClient({
             }));
           }}
           isGlobalView={true}
+        />
+      )}
+
+      {/* Convert to Task Modal */}
+      {convertRequest && convertConnectionId && (
+        <ConvertToTaskModal
+          isOpen={isConvertModalOpen}
+          onClose={handleConvertModalClose}
+          onSubmit={handleConvertSubmit}
+          isSubmitting={isConverting}
+          connectionId={convertConnectionId}
+          request={convertRequest}
+          agencyMembers={members}
+          projects={projects}
+          variant={context.variant}
         />
       )}
     </Card>

@@ -1,7 +1,7 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
-import { getRequestsSnapshot, getAgencyMembersForActiveOrg, getConnectionsForGlobalView, getGlobalNewRequestsCount } from '@/features/requests/server';
+import { getRequestsSnapshot, getAgencyMembersForActiveOrg, getConnectionsForGlobalView, getGlobalNewRequestsCount, getConnectionIdsForContext } from '@/features/requests/server';
 import { getCommentsForRequests } from '@/features/connections/server';
 import { RequestsContent } from './RequestsContent';
 
@@ -26,13 +26,17 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
   const resolvedSearchParams = await searchParams;
   const assignedToMe = resolvedSearchParams.assigned === 'me';
 
+  // Fetch connection IDs once and share across queries to avoid redundant fetches
+  const connectionIds = await getConnectionIdsForContext(context);
+
   const snapshotStartTime = performance.now();
   const snapshot = await getRequestsSnapshot(context, {
     search: resolvedSearchParams.search || '',
     limit: 50,
     sort: resolvedSearchParams.sort || 'created',
     assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-    createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+    createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+    connectionIds // Share connection IDs to avoid redundant query
   });
   console.log(`[Performance] getRequestsSnapshot: ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
 
@@ -50,8 +54,8 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
     getAgencyMembersForActiveOrg(context),
     // Connections for global request creation
     getConnectionsForGlobalView(context),
-    // Global count of new requests
-    getGlobalNewRequestsCount(context)
+    // Global count of new requests (share connection IDs to avoid redundant query)
+    getGlobalNewRequestsCount(context, connectionIds)
   ]);
 
   console.log(`[Performance] RequestsPage TOTAL: ${(performance.now() - pageStartTime).toFixed(2)}ms`);

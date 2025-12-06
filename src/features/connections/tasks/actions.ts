@@ -461,12 +461,11 @@ export async function fetchCommentsForTasks(taskIds: string[]) {
 
 /**
  * Fetch projects for a connection (server action for client components)
+ * Uses lightweight getProjectOptionsForConnection instead of full project fetch
  */
 export async function fetchProjectsForConnection(connectionId: string) {
-  const { getProjectsForConnection } = await import('../server')
-  const result = await getProjectsForConnection(connectionId, { limit: 2000, offset: 0 })
-  // Return just the projects array with id and title
-  return result.projects.map(p => ({ id: p.id, name: p.title }))
+  const { getProjectOptionsForConnection } = await import('../server')
+  return await getProjectOptionsForConnection(connectionId)
 }
 
 export async function fetchMembersForConnection(connectionId: string) {

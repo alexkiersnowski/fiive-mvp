@@ -6,29 +6,22 @@ import type { RequestsSnapshot, Request, RequestsPaginationOptions } from './typ
 import * as formatters from '../connections/formatters';
 
 /**
- * Get all requests across all connections for the current organization
- * This is a global view that aggregates requests from all connections
+ * Get connection IDs for the current organization (exported for use in page components)
+ * This allows sharing connection IDs across multiple queries to avoid redundant fetches
  */
-export const getRequestsSnapshot = cache(async (
-  context: EnhancedModeContext,
-  options: RequestsPaginationOptions = {}
-): Promise<RequestsSnapshot> => {
-  const { search = '', cursor, limit = 50, sort = 'created' } = options;
-  
-  // Validate context before proceeding
-  if (!context || !context.orgId || !context.userId) {
-    console.error('Invalid context provided to getRequestsSnapshot:', { context });
-    return {
-      requests: [],
-      total: 0,
-      unfilteredTotalCount: 0,
-      cursor: null,
-      hasNextPage: false,
-    };
-  }
-
+export async function getConnectionIdsForContext(context: EnhancedModeContext): Promise<string[]> {
   const supabase = await createClient();
-  
+  return getConnectionIdsForOrg(context, supabase);
+}
+
+/**
+ * Internal helper function to fetch connection IDs for the current organization
+ * Shared between getRequestsSnapshot and getGlobalNewRequestsCount to avoid redundant queries
+ */
+async function getConnectionIdsForOrg(
+  context: EnhancedModeContext,
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<string[]> {
   // Get all connection IDs that belong to this organization
   // Agency: connections where agency_id = orgId
   // Client: connections where client_id = orgId
@@ -49,6 +42,25 @@ export const getRequestsSnapshot = cache(async (
 
   if (connectionQueryError || !connections) {
     console.error('Error fetching connections:', connectionQueryError);
+    return [];
+  }
+
+  return connections.map(c => c.id);
+}
+
+/**
+ * Get all requests across all connections for the current organization
+ * This is a global view that aggregates requests from all connections
+ */
+export const getRequestsSnapshot = cache(async (
+  context: EnhancedModeContext,
+  options: RequestsPaginationOptions = {}
+): Promise<RequestsSnapshot> => {
+  const { search = '', cursor, limit = 50, sort = 'created', connectionIds: providedConnectionIds } = options;
+  
+  // Validate context before proceeding
+  if (!context || !context.orgId || !context.userId) {
+    console.error('Invalid context provided to getRequestsSnapshot:', { context });
     return {
       requests: [],
       total: 0,
@@ -58,7 +70,14 @@ export const getRequestsSnapshot = cache(async (
     };
   }
 
-  const connectionIds = connections.map(c => c.id);
+  const supabase = await createClient();
+  
+  // Use provided connection IDs or fetch them
+  let connectionIds: string[] = providedConnectionIds || [];
+  
+  if (connectionIds.length === 0) {
+    connectionIds = await getConnectionIdsForOrg(context, supabase);
+  }
 
   if (connectionIds.length === 0) {
     // No connections, return empty result
@@ -283,119 +302,181 @@ export const getRequestsSnapshot = cache(async (
     console.error('Error fetching requests count:', countError);
   }
 
-  // Build the requests query with joins for fetching data
-  // Note: Can't join profiles twice (created_by and assignee) in same query, so we'll fetch profiles separately
-  let requestsQuery = supabase
-    .from('requests')
-    .select(`
-      id,
-      title,
-      description,
-      status,
-      project_id,
-      project_name_cached,
-      connection_id,
-      created_by_user_id,
-      assignee_user_id,
-      created_at,
-      created_by_org_id,
-      connections!inner (
-        id,
-        client_id,
-        agency_id
-      ),
-      projects (
-        id,
-        name
-      )
-    `)
-    .in('connection_id', connectionIds)
-    .is('deleted_at', null);
-
-  if (options.assignedToUserId) {
-    requestsQuery = requestsQuery.eq('assignee_user_id', options.assignedToUserId);
-  }
-  
-  if (options.createdByUserId) {
-    requestsQuery = requestsQuery.eq('created_by_user_id', options.createdByUserId);
-  }
-
-  // Apply search filter if search is provided
-  if (search && search.trim().length > 0) {
-    const trimmedQuery = search.trim();
-    const escaped = escapeForILike(trimmedQuery);
-    const matchedStatus = normalizeStatusQuery(trimmedQuery);
-    const searchLower = trimmedQuery.toLowerCase();
-    
-    const orParts: string[] = [];
-    orParts.push(`title.ilike.%${escaped}%`);
-    orParts.push(`project_name_cached.ilike.%${escaped}%`);
-    
-    if (searchLower.includes('general')) {
-      orParts.push(`project_id.is.null`);
-    }
-    
-    if (matchedStatus) {
-      orParts.push(`status.eq.${matchedStatus}`);
-    }
-    
-    if (matchingUserIds.length > 0) {
-      orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
-      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
-    }
-    
-    // Add client/agency organization name matches (DB-level via connection IDs)
-    if (matchingConnectionIds.length > 0) {
-      orParts.push(`connection_id.in.(${matchingConnectionIds.join(',')})`);
-    }
-    
-    requestsQuery = requestsQuery.or(orParts.join(','));
-  }
-
-  // Apply sorting at database level
-  // Note: Client/Agency name sorting may require in-memory sort if database-level sorting doesn't work
+  // Determine if we're sorting by organization name
   const isClientNameSort = sort === 'client_asc' || sort === 'client_desc';
   const isAgencyNameSort = sort === 'agency_asc' || sort === 'agency_desc';
   const isOrgNameSort = isClientNameSort || isAgencyNameSort;
   const startIndex = cursor ? parseInt(cursor, 10) : 0;
+
+  // For org name sorting, use RPC function (bypasses PostgREST's two-level join limitation)
+  // For other sorts, use regular Supabase query
+  let requestsData: any[] | null = null;
+  let requestsError: any = null;
+  let useRpcSort = false; // Track if we successfully used RPC
+
+  if (isOrgNameSort) {
+    // Use RPC function for org name sorting
+    try {
+      const rpcParams = {
+        p_connection_ids: connectionIds,
+        p_sort_type: sort,
+        p_limit_count: limit,
+        p_offset_count: startIndex,
+        p_search_query: search && search.trim().length > 0 ? search.trim() : null,
+        p_assigned_to_user_id: options.assignedToUserId || null,
+        p_created_by_user_id: options.createdByUserId || null
+      };
+      
+      const rpcResult = await supabase.rpc('get_requests_sorted_by_org_name', rpcParams);
+      const { data: rpcData, error: rpcError } = rpcResult;
+
+      if (rpcError) {
+        // Log error details for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.error('RPC call failed:', {
+            message: rpcError.message,
+            code: rpcError.code,
+            details: rpcError.details,
+            hint: rpcError.hint
+          });
+        }
+        
+        // If function doesn't exist or has issues, fall back to regular query
+        if (!rpcError.message && !rpcError.code) {
+          console.warn('RPC function may not exist. Falling back to regular query (will not sort by org name).');
+          console.warn('Please ensure migration 20251207000001_get_requests_sorted_by_org_name.sql has been run.');
+        } else {
+          console.error('RPC function error:', rpcError.message || rpcError.code);
+        }
+        requestsData = null; // Force regular query
+      } else {
+        // RPC succeeded - returns JSON array
+        if (rpcData === null || rpcData === undefined) {
+          requestsData = [];
+        } else if (Array.isArray(rpcData)) {
+          requestsData = rpcData;
+        } else if (typeof rpcData === 'string') {
+          requestsData = JSON.parse(rpcData);
+        } else {
+          // Already JSON object
+          requestsData = rpcData;
+        }
+        useRpcSort = true; // Mark that we successfully used RPC
+      }
+    } catch (error) {
+      console.error('Exception calling RPC:', error instanceof Error ? error.message : String(error));
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Exception stack:', error instanceof Error ? error.stack : undefined);
+      }
+      console.warn('Falling back to regular query due to exception.');
+      requestsData = null; // Force regular query
+      useRpcSort = false;
+    }
+  }
   
-  switch (sort) {
-    case 'created':
-      requestsQuery = requestsQuery.order('created_at', { ascending: false });
-      break;
-    case 'status':
-      requestsQuery = requestsQuery.order('status', { ascending: true }).order('created_at', { ascending: false });
-      break;
-    case 'client_asc':
-    case 'client_desc':
-    case 'agency_asc':
-    case 'agency_desc':
-      // Try database-level sorting first - if this doesn't work, we'll sort in memory after fetching
-      // Supabase may not support ordering by nested joined fields, so we'll handle as fallback
-      requestsQuery = requestsQuery.order('created_at', { ascending: false });
-      break;
-    default:
-      requestsQuery = requestsQuery.order('created_at', { ascending: false });
-  }
+  // If RPC failed or we're not using org name sort, use regular query
+  // Note: If RPC failed, we fall back to 'created' sort since org name sorting won't work
+  if (!isOrgNameSort || requestsData === null) {
+    // If we were trying to sort by org name but RPC failed, change sort to 'created'
+    const effectiveSort = (isOrgNameSort && !useRpcSort) ? 'created' : sort;
+    // Use regular Supabase query for non-org-name sorts
+    let requestsQuery = supabase
+      .from('requests')
+      .select(`
+        id,
+        title,
+        description,
+        status,
+        project_id,
+        project_name_cached,
+        connection_id,
+        created_by_user_id,
+        assignee_user_id,
+        created_at,
+        created_by_org_id,
+        connections!inner (
+          id,
+          client_id,
+          agency_id
+        ),
+        projects (
+          id,
+          name
+        )
+      `)
+      .in('connection_id', connectionIds)
+      .is('deleted_at', null);
 
-  // Apply pagination at database level (for non-org-name sorts)
-  // For org name sorts, we'll fetch all, sort, then paginate
-  if (!isOrgNameSort) {
+    if (options.assignedToUserId) {
+      requestsQuery = requestsQuery.eq('assignee_user_id', options.assignedToUserId);
+    }
+    
+    if (options.createdByUserId) {
+      requestsQuery = requestsQuery.eq('created_by_user_id', options.createdByUserId);
+    }
+
+    // Apply search filter if search is provided
+    if (search && search.trim().length > 0) {
+      const trimmedQuery = search.trim();
+      const escaped = escapeForILike(trimmedQuery);
+      const matchedStatus = normalizeStatusQuery(trimmedQuery);
+      const searchLower = trimmedQuery.toLowerCase();
+      
+      const orParts: string[] = [];
+      orParts.push(`title.ilike.%${escaped}%`);
+      orParts.push(`project_name_cached.ilike.%${escaped}%`);
+      
+      if (searchLower.includes('general')) {
+        orParts.push(`project_id.is.null`);
+      }
+      
+      if (matchedStatus) {
+        orParts.push(`status.eq.${matchedStatus}`);
+      }
+      
+      if (matchingUserIds.length > 0) {
+        orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
+        orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
+      }
+      
+      // Add client/agency organization name matches (DB-level via connection IDs)
+      if (matchingConnectionIds.length > 0) {
+        orParts.push(`connection_id.in.(${matchingConnectionIds.join(',')})`);
+      }
+      
+      requestsQuery = requestsQuery.or(orParts.join(','));
+    }
+
+    // Apply sorting at database level
+    switch (effectiveSort) {
+      case 'created':
+        requestsQuery = requestsQuery.order('created_at', { ascending: false });
+        break;
+      case 'status':
+        requestsQuery = requestsQuery.order('status', { ascending: true }).order('created_at', { ascending: false });
+        break;
+      default:
+        requestsQuery = requestsQuery.order('created_at', { ascending: false });
+    }
+
+    // Apply pagination at database level
     requestsQuery = requestsQuery.range(startIndex, startIndex + limit - 1);
-  }
 
-  // Execute query
-  const { data: requestsData, error: requestsError } = await requestsQuery;
+    // Execute query
+    const result = await requestsQuery;
+    requestsData = result.data;
+    requestsError = result.error;
 
-  if (requestsError) {
-    console.error('Error fetching requests:', requestsError);
-    return {
-      requests: [],
-      total: 0,
-      unfilteredTotalCount: unfilteredTotalCount || 0,
-      cursor: null,
-      hasNextPage: false,
-    };
+    if (requestsError) {
+      console.error('Error fetching requests:', requestsError);
+      return {
+        requests: [],
+        total: 0,
+        unfilteredTotalCount: unfilteredTotalCount || 0,
+        cursor: null,
+        hasNextPage: false,
+      };
+    }
   }
 
   // If no requests, return early
@@ -417,9 +498,12 @@ export const getRequestsSnapshot = cache(async (
     if (request.assignee_user_id) userIds.add(request.assignee_user_id);
   });
 
-  // Fetch profiles, organizations, and memberships in parallel
+  // Check if data comes from RPC function (has org names pre-joined)
+  const isRpcData = requestsData.length > 0 && 'client_org_name' in requestsData[0];
+
+  // Fetch profiles, connections, memberships, and organizations in parallel
   const userIdArray = Array.from(userIds);
-  const [profilesResult, connectionsResult, membershipsResult] = await Promise.all([
+  const [profilesResult, connectionsResult, membershipsResult, orgsResult] = await Promise.all([
     // Fetch profiles for submitted_by and assignee
     userIdArray.length > 0
       ? supabase
@@ -427,7 +511,7 @@ export const getRequestsSnapshot = cache(async (
           .select('id, first_name, last_name, email, avatar_url, job_title')
           .in('id', userIdArray)
       : Promise.resolve({ data: null, error: null }),
-    // Fetch connection info with organization IDs
+    // Fetch connection info with organization IDs (needed for connection map)
     supabase
       .from('connections')
       .select('id, client_id, agency_id')
@@ -446,12 +530,42 @@ export const getRequestsSnapshot = cache(async (
             )
           `)
           .in('user_id', userIdArray)
+      : Promise.resolve({ data: null, error: null }),
+    // Fetch organizations only if not from RPC (RPC already includes org data)
+    !isRpcData
+      ? (async () => {
+          const connectionsData = await supabase
+            .from('connections')
+            .select('client_id, agency_id')
+            .in('id', uniqueConnectionIds);
+          
+          if (connectionsData.error || !connectionsData.data) {
+            return { data: null, error: connectionsData.error };
+          }
+          
+          const uniqueOrgIds = new Set<string>();
+          connectionsData.data.forEach(conn => {
+            if (conn.client_id) uniqueOrgIds.add(conn.client_id);
+            if (conn.agency_id) uniqueOrgIds.add(conn.agency_id);
+          });
+          
+          const orgIdsArray = Array.from(uniqueOrgIds);
+          if (orgIdsArray.length === 0) {
+            return { data: null, error: null };
+          }
+          
+          return await supabase
+            .from('organizations')
+            .select('id, name, logo_url, type')
+            .in('id', orgIdsArray);
+        })()
       : Promise.resolve({ data: null, error: null })
   ]);
 
   const { data: profilesData, error: profilesError } = profilesResult;
   const { data: connectionsData, error: connectionsError } = connectionsResult;
   const { data: membershipsData, error: membershipsError } = membershipsResult;
+  const { data: orgsData, error: orgsError } = orgsResult;
 
   // Build profiles map
   const profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
@@ -477,36 +591,64 @@ export const getRequestsSnapshot = cache(async (
     return acc;
   }, {} as Record<string, { clientId: string; agencyId: string }>);
 
-  // Get unique org IDs (client and agency)
-  const uniqueOrgIds = new Set<string>();
-  Object.values(connectionsMap).forEach(conn => {
-    uniqueOrgIds.add(conn.clientId);
-    uniqueOrgIds.add(conn.agencyId);
-  });
-
-  // Fetch organizations
-  const orgIdsArray = Array.from(uniqueOrgIds);
-  const { data: orgsData, error: orgsError } = await supabase
-    .from('organizations')
-    .select('id, name, logo_url, type')
-    .in('id', orgIdsArray);
-
-  if (orgsError) {
-    console.error('Error fetching organizations:', orgsError);
-  }
-
-  // Build org maps
+  // Build org maps - use RPC data if available, otherwise use fetched data
   const orgMap: Record<string, { name: string; logoUrl?: string }> = {};
   const orgTypeMap: Record<string, 'agency' | 'client'> = {};
-  (orgsData || []).forEach(org => {
-    orgMap[org.id] = {
-      name: org.name || 'Unknown',
-      logoUrl: org.logo_url || undefined
-    };
-    if (org.type === 'agency' || org.type === 'client') {
-      orgTypeMap[org.id] = org.type as 'agency' | 'client';
+  
+  if (isRpcData) {
+    // Build org map from RPC response data
+    requestsData.forEach((request: any) => {
+      if (request.client_id && request.client_org_name) {
+        orgMap[request.client_id] = {
+          name: request.client_org_name || 'Unknown',
+          logoUrl: request.client_org_logo || undefined
+        };
+      }
+      if (request.agency_id && request.agency_org_name) {
+        orgMap[request.agency_id] = {
+          name: request.agency_org_name || 'Unknown',
+          logoUrl: request.agency_org_logo || undefined
+        };
+      }
+    });
+    
+    // Fetch org types separately (not included in RPC response)
+    const uniqueOrgIds = new Set<string>();
+    Object.values(connectionsMap).forEach(conn => {
+      uniqueOrgIds.add(conn.clientId);
+      uniqueOrgIds.add(conn.agencyId);
+    });
+    const orgIdsArray = Array.from(uniqueOrgIds);
+    if (orgIdsArray.length > 0) {
+      const { data: orgTypesData } = await supabase
+        .from('organizations')
+        .select('id, type')
+        .in('id', orgIdsArray);
+      
+      if (orgTypesData) {
+        orgTypesData.forEach(org => {
+          if (org.type === 'agency' || org.type === 'client') {
+            orgTypeMap[org.id] = org.type as 'agency' | 'client';
+          }
+        });
+      }
     }
-  });
+  } else {
+    // Build org map from fetched data
+    if (orgsError) {
+      console.error('Error fetching organizations:', orgsError);
+    }
+    
+    (orgsData || []).forEach(org => {
+      orgMap[org.id] = {
+        name: org.name || 'Unknown',
+        logoUrl: org.logo_url || undefined
+      };
+      if (org.type === 'agency' || org.type === 'client') {
+        orgTypeMap[org.id] = org.type as 'agency' | 'client';
+      }
+    });
+  }
 
   // Build user org map (for submittedBy org info)
   const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
@@ -524,26 +666,42 @@ export const getRequestsSnapshot = cache(async (
   }
 
   // Transform requests to Request[] format using joined data and fetched maps
-  // Preserve original created_at for client name sorting
   const requestsWithTimestamps: Array<{ request: Request; originalCreatedAt: number }> = requestsData
     .filter(request => {
       // Filter out requests with invalid connections
-      const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
-      return connection !== null && connection !== undefined && connectionsMap[request.connection_id] !== undefined;
+      if (isRpcData) {
+        // RPC data has client_id and agency_id directly
+        return request.connection_id && connectionsMap[request.connection_id] !== undefined;
+      } else {
+        // Regular query data has nested connections
+        const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
+        return connection !== null && connection !== undefined && connectionsMap[request.connection_id] !== undefined;
+      }
     })
     .map(request => {
-      // Extract joined connection data
-      const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
-      if (!connection) {
-        throw new Error('Invalid connection');
+      // Extract connection info
+      let connectionInfo: { clientId: string; agencyId: string };
+      
+      if (isRpcData) {
+        // RPC data has client_id and agency_id directly
+        const rpcRequest = request as any;
+        connectionInfo = {
+          clientId: rpcRequest.client_id,
+          agencyId: rpcRequest.agency_id
+        };
+      } else {
+        // Regular query data has nested connections
+        const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
+        if (!connection) {
+          throw new Error('Invalid connection');
+        }
+        connectionInfo = connectionsMap[request.connection_id];
+        if (!connectionInfo) {
+          throw new Error('Connection not found in map');
+        }
       }
 
-      const connectionInfo = connectionsMap[request.connection_id];
-      if (!connectionInfo) {
-        throw new Error('Connection not found in map');
-      }
-
-      // Get organization data from fetched maps
+      // Get organization data from maps (or RPC data)
       const clientOrg = orgMap[connectionInfo.clientId];
       const agencyOrg = orgMap[connectionInfo.agencyId];
       
@@ -551,20 +709,27 @@ export const getRequestsSnapshot = cache(async (
       const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] || null : null;
       const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] || null : null;
       
-      // Extract joined project data
-      const requestWithJoins = request as typeof request & { projects?: { id: string; name: string } | Array<{ id: string; name: string }> };
-      const projectData = request.project_id && requestWithJoins.projects
-        ? (Array.isArray(requestWithJoins.projects) ? requestWithJoins.projects[0] : requestWithJoins.projects)
-        : null;
-      
-      // Use project from join if available, otherwise fallback to project_name_cached
+      // Extract project data
       let project = null;
       if (request.project_id) {
-        if (projectData) {
-          project = { id: projectData.id, name: projectData.name };
-        } else if (request.project_name_cached) {
-          // Fallback to cached name if project lookup failed (e.g., RLS issue or project deleted)
-          project = { id: request.project_id, name: request.project_name_cached };
+        if (!isRpcData) {
+          // Regular query has joined project data
+          const requestWithJoins = request as typeof request & { projects?: { id: string; name: string } | Array<{ id: string; name: string }> };
+          const projectData = requestWithJoins.projects
+            ? (Array.isArray(requestWithJoins.projects) ? requestWithJoins.projects[0] : requestWithJoins.projects)
+            : null;
+          
+          if (projectData) {
+            project = { id: projectData.id, name: projectData.name };
+          } else if (request.project_name_cached) {
+            // Fallback to cached name if project lookup failed (e.g., RLS issue or project deleted)
+            project = { id: request.project_id, name: request.project_name_cached };
+          }
+        } else {
+          // RPC data - use cached project name (projects not included in RPC response for performance)
+          if (request.project_name_cached) {
+            project = { id: request.project_id, name: request.project_name_cached };
+          }
         }
       }
 
@@ -602,54 +767,16 @@ export const getRequestsSnapshot = cache(async (
       };
     });
 
-  // Extract requests for non-org-name sorts
+  // Extract requests - database has already sorted and paginated them
   const requests: Request[] = requestsWithTimestamps.map(item => item.request);
 
-  // Apply client/agency name sorting in memory if needed (using already-fetched org data)
-  let sortedRequests = requests;
-  if (isOrgNameSort) {
-    const sortedWithTimestamps = [...requestsWithTimestamps].sort((a, b) => {
-      // Determine which organization name to use for sorting
-      const aName = isClientNameSort 
-        ? a.request.client.name.toLowerCase()
-        : (a.request.agency?.name || '').toLowerCase();
-      const bName = isClientNameSort
-        ? b.request.client.name.toLowerCase()
-        : (b.request.agency?.name || '').toLowerCase();
-      
-      // Primary sort: by org name (A-Z or Z-A)
-      let nameComparison = 0;
-      if (sort === 'client_asc' || sort === 'agency_asc') {
-        if (aName < bName) nameComparison = -1;
-        else if (aName > bName) nameComparison = 1;
-      } else { // client_desc or agency_desc
-        if (aName > bName) nameComparison = -1;
-        else if (aName < bName) nameComparison = 1;
-      }
-      
-      // If org names are different, return the name comparison
-      if (nameComparison !== 0) {
-        return nameComparison;
-      }
-      
-      // Secondary sort: by created_at descending (newest first)
-      return b.originalCreatedAt - a.originalCreatedAt;
-    });
-    
-    // Extract requests and apply pagination after sorting
-    const allSortedRequests = sortedWithTimestamps.map(item => item.request);
-    sortedRequests = allSortedRequests.slice(startIndex, startIndex + limit);
-  }
-
   // Calculate pagination info
-  const hasNextPage = isOrgNameSort 
-    ? requestsWithTimestamps.length > startIndex + limit
-    : (total || 0) > startIndex + limit;
+  const hasNextPage = (total || 0) > startIndex + limit;
   const nextCursor = hasNextPage ? String(startIndex + limit) : null;
 
   return {
-    requests: sortedRequests,
-    total: isOrgNameSort ? requestsWithTimestamps.length : (total || 0),
+    requests: requests,
+    total: total || 0,
     unfilteredTotalCount: unfilteredTotalCount || 0,
     cursor: nextCursor,
     hasNextPage,
@@ -979,28 +1106,7 @@ export const getGlobalNewRequestsCount = cache(async (
   let finalConnectionIds: string[] = connectionIds || [];
   
   if (finalConnectionIds.length === 0) {
-    // Get all connection IDs that belong to this organization
-    // Exclude disconnected connections (frozen/read-only)
-    const connectionQuery = context.variant === 'agency'
-      ? supabase
-          .from('connections')
-          .select('id')
-          .eq('agency_id', context.orgId)
-          .neq('connection_status', 'disconnected')
-      : supabase
-          .from('connections')
-          .select('id')
-          .eq('client_id', context.orgId)
-          .neq('connection_status', 'disconnected');
-
-    const { data: connections, error: connectionQueryError } = await connectionQuery;
-
-    if (connectionQueryError || !connections) {
-      console.error('Error fetching connections:', connectionQueryError);
-      return 0;
-    }
-
-    finalConnectionIds = connections.map(c => c.id);
+    finalConnectionIds = await getConnectionIdsForOrg(context, supabase);
   }
 
   if (finalConnectionIds.length === 0) {
@@ -1044,28 +1150,7 @@ export const getGlobalInReviewRequestsCount = cache(async (
   let finalConnectionIds: string[] = connectionIds || [];
   
   if (finalConnectionIds.length === 0) {
-    // Get all connection IDs that belong to this organization
-    // Exclude disconnected connections (frozen/read-only)
-    const connectionQuery = context.variant === 'agency'
-      ? supabase
-          .from('connections')
-          .select('id')
-          .eq('agency_id', context.orgId)
-          .neq('connection_status', 'disconnected')
-      : supabase
-          .from('connections')
-          .select('id')
-          .eq('client_id', context.orgId)
-          .neq('connection_status', 'disconnected');
-
-    const { data: connections, error: connectionQueryError } = await connectionQuery;
-
-    if (connectionQueryError || !connections) {
-      console.error('Error fetching connections:', connectionQueryError);
-      return 0;
-    }
-
-    finalConnectionIds = connections.map(c => c.id);
+    finalConnectionIds = await getConnectionIdsForOrg(context, supabase);
   }
 
   if (finalConnectionIds.length === 0) {

@@ -83,6 +83,17 @@ export function RequestsContent({
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [projectsForConvert, setProjectsForConvert] = useState<Array<{ id: string; name: string }>>([]);
+  const [membersForConvert, setMembersForConvert] = useState<Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    avatarUrl?: string;
+    jobTitle?: string;
+    orgId?: string;
+    orgName?: string;
+    orgType?: 'agency' | 'client';
+  }>>(agencyMembers);
   
   // Comments map keyed by requestId for instant lookup
   // Initialize with server-fetched comments for instant availability
@@ -408,7 +419,10 @@ export function RequestsContent({
   
   const handleRequestDetailModalClose = useCallback(() => {
     setIsRequestDetailModalOpen(false);
-    setSelectedRequest(null);
+    // Allow modal exit animation before clearing data
+    setTimeout(() => {
+      setSelectedRequest(null);
+    }, 300);
   }, []);
   
   const handleExpandRequest = useCallback(() => {
@@ -482,31 +496,56 @@ export function RequestsContent({
     setTimeout(() => {
       setConvertRequest(null);
       setProjectsForConvert([]);
+      setMembersForConvert(agencyMembers);
     }, 300);
-  }, []);
+  }, [agencyMembers]);
 
   const handleRequestConvertToTask = useCallback((request: Request) => {
     setConvertRequest(request);
     
-    // Fetch projects in the background (modal will show immediately when opened)
-    // ConvertToTaskModal also has fallback logic to fetch projects if not provided
-    fetchProjectsForConnection(request.connectionId)
-      .then(projects => {
-        setProjectsForConvert(projects);
-      })
-      .catch(error => {
-        console.error('Error fetching projects for convert modal:', error);
-        // Don't set empty array - let modal handle fetching if needed
-      });
+    // Include the request's project in the initial projects array to prevent flicker
+    // ConvertToTaskModal will fetch the full projects list in the background
+    if (request.project) {
+      setProjectsForConvert([{ id: request.project.id, name: request.project.name }]);
+    } else {
+      setProjectsForConvert([]);
+    }
     
-    // When called from RequestDetailModal, it already has a 175ms delay before calling this handler
-    // Add a small additional delay to ensure the RequestDetailModal close animation completes
-    // before opening the convert modal. This matches the smooth transition pattern.
-    // When called from table dropdown, this small delay is negligible.
-    setTimeout(() => {
-      setIsConvertModalOpen(true);
-    }, 50);
-  }, []);
+    // Set initial members from agencyMembers prop
+    setMembersForConvert(agencyMembers);
+    
+    // Open the convert modal immediately (matching home page implementation)
+    // ConvertToTaskModal will handle fetching projects/members if needed
+    setIsConvertModalOpen(true);
+    
+    // Fetch projects and members in the background
+    Promise.all([
+      import('@/features/connections/tasks/actions').then(m => m.fetchProjectsForConnection(request.connectionId)),
+      import('@/features/connections/tasks/actions').then(m => m.fetchMembersForConnection(request.connectionId)),
+    ]).then(([projectsData, membersData]) => {
+      // Update projects list (ensuring request's project is included)
+      const mappedProjects = projectsData.map(p => ({ id: p.id, name: p.name }));
+      if (request.project) {
+        const hasProject = mappedProjects.some(p => p.id === request.project!.id);
+        if (!hasProject) {
+          mappedProjects.unshift({ id: request.project.id, name: request.project.name });
+        }
+      }
+      setProjectsForConvert(mappedProjects);
+      
+      // Combine agency and client members, deduplicate by id
+      const combined = [...membersData.agencyMembers, ...membersData.clientMembers];
+      const dedupedMap = new Map<string, typeof combined[0]>();
+      combined.forEach(member => {
+        if (!dedupedMap.has(member.id)) {
+          dedupedMap.set(member.id, member);
+        }
+      });
+      setMembersForConvert(Array.from(dedupedMap.values()));
+    }).catch(error => {
+      console.error('Error fetching projects/members for convert modal:', error);
+    });
+  }, [agencyMembers]);
 
   const handleConvertSubmit = useCallback(async (values: ConvertToTaskModalValues) => {
     if (!convertRequest) {
@@ -688,7 +727,7 @@ export function RequestsContent({
             createdByOrgId: convertRequest.createdByOrgId,
             createdByOrgType: convertRequest.createdByOrgType,
           }}
-          agencyMembers={agencyMembers}
+          agencyMembers={membersForConvert}
           projects={projectsForConvert}
         />
       )}

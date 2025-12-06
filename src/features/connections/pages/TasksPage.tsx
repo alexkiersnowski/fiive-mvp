@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { getTasksForConnection, getConnectionMembers, getProjectsForConnection, getCommentsForTasks } from '../server';
+import { getTasksForConnection, getConnectionMembers, getProjectOptionsForConnection, getCommentsForTasks } from '../server';
 import TasksPageClient from './TasksPageClient';
 import { PAGE_SIZE } from '../constants';
 
@@ -12,10 +12,10 @@ interface TasksPageProps {
 export async function TasksPage({ connectionId }: TasksPageProps) {
   // Fetch tasks, members, and projects in parallel (they don't depend on each other)
   // Comments depend on taskIds, so we'll fetch them after tasks
-  const [tasksData, memberData, projectsData] = await Promise.all([
+  const [tasksData, memberData, projects] = await Promise.all([
     getTasksForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
     getConnectionMembers(connectionId),
-    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
+    getProjectOptionsForConnection(connectionId)
   ]);
   
   // Now fetch comments using taskIds from the fetched tasks
@@ -44,8 +44,7 @@ export async function TasksPage({ connectionId }: TasksPageProps) {
     }
   }
 
-  // Transform projects to the format expected by TaskDetailContent
-  const projects = projectsData.projects.map(p => ({ id: p.id, name: p.title }));
+  // getProjectOptionsForConnection already returns { id, name } format, no transformation needed
 
   return (
     <Card className="w-full gap-0 h-full">

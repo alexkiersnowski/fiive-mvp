@@ -1,11 +1,12 @@
 import {
   getRecentRequestsForConnection,
-  getRequestById,
+  getRequestsByIds,
   getCommentsForRequests,
-  getProjectsForConnection,
+  getProjectOptionsForConnection,
   type RecentRequestSummary,
   type Comment as RequestComment,
   type Project,
+  type Request,
 } from '../server';
 import RequestsCardClient from './RequestsCardClient';
 
@@ -89,6 +90,7 @@ export default async function RequestsCard({
     : Promise.resolve({});
 
   // Fetch projects only if not provided (optimization: share projects across cards)
+  // Use lightweight getProjectOptionsForConnection instead of full project fetch
   const projectsPromise = providedProjects 
     ? Promise.resolve({ 
         projects: providedProjects.map(p => ({ 
@@ -99,15 +101,23 @@ export default async function RequestsCard({
         } as Pick<Project, 'id' | 'title' | 'requestsCount' | 'tasksCount'>)), 
         totalCount: providedProjects.length 
       })
-    : getProjectsForConnection(connectionId, { limit: 1000, offset: 0 });
+    : getProjectOptionsForConnection(connectionId).then(options => ({
+        projects: options.map(p => ({
+          id: p.id,
+          title: p.name,
+          requestsCount: 0,
+          tasksCount: 0
+        } as Pick<Project, 'id' | 'title' | 'requestsCount' | 'tasksCount'>)),
+        totalCount: options.length
+      }));
 
   const [requestDetails, commentsRecord, projectsResult] = await Promise.all([
-    Promise.all(requestIds.map((requestId) => getRequestById(requestId, connectionId))),
+    requestIds.length > 0 ? getRequestsByIds(connectionId, requestIds) : Promise.resolve([]),
     commentsPromise,
     projectsPromise,
   ]);
 
-  const detailMap = new Map<string, Awaited<ReturnType<typeof getRequestById>>>();
+  const detailMap = new Map<string, Request>();
   requestDetails.forEach((detail) => {
     if (detail) {
       detailMap.set(detail.id, detail);

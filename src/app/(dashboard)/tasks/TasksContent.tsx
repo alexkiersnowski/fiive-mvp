@@ -510,16 +510,95 @@ export function TasksContent({
     }
   }, [selectedTask, context.variant]);
 
-  const handleTaskUpdate = useCallback((taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => {
-    setTasks(prev => prev.map(t => 
+  const handleTaskUpdate = useCallback((taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; completedAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => {
+    setTasks(prev => {
+      // Update the task
+      const updated = prev.map(t => 
       t.id === taskId 
         ? { ...t, ...updates }
         : t
-    ));
+      );
+      
+      // If status changed to/from 'done', re-sort to match RPC function logic
+      const statusChanged = updates.status !== undefined;
+      if (statusChanged) {
+        const isOrgNameSort = sortValue === 'client_asc' || sortValue === 'client_desc' || sortValue === 'agency_asc' || sortValue === 'agency_desc';
+        const isDueDateSort = sortValue === 'due_date';
+        
+        if (isOrgNameSort) {
+          // For org name sorts: group by org name, then separate Done from non-Done within each group
+          const isClientNameSort = sortValue === 'client_asc' || sortValue === 'client_desc';
+          return [...updated].sort((a, b) => {
+            // Determine which organization name to use for sorting
+            const aName = isClientNameSort 
+              ? a.client.name.toLowerCase()
+              : (a.agency?.name || '').toLowerCase();
+            const bName = isClientNameSort
+              ? b.client.name.toLowerCase()
+              : (b.agency?.name || '').toLowerCase();
+            
+            // Primary sort: by org name (A-Z or Z-A)
+            let nameComparison = 0;
+            if (sortValue === 'client_asc' || sortValue === 'agency_asc') {
+              if (aName < bName) nameComparison = -1;
+              else if (aName > bName) nameComparison = 1;
+            } else { // client_desc or agency_desc
+              if (aName > bName) nameComparison = -1;
+              else if (aName < bName) nameComparison = 1;
+            }
+            
+            // If org names are different, return the name comparison
+            if (nameComparison !== 0) {
+              return nameComparison;
+            }
+            
+            // Same org group: separate Done from non-Done
+            const aIsDone = a.status === 'done';
+            const bIsDone = b.status === 'done';
+            
+            // Done tasks go last within each org group
+            if (aIsDone && !bIsDone) return 1;
+            if (!aIsDone && bIsDone) return -1;
+            
+            // Both are Done: sort by completed_at DESC
+            if (aIsDone && bIsDone) {
+              const aCompleted = a.completedAtRaw ? new Date(a.completedAtRaw).getTime() : 0;
+              const bCompleted = b.completedAtRaw ? new Date(b.completedAtRaw).getTime() : 0;
+              if (aCompleted !== bCompleted) return bCompleted - aCompleted;
+              return new Date(b.createdAtRaw || 0).getTime() - new Date(a.createdAtRaw || 0).getTime();
+            }
+            
+            // Both are active: sort by due_date ASC, then created_at DESC
+            const aDue = a.dueDateRaw ? new Date(a.dueDateRaw).getTime() : Infinity;
+            const bDue = b.dueDateRaw ? new Date(b.dueDateRaw).getTime() : Infinity;
+            if (aDue !== bDue) return aDue - bDue;
+            return new Date(b.createdAtRaw || 0).getTime() - new Date(a.createdAtRaw || 0).getTime();
+          });
+        } else if (isDueDateSort) {
+          // For due_date sort: separate Done from non-Done globally
+          const doneTasks = updated.filter(t => t.status === 'done');
+          const nonDoneTasks = updated.filter(t => t.status !== 'done');
+          
+          // Sort Done tasks by completed_at DESC
+          const sortedDoneTasks = [...doneTasks].sort((a, b) => {
+            const aCompleted = a.completedAtRaw ? new Date(a.completedAtRaw).getTime() : 0;
+            const bCompleted = b.completedAtRaw ? new Date(b.completedAtRaw).getTime() : 0;
+            if (aCompleted !== bCompleted) return bCompleted - aCompleted;
+            return new Date(b.createdAtRaw || 0).getTime() - new Date(a.createdAtRaw || 0).getTime();
+          });
+          
+          // Non-Done tasks are already sorted by due_date (from RPC), just maintain order
+          return [...nonDoneTasks, ...sortedDoneTasks];
+        }
+        // For status sort, no re-sorting needed (already sorted by status)
+      }
+      
+      return updated;
+    });
     if (selectedTask && selectedTask.id === taskId) {
       setSelectedTask(prev => prev ? { ...prev, ...updates } : null);
     }
-  }, [selectedTask]);
+  }, [selectedTask, sortValue]);
 
   const handleTaskDeleted = useCallback(async (taskId: string) => {
     const deletedIndex = tasks.findIndex(t => t.id === taskId);

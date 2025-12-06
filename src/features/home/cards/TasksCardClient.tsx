@@ -24,6 +24,7 @@ import type { Comment } from "@/features/connections/server";
 import { dispatchTaskDueDateChanged, dispatchTaskStatusChanged, dispatchTaskDeleted } from "./stats/TasksDueCard";
 import { dispatchTaskAssignedChanged, dispatchTaskAssignedDeleted } from "./stats/TasksAssignedCard";
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client';
+import { formatRequestDate } from '@/features/connections/formatters';
 
 interface TasksCardClientProps extends StatsCardProps {
   tasks: Task[];
@@ -38,6 +39,7 @@ interface TasksCardClientProps extends StatsCardProps {
   }>;
   initialComments?: Record<string, Comment[]>;
 }
+
 
 export default function TasksCardClient({
   tasks,
@@ -112,6 +114,115 @@ export default function TasksCardClient({
       ...initialComments
     }));
   }, [initialComments]);
+
+  // Listen for task creation events (e.g., from RequestsCard converting a request to task)
+  useEffect(() => {
+    const handleTaskCreated = async (event: CustomEvent) => {
+      const { taskId, connectionId: eventConnectionId, title, description, status, project, assignee, dueDateRaw, clientVisible, client: eventClient, agency: eventAgency } = event.detail;
+      
+      // Create optimistic task entry immediately
+      const isoNow = new Date().toISOString();
+      const displayDate = formatRequestDate(isoNow) || isoNow;
+
+      // Find assignee member if available
+      const assigneeMember = assignee?.id
+        ? agencyMembers.find((member) => member.id === assignee.id)
+        : undefined;
+
+      // Create optimistic task with client/agency info from event
+      const optimisticTask: Task = {
+        id: taskId,
+        connectionId: eventConnectionId,
+        title,
+        description: description || '',
+        status: status || 'to_do',
+        project: project ?? null,
+        submittedBy: {
+          id: context.user.id,
+          name: `${context.user.firstName} ${context.user.lastName}`.trim() || 'You',
+          email: context.user.email,
+          avatarUrl: context.user.avatarUrl,
+          jobTitle: context.user.jobTitle,
+          orgId: context.organization.id,
+          orgName: context.organization.name,
+          orgLogo: context.organization.logo,
+        },
+        assignee: assigneeMember
+          ? {
+              id: assigneeMember.id,
+              name: `${assigneeMember.firstName} ${assigneeMember.lastName}`.trim() || assigneeMember.email,
+              email: assigneeMember.email,
+              avatarUrl: assigneeMember.avatarUrl,
+            }
+          : null,
+        client: eventClient || {
+          id: '',
+          name: 'Loading...',
+        },
+        agency: eventAgency,
+        createdAt: displayDate,
+        dueDate: dueDateRaw ? formatRequestDate(dueDateRaw) : null,
+        dueDateRaw: dueDateRaw ?? null,
+        createdByUserId: context.user.id,
+        createdByOrgId: context.organization.id,
+        createdByOrgType: context.variant === 'agency' ? 'agency' : 'client',
+        clientVisible: clientVisible ?? false,
+        clientVisibilityLocked: false, // Will be corrected by server fetch
+      };
+
+      // Optimistically add to the list
+      setLocalTasks(prev => {
+        const filtered = prev.filter((item) => item.id !== taskId);
+        const next = [optimisticTask, ...filtered];
+        const displayed = next.slice(0, 4);
+        
+        // If we had 4 displayed and now have 5+, push the 5th to prefetched
+        if (next.length > 4) {
+          setPrefetchedTask(next[4]);
+        }
+        
+        return displayed;
+      });
+
+      // Fetch the actual task from server to replace optimistic entry
+      try {
+        const [fetched, comments] = await Promise.all([
+          fetchTaskByIdGlobal(taskId, context),
+          fetchCommentsForTaskGlobal(taskId),
+        ]);
+        
+        if (fetched) {
+          // Update comments
+          setCommentsByTask(prev => ({
+            ...prev,
+            [taskId]: comments
+          }));
+
+          // Replace optimistic entry with server data
+          setLocalTasks(prev => {
+            const filtered = prev.filter((item) => item.id !== taskId);
+            const next = [fetched, ...filtered];
+            const displayed = next.slice(0, 4);
+            
+            // If we had 4 displayed and now have 5+, push the 5th to prefetched
+            if (next.length > 4) {
+              setPrefetchedTask(next[4]);
+            }
+            
+            return displayed;
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching task after creation:', error);
+        // Keep optimistic entry if fetch fails
+      }
+    };
+
+    window.addEventListener('taskCreated', handleTaskCreated as unknown as EventListener);
+    return () => {
+      window.removeEventListener('taskCreated', handleTaskCreated as unknown as EventListener);
+    };
+  }, [context, agencyMembers]);
 
   const handleRowClick = useCallback(async (taskId: string) => {
     // Try to get task from local state first

@@ -140,20 +140,24 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
     // Close modal immediately
     onClose()
     
-    // Notify parent for optimistic update
-    onTaskDeleted?.(taskData.taskId)
-    
-    // Actually delete the task from the database
-    try {
-      await deleteTask(taskData.taskId)
-      toast.success('Task deleted')
-      // Real-time subscription will handle UI updates
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Error deleting task:', error)
+    // If parent provides onTaskDeleted handler, let it handle the delete and toast
+    // Otherwise, handle delete here (for standalone usage)
+    if (onTaskDeleted) {
+      // Notify parent for optimistic update and server delete
+      onTaskDeleted(taskData.taskId)
+    } else {
+      // Actually delete the task from the database (standalone usage)
+      try {
+        await deleteTask(taskData.taskId)
+        toast.success('Task deleted')
+        // Real-time subscription will handle UI updates
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error deleting task:', error)
+        }
+        toast.error('Failed to delete task')
+        // Note: Optimistic update already happened, but real-time will reconcile
       }
-      toast.error('Failed to delete task')
-      // Note: Optimistic update already happened, but real-time will reconcile
     }
   }
 

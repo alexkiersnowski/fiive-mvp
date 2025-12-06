@@ -337,99 +337,267 @@ export const getTasksSnapshot = cache(async (
     console.error('Error fetching tasks count:', countError);
   }
 
-  // Build the tasks query with joins for fetching data
-  let tasksQuery = supabase
-    .from('tasks')
-    .select(`
-      id,
-      connection_id,
-      project_id,
-      title,
-      description,
-      status,
-      due_date,
-      assignee_user_id,
-      client_visible,
-      created_by_user_id,
-      created_at,
-      updated_at,
-      completed_at,
-      source_request_id,
-      connections!inner (
-        id,
-        client_id,
-        agency_id
-      )
-    `)
-    .in('connection_id', connectionIds)
-    .is('deleted_at', null);
-
-  if (options.assignedToUserId) {
-    tasksQuery = tasksQuery.eq('assignee_user_id', options.assignedToUserId);
-  } else if (options.assignedToUserIds && options.assignedToUserIds.length > 0) {
-    tasksQuery = tasksQuery.in('assignee_user_id', options.assignedToUserIds);
-  }
-
-  // Apply search filter if search is provided
-  if (search && search.trim().length > 0) {
-    const trimmedQuery = search.trim();
-    const escaped = escapeForILike(trimmedQuery);
-    const matchedStatus = normalizeTaskStatusQuery(trimmedQuery);
-    
-    const orParts: string[] = [];
-    orParts.push(`title.ilike.%${escaped}%`);
-    orParts.push(`description.ilike.%${escaped}%`);
-    
-    if (matchedStatus) {
-      orParts.push(`status.eq.${matchedStatus}`);
-    }
-    
-    // Add profile name matches (DB-level via user IDs) - only search by assignee, not creator
-    if (matchingUserIds.length > 0) {
-      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
-    }
-    
-    if (matchingConnectionIds.length > 0) {
-      orParts.push(`connection_id.in.(${matchingConnectionIds.join(',')})`);
-    }
-
-    if (projectIdsMatchingSearch.length > 0) {
-      const inClause = projectIdsMatchingSearch.map(id => `"${id}"`).join(',')
-      orParts.push(`project_id.in.(${inClause})`)
-    }
-    
-    tasksQuery = tasksQuery.or(orParts.join(','));
-  }
-
-  // Apply sorting at database level
+  // Determine if we're sorting by organization name
   const isClientNameSort = sort === 'client_asc' || sort === 'client_desc';
   const isAgencyNameSort = sort === 'agency_asc' || sort === 'agency_desc';
   const isOrgNameSort = isClientNameSort || isAgencyNameSort;
+  const isDueDateSort = sort === 'due_date';
+  const isStatusSort = sort === 'status';
   const startIndex = cursor ? parseInt(cursor, 10) : 0;
-  
-  switch (sort) {
-    case 'status':
-      tasksQuery = tasksQuery.order('status', { ascending: true }).order('created_at', { ascending: false });
-      break;
-    case 'due_date':
-      tasksQuery = tasksQuery.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false });
-      break;
-    case 'client_asc':
-    case 'client_desc':
-    case 'agency_asc':
-    case 'agency_desc':
-      // Try database-level sorting first - if this doesn't work, we'll sort in memory after fetching
-      tasksQuery = tasksQuery.order('created_at', { ascending: false });
-      break;
-    default:
-      tasksQuery = tasksQuery.order('created_at', { ascending: false });
+
+  // Use RPC functions for all sort types to enable proper DB-level pagination
+  let tasksData: any[] | null = null;
+  let tasksError: any = null;
+  let useRpcSort = false; // Track if we successfully used RPC
+
+  if (isOrgNameSort) {
+    // Use RPC function for org name sorting
+    try {
+      const rpcParams = {
+        p_connection_ids: connectionIds,
+        p_sort_type: sort,
+        p_limit_count: limit,
+        p_offset_count: startIndex,
+        p_search_query: search && search.trim().length > 0 ? search.trim() : null,
+        p_assigned_to_user_id: options.assignedToUserId || null,
+        p_assigned_to_user_ids: options.assignedToUserIds || null
+      };
+      
+      const rpcResult = await supabase.rpc('get_tasks_sorted_by_org_name', rpcParams);
+      const { data: rpcData, error: rpcError } = rpcResult;
+
+      if (rpcError) {
+        // Log error details for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.error('RPC call failed:', {
+            message: rpcError.message,
+            code: rpcError.code,
+            details: rpcError.details,
+            hint: rpcError.hint
+          });
+        }
+        
+        // If function doesn't exist or has issues, fall back to regular query
+        if (!rpcError.message && !rpcError.code) {
+          console.warn('RPC function may not exist. Falling back to regular query (will not sort by org name).');
+          console.warn('Please ensure migration 20251207000002_get_tasks_sorted_by_org_name.sql has been run.');
+        } else {
+          console.error('RPC function error:', rpcError.message || rpcError.code);
+        }
+        tasksData = null; // Force regular query
+      } else {
+        // RPC succeeded - returns JSON array
+        if (rpcData === null || rpcData === undefined) {
+          tasksData = [];
+        } else if (Array.isArray(rpcData)) {
+          tasksData = rpcData;
+        } else if (typeof rpcData === 'string') {
+          tasksData = JSON.parse(rpcData);
+        } else {
+          // Already JSON object
+          tasksData = rpcData;
+        }
+        useRpcSort = true; // Mark that we successfully used RPC
+      }
+    } catch (error) {
+      console.error('Exception calling RPC:', error instanceof Error ? error.message : String(error));
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Exception stack:', error instanceof Error ? error.stack : undefined);
+      }
+      console.warn('Falling back to regular query due to exception.');
+      tasksData = null; // Force regular query
+      useRpcSort = false;
+    }
+  } else if (isDueDateSort) {
+    // Use RPC function for due_date sorting
+    try {
+      const rpcParams = {
+        p_connection_ids: connectionIds,
+        p_limit_count: limit,
+        p_offset_count: startIndex,
+        p_search_query: search && search.trim().length > 0 ? search.trim() : null,
+        p_assigned_to_user_id: options.assignedToUserId || null,
+        p_assigned_to_user_ids: options.assignedToUserIds || null,
+        p_matching_user_ids: matchingUserIds.length > 0 ? matchingUserIds : null,
+        p_matching_connection_ids: matchingConnectionIds.length > 0 ? matchingConnectionIds : null,
+        p_project_ids_matching_search: projectIdsMatchingSearch.length > 0 ? projectIdsMatchingSearch : null
+      };
+      
+      const rpcResult = await supabase.rpc('get_tasks_sorted_by_due_date', rpcParams);
+      const { data: rpcData, error: rpcError } = rpcResult;
+
+      if (rpcError) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('RPC call failed:', {
+            message: rpcError.message,
+            code: rpcError.code,
+            details: rpcError.details,
+            hint: rpcError.hint
+          });
+        }
+        tasksData = null;
+      } else {
+        if (rpcData === null || rpcData === undefined) {
+          tasksData = [];
+        } else if (Array.isArray(rpcData)) {
+          tasksData = rpcData;
+        } else if (typeof rpcData === 'string') {
+          tasksData = JSON.parse(rpcData);
+        } else {
+          tasksData = rpcData;
+        }
+        useRpcSort = true;
+      }
+    } catch (error) {
+      console.error('Exception calling RPC:', error instanceof Error ? error.message : String(error));
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Exception stack:', error instanceof Error ? error.stack : undefined);
+      }
+      tasksData = null;
+      useRpcSort = false;
+    }
+  } else if (isStatusSort) {
+    // Use RPC function for status sorting
+    try {
+      const rpcParams = {
+        p_connection_ids: connectionIds,
+        p_limit_count: limit,
+        p_offset_count: startIndex,
+        p_search_query: search && search.trim().length > 0 ? search.trim() : null,
+        p_assigned_to_user_id: options.assignedToUserId || null,
+        p_assigned_to_user_ids: options.assignedToUserIds || null,
+        p_matching_user_ids: matchingUserIds.length > 0 ? matchingUserIds : null,
+        p_matching_connection_ids: matchingConnectionIds.length > 0 ? matchingConnectionIds : null,
+        p_project_ids_matching_search: projectIdsMatchingSearch.length > 0 ? projectIdsMatchingSearch : null
+      };
+      
+      const rpcResult = await supabase.rpc('get_tasks_sorted_by_status', rpcParams);
+      const { data: rpcData, error: rpcError } = rpcResult;
+
+      if (rpcError) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('RPC call failed:', {
+            message: rpcError.message,
+            code: rpcError.code,
+            details: rpcError.details,
+            hint: rpcError.hint
+          });
+        }
+        tasksData = null;
+      } else {
+        if (rpcData === null || rpcData === undefined) {
+          tasksData = [];
+        } else if (Array.isArray(rpcData)) {
+          tasksData = rpcData;
+        } else if (typeof rpcData === 'string') {
+          tasksData = JSON.parse(rpcData);
+        } else {
+          tasksData = rpcData;
+        }
+        useRpcSort = true;
+      }
+    } catch (error) {
+      console.error('Exception calling RPC:', error instanceof Error ? error.message : String(error));
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Exception stack:', error instanceof Error ? error.stack : undefined);
+      }
+      tasksData = null;
+      useRpcSort = false;
+    }
   }
+  
+  // If RPC failed or we're using a sort that doesn't have an RPC function, use regular query
+  // Note: This fallback should rarely be needed in production
+  if (!useRpcSort || tasksData === null) {
+    // Build the tasks query with joins for fetching data
+    let tasksQuery = supabase
+      .from('tasks')
+      .select(`
+        id,
+        connection_id,
+        project_id,
+        title,
+        description,
+        status,
+        due_date,
+        assignee_user_id,
+        client_visible,
+        created_by_user_id,
+        created_at,
+        updated_at,
+        completed_at,
+        source_request_id,
+        connections!inner (
+          id,
+          client_id,
+          agency_id
+        )
+      `)
+      .in('connection_id', connectionIds)
+      .is('deleted_at', null);
 
-  // Don't paginate at DB level - we need all tasks to separate Done from non-Done
-  // We'll paginate after sorting in memory
+    if (options.assignedToUserId) {
+      tasksQuery = tasksQuery.eq('assignee_user_id', options.assignedToUserId);
+    } else if (options.assignedToUserIds && options.assignedToUserIds.length > 0) {
+      tasksQuery = tasksQuery.in('assignee_user_id', options.assignedToUserIds);
+    }
 
-  // Execute query
-  const { data: tasksData, error: tasksError } = await tasksQuery;
+    // Apply search filter if search is provided
+    if (search && search.trim().length > 0) {
+      const trimmedQuery = search.trim();
+      const escaped = escapeForILike(trimmedQuery);
+      const matchedStatus = normalizeTaskStatusQuery(trimmedQuery);
+      const searchLower = trimmedQuery.toLowerCase();
+      
+      const orParts: string[] = [];
+      orParts.push(`title.ilike.%${escaped}%`);
+      orParts.push(`description.ilike.%${escaped}%`);
+      
+      if (matchedStatus) {
+        orParts.push(`status.eq.${matchedStatus}`);
+      }
+      
+      if (matchingUserIds.length > 0) {
+        orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
+        orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
+      }
+
+      // Add client/agency organization name matches (DB-level via connection IDs)
+      if (matchingConnectionIds.length > 0) {
+        orParts.push(`connection_id.in.(${matchingConnectionIds.join(',')})`);
+      }
+
+      // Add project name matches (DB-level via project IDs)
+      if (projectIdsMatchingSearch.length > 0) {
+        const inClause = projectIdsMatchingSearch.map(id => `"${id}"`).join(',')
+        orParts.push(`project_id.in.(${inClause})`)
+      }
+      
+      tasksQuery = tasksQuery.or(orParts.join(','));
+    }
+
+    // Apply sorting at database level
+    const effectiveSort = (isOrgNameSort && !useRpcSort) ? 'due_date' : sort;
+    
+    switch (effectiveSort) {
+      case 'status':
+        tasksQuery = tasksQuery.order('status', { ascending: true }).order('created_at', { ascending: false });
+        break;
+      case 'due_date':
+        tasksQuery = tasksQuery.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false });
+        break;
+      default:
+        tasksQuery = tasksQuery.order('created_at', { ascending: false });
+    }
+
+    // Apply pagination at database level
+    tasksQuery = tasksQuery.range(startIndex, startIndex + limit - 1);
+
+    // Execute query
+    const queryResult = await tasksQuery;
+    tasksData = queryResult.data;
+    tasksError = queryResult.error;
+  }
 
   if (tasksError) {
     console.error('Error fetching tasks:', tasksError);
@@ -452,6 +620,13 @@ export const getTasksSnapshot = cache(async (
       hasNextPage: false,
     };
   }
+
+  // Check if data comes from RPC function
+  // All RPC functions return client_org_name/agency_org_name, or have client_id/agency_id without nested connections
+  const isRpcData = tasksData.length > 0 && tasksData[0] && (
+    'client_org_name' in tasksData[0] || 
+    ('client_id' in tasksData[0] && 'agency_id' in tasksData[0] && !('connections' in tasksData[0]))
+  );
 
   // Extract unique connection IDs and user IDs for parallel lookups
   const uniqueConnectionIds = [...new Set(tasksData.map(t => t.connection_id))];
@@ -565,18 +740,64 @@ export const getTasksSnapshot = cache(async (
     console.error('Error fetching organizations:', orgsError);
   }
 
-  // Build org maps
+  // Build org maps - use RPC data if available, otherwise use fetched data
   const orgMap: Record<string, { name: string; logoUrl?: string }> = {};
   const orgTypeMap: Record<string, 'agency' | 'client'> = {};
-  (orgsData || []).forEach(org => {
-    orgMap[org.id] = {
-      name: org.name || 'Unknown',
-      logoUrl: org.logo_url || undefined
-    };
-    if (org.type === 'agency' || org.type === 'client') {
-      orgTypeMap[org.id] = org.type as 'agency' | 'client';
+  
+  if (isRpcData) {
+    // Build org map from RPC response data
+    tasksData.forEach((task: any) => {
+      if (task.client_id && task.client_org_name) {
+        orgMap[task.client_id] = {
+          name: task.client_org_name || 'Unknown',
+          logoUrl: task.client_org_logo || undefined
+        };
+      }
+      if (task.agency_id && task.agency_org_name) {
+        orgMap[task.agency_id] = {
+          name: task.agency_org_name || 'Unknown',
+          logoUrl: task.agency_org_logo || undefined
+        };
+      }
+    });
+    
+    // Fetch org types separately (not included in RPC response)
+    const uniqueOrgIds = new Set<string>();
+    Object.values(connectionsMap).forEach(conn => {
+      uniqueOrgIds.add(conn.clientId);
+      uniqueOrgIds.add(conn.agencyId);
+    });
+    const orgIdsArray = Array.from(uniqueOrgIds);
+    if (orgIdsArray.length > 0) {
+      const { data: orgTypesData } = await supabase
+        .from('organizations')
+        .select('id, type')
+        .in('id', orgIdsArray);
+      
+      if (orgTypesData) {
+        orgTypesData.forEach(org => {
+          if (org.type === 'agency' || org.type === 'client') {
+            orgTypeMap[org.id] = org.type as 'agency' | 'client';
+          }
+        });
+      }
     }
-  });
+  } else {
+    // Build org map from fetched data
+    if (orgsError) {
+      console.error('Error fetching organizations:', orgsError);
+    }
+    
+    (orgsData || []).forEach(org => {
+      orgMap[org.id] = {
+        name: org.name || 'Unknown',
+        logoUrl: org.logo_url || undefined
+      };
+      if (org.type === 'agency' || org.type === 'client') {
+        orgTypeMap[org.id] = org.type as 'agency' | 'client';
+      }
+    });
+  }
 
   // Build user org map (for submittedBy org info)
   const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
@@ -641,22 +862,39 @@ export const getTasksSnapshot = cache(async (
   const tasksWithTimestamps: Array<{ task: Task; originalCreatedAt: number; originalDueDate: number | null; originalCompletedAt: number | null }> = tasksData
     .filter(taskRow => {
       // Filter out tasks with invalid connections
-      const connection = Array.isArray(taskRow.connections) ? taskRow.connections[0] : taskRow.connections;
-      return connection !== null && connection !== undefined && connectionsMap[taskRow.connection_id] !== undefined;
+      if (isRpcData) {
+        // RPC data has client_id and agency_id directly
+        return taskRow.connection_id && connectionsMap[taskRow.connection_id] !== undefined;
+      } else {
+        // Regular query data has nested connections
+        const connection = Array.isArray(taskRow.connections) ? taskRow.connections[0] : taskRow.connections;
+        return connection !== null && connection !== undefined && connectionsMap[taskRow.connection_id] !== undefined;
+      }
     })
     .map(taskRow => {
-      // Extract joined connection data
-      const connection = Array.isArray(taskRow.connections) ? taskRow.connections[0] : taskRow.connections;
-      if (!connection) {
-        throw new Error('Invalid connection');
+      // Extract connection info
+      let connectionInfo: { clientId: string; agencyId: string };
+      
+      if (isRpcData) {
+        // RPC data has client_id and agency_id directly
+        const rpcTask = taskRow as any;
+        connectionInfo = {
+          clientId: rpcTask.client_id,
+          agencyId: rpcTask.agency_id
+        };
+      } else {
+        // Regular query data has nested connections
+        const connection = Array.isArray(taskRow.connections) ? taskRow.connections[0] : taskRow.connections;
+        if (!connection) {
+          throw new Error('Invalid connection');
+        }
+        connectionInfo = connectionsMap[taskRow.connection_id];
+        if (!connectionInfo) {
+          throw new Error('Connection not found in map');
+        }
       }
 
-      const connectionInfo = connectionsMap[taskRow.connection_id];
-      if (!connectionInfo) {
-        throw new Error('Connection not found in map');
-      }
-
-      // Get organization data from fetched maps
+      // Get organization data from maps (or RPC data)
       const clientOrg = orgMap[connectionInfo.clientId];
       const agencyOrg = orgMap[connectionInfo.agencyId];
       
@@ -738,121 +976,18 @@ export const getTasksSnapshot = cache(async (
       };
     });
 
-  // Sort tasks according to chosen sort
-  let sortedTasksWithTimestamps = tasksWithTimestamps;
-  
-  if (isOrgNameSort) {
-    // For client/agency name sorts: group by client, then sort within each group
-    // Done tasks stay within their client groups, always at bottom of each group
-    sortedTasksWithTimestamps = [...tasksWithTimestamps].sort((a, b) => {
-      // Determine which organization name to use for sorting
-      const aName = isClientNameSort 
-        ? a.task.client.name.toLowerCase()
-        : (a.task.agency?.name || '').toLowerCase();
-      const bName = isClientNameSort
-        ? b.task.client.name.toLowerCase()
-        : (b.task.agency?.name || '').toLowerCase();
-      
-      // Primary sort: by org name (A-Z or Z-A)
-      let nameComparison = 0;
-      if (sort === 'client_asc' || sort === 'agency_asc') {
-        if (aName < bName) nameComparison = -1;
-        else if (aName > bName) nameComparison = 1;
-      } else { // client_desc or agency_desc
-        if (aName > bName) nameComparison = -1;
-        else if (aName < bName) nameComparison = 1;
-      }
-      
-      // If org names are different, return the name comparison
-      if (nameComparison !== 0) {
-        return nameComparison;
-      }
-      
-      // Same client group: sort within the group
-      const aIsDone = a.task.status === 'done';
-      const bIsDone = b.task.status === 'done';
-      
-      // If one is Done and one isn't, Done always goes last within the client group
-      if (aIsDone && !bIsDone) {
-        return 1; // a (Done) goes after b (active)
-      }
-      if (!aIsDone && bIsDone) {
-        return -1; // a (active) goes before b (Done)
-      }
-      
-      // Both are Done: sort by completed_at (newest → oldest)
-      if (aIsDone && bIsDone) {
-        if (a.originalCompletedAt !== null && b.originalCompletedAt !== null) {
-          return b.originalCompletedAt - a.originalCompletedAt; // newest first
-        }
-        if (a.originalCompletedAt !== null && b.originalCompletedAt === null) return -1;
-        if (a.originalCompletedAt === null && b.originalCompletedAt !== null) return 1;
-        // Both null - fallback to created_at (newest → oldest)
-        return b.originalCreatedAt - a.originalCreatedAt;
-      }
-      
-      // Both are active: sort by due date within the client group
-      // Tasks with due dates: sort by due_date (soonest first)
-      // Tasks without due dates: sort by created_at (newest → oldest)
-      // Tasks without due dates always at bottom of active tasks for that client
-      const aHasDueDate = a.originalDueDate !== null;
-      const bHasDueDate = b.originalDueDate !== null;
-      
-      // If one has due date and one doesn't, the one without goes to bottom (of active tasks)
-      if (aHasDueDate && !bHasDueDate) {
-        return -1; // a comes before b (a has due date, b doesn't)
-      }
-      if (!aHasDueDate && bHasDueDate) {
-        return 1; // b comes before a (b has due date, a doesn't)
-      }
-      
-      // Both have due dates or both don't have due dates
-      if (aHasDueDate && bHasDueDate) {
-        // Both have due dates: sort by due_date (soonest first)
-        const dueDateComparison = a.originalDueDate! - b.originalDueDate!;
-        if (dueDateComparison !== 0) {
-          return dueDateComparison;
-        }
-        // If due dates are equal, sort by created_at (newest → oldest)
-        return b.originalCreatedAt - a.originalCreatedAt;
-      } else {
-        // Both don't have due dates: sort by created_at (newest → oldest)
-        return b.originalCreatedAt - a.originalCreatedAt;
-      }
-    });
-  } else if (sort === 'due_date') {
-    // For due_date sort: separate Done from non-Done globally
-    const doneTasks = tasksWithTimestamps.filter(item => item.task.status === 'done');
-    const nonDoneTasks = tasksWithTimestamps.filter(item => item.task.status !== 'done');
-
-    // Sort Done tasks by completed_at (newest → oldest)
-    const sortedDoneTasks = [...doneTasks].sort((a, b) => {
-      if (a.originalCompletedAt !== null && b.originalCompletedAt !== null) {
-        return b.originalCompletedAt - a.originalCompletedAt; // newest first
-      }
-      if (a.originalCompletedAt !== null && b.originalCompletedAt === null) return -1;
-      if (a.originalCompletedAt === null && b.originalCompletedAt !== null) return 1;
-      // Both null - fallback to created_at (newest → oldest)
-      return b.originalCreatedAt - a.originalCreatedAt;
-    });
-
-    // Non-Done tasks are already sorted by DB (due_date ascending, nulls last, then created_at descending)
-    sortedTasksWithTimestamps = [...nonDoneTasks, ...sortedDoneTasks];
-  }
-  
-  // Extract tasks
-  const allSortedTasks = sortedTasksWithTimestamps.map(item => item.task);
-  
-  // Apply pagination
-  const sortedTasks = allSortedTasks.slice(startIndex, startIndex + limit);
+  // Tasks are already sorted and paginated by RPC functions or fallback query
+  // Extract tasks (no need for in-memory sorting/pagination)
+  const sortedTasks = tasksWithTimestamps.map(item => item.task);
 
   // Calculate pagination info
-  const hasNextPage = sortedTasksWithTimestamps.length > startIndex + limit;
+  // Use total count from filtered query to determine if there are more pages
+  const hasNextPage = (total || 0) > startIndex + sortedTasks.length;
   const nextCursor = hasNextPage ? String(startIndex + limit) : null;
 
   return {
     tasks: sortedTasks,
-    total: sortedTasksWithTimestamps.length,
+    total: total || 0, // Use count from filtered query, not length of returned tasks
     unfilteredTotalCount: unfilteredTotalCount || 0,
     cursor: nextCursor,
     hasNextPage,
