@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useConnection } from "../ConnectionContext";
 import { TaskDetailModal } from "../tasks/TaskDetailModal";
 import { NewTaskModal } from "../tasks/NewTaskModal";
-import { fetchTaskById, deleteTask } from "../tasks/actions";
+import { deleteTask } from "../tasks/actions";
 import type { Task } from "../server";
 import { sortMembersWithActiveFirst, type MemberSummary } from "../utils/memberSorting";
 

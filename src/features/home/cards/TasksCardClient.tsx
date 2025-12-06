@@ -145,7 +145,7 @@ export default function TasksCardClient({
           jobTitle: context.user.jobTitle,
           orgId: context.organization.id,
           orgName: context.organization.name,
-          orgLogo: context.organization.logo,
+          orgLogo: context.organization.logoUrl,
         },
         assignee: assigneeMember
           ? {

@@ -10,7 +10,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
 import { TaskStatusButton } from '@/components/ui/task-status-button'
 import { TaskBadge } from '@/components/ui/task-badge'
-import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Eye, EyeSlash, Check, CaretDown, User, X } from '@phosphor-icons/react'
 import { parse, format } from 'date-fns'

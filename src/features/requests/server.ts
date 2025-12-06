@@ -310,8 +310,57 @@ export const getRequestsSnapshot = cache(async (
 
   // For org name sorting, use RPC function (bypasses PostgREST's two-level join limitation)
   // For other sorts, use regular Supabase query
-  let requestsData: any[] | null = null;
-  let requestsError: any = null;
+  type RpcRequestRow = {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+    project_id: string | null;
+    project_name_cached: string | null;
+    connection_id: string;
+    created_by_user_id: string;
+    assignee_user_id: string | null;
+    created_at: string;
+    created_by_org_id: string;
+    client_id: string;
+    agency_id: string;
+    client_org_name: string | null;
+    agency_org_name: string | null;
+    client_org_logo: string | null;
+    agency_org_logo: string | null;
+  };
+  type RegularRequestRow = {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+    project_id: string | null;
+    project_name_cached: string | null;
+    connection_id: string;
+    created_by_user_id: string;
+    assignee_user_id: string | null;
+    created_at: string;
+    created_by_org_id: string;
+    connections: {
+      id: string;
+      client_id: string;
+      agency_id: string;
+    } | Array<{
+      id: string;
+      client_id: string;
+      agency_id: string;
+    }>;
+    projects?: {
+      id: string;
+      name: string;
+    } | Array<{
+      id: string;
+      name: string;
+    }> | null;
+  };
+  type RequestRow = RpcRequestRow | RegularRequestRow;
+  let requestsData: RequestRow[] | null = null;
+  let requestsError: { message?: string; code?: string } | null = null;
   let useRpcSort = false; // Track if we successfully used RPC
 
   if (isOrgNameSort) {
@@ -597,17 +646,18 @@ export const getRequestsSnapshot = cache(async (
   
   if (isRpcData) {
     // Build org map from RPC response data
-    requestsData.forEach((request: any) => {
-      if (request.client_id && request.client_org_name) {
-        orgMap[request.client_id] = {
-          name: request.client_org_name || 'Unknown',
-          logoUrl: request.client_org_logo || undefined
+    requestsData.forEach((request) => {
+      const rpcRequest = request as RpcRequestRow;
+      if (rpcRequest.client_id && rpcRequest.client_org_name) {
+        orgMap[rpcRequest.client_id] = {
+          name: rpcRequest.client_org_name || 'Unknown',
+          logoUrl: rpcRequest.client_org_logo || undefined
         };
       }
-      if (request.agency_id && request.agency_org_name) {
-        orgMap[request.agency_id] = {
-          name: request.agency_org_name || 'Unknown',
-          logoUrl: request.agency_org_logo || undefined
+      if (rpcRequest.agency_id && rpcRequest.agency_org_name) {
+        orgMap[rpcRequest.agency_id] = {
+          name: rpcRequest.agency_org_name || 'Unknown',
+          logoUrl: rpcRequest.agency_org_logo || undefined
         };
       }
     });
@@ -665,6 +715,11 @@ export const getRequestsSnapshot = cache(async (
     });
   }
 
+  // Type guard to check if request is RegularRequestRow
+  const isRegularRequestRow = (request: RequestRow): request is RegularRequestRow => {
+    return 'connections' in request;
+  };
+
   // Transform requests to Request[] format using joined data and fetched maps
   const requestsWithTimestamps: Array<{ request: Request; originalCreatedAt: number }> = requestsData
     .filter(request => {
@@ -674,6 +729,7 @@ export const getRequestsSnapshot = cache(async (
         return request.connection_id && connectionsMap[request.connection_id] !== undefined;
       } else {
         // Regular query data has nested connections
+        if (!isRegularRequestRow(request)) return false;
         const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
         return connection !== null && connection !== undefined && connectionsMap[request.connection_id] !== undefined;
       }
@@ -684,13 +740,16 @@ export const getRequestsSnapshot = cache(async (
       
       if (isRpcData) {
         // RPC data has client_id and agency_id directly
-        const rpcRequest = request as any;
+        const rpcRequest = request as RpcRequestRow;
         connectionInfo = {
           clientId: rpcRequest.client_id,
           agencyId: rpcRequest.agency_id
         };
       } else {
         // Regular query data has nested connections
+        if (!isRegularRequestRow(request)) {
+          throw new Error('Expected RegularRequestRow but got RpcRequestRow');
+        }
         const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
         if (!connection) {
           throw new Error('Invalid connection');

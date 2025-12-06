@@ -346,8 +346,56 @@ export const getTasksSnapshot = cache(async (
   const startIndex = cursor ? parseInt(cursor, 10) : 0;
 
   // Use RPC functions for all sort types to enable proper DB-level pagination
-  let tasksData: any[] | null = null;
-  let tasksError: any = null;
+  type RpcTaskRow = {
+    id: string;
+    connection_id: string;
+    project_id: string | null;
+    title: string;
+    description: string | null;
+    status: string;
+    due_date: string | null;
+    assignee_user_id: string | null;
+    client_visible: boolean | null;
+    created_by_user_id: string;
+    created_at: string;
+    updated_at: string | null;
+    completed_at: string | null;
+    source_request_id: string | null;
+    client_id: string;
+    agency_id: string;
+    client_org_name: string | null;
+    agency_org_name: string | null;
+    client_org_logo: string | null;
+    agency_org_logo: string | null;
+  };
+  type RegularTaskRow = {
+    id: string;
+    connection_id: string;
+    project_id: string | null;
+    title: string;
+    description: string | null;
+    status: string;
+    due_date: string | null;
+    assignee_user_id: string | null;
+    client_visible: boolean | null;
+    created_by_user_id: string;
+    created_at: string;
+    updated_at: string | null;
+    completed_at: string | null;
+    source_request_id: string | null;
+    connections: {
+      id: string;
+      client_id: string;
+      agency_id: string;
+    } | Array<{
+      id: string;
+      client_id: string;
+      agency_id: string;
+    }>;
+  };
+  type TaskRow = RpcTaskRow | RegularTaskRow;
+  let tasksData: TaskRow[] | null = null;
+  let tasksError: { message?: string; code?: string } | null = null;
   let useRpcSort = false; // Track if we successfully used RPC
 
   if (isOrgNameSort) {
@@ -547,7 +595,6 @@ export const getTasksSnapshot = cache(async (
       const trimmedQuery = search.trim();
       const escaped = escapeForILike(trimmedQuery);
       const matchedStatus = normalizeTaskStatusQuery(trimmedQuery);
-      const searchLower = trimmedQuery.toLowerCase();
       
       const orParts: string[] = [];
       orParts.push(`title.ilike.%${escaped}%`);
@@ -746,17 +793,18 @@ export const getTasksSnapshot = cache(async (
   
   if (isRpcData) {
     // Build org map from RPC response data
-    tasksData.forEach((task: any) => {
-      if (task.client_id && task.client_org_name) {
-        orgMap[task.client_id] = {
-          name: task.client_org_name || 'Unknown',
-          logoUrl: task.client_org_logo || undefined
+    tasksData.forEach((task) => {
+      const rpcTask = task as RpcTaskRow;
+      if (rpcTask.client_id && rpcTask.client_org_name) {
+        orgMap[rpcTask.client_id] = {
+          name: rpcTask.client_org_name || 'Unknown',
+          logoUrl: rpcTask.client_org_logo || undefined
         };
       }
-      if (task.agency_id && task.agency_org_name) {
-        orgMap[task.agency_id] = {
-          name: task.agency_org_name || 'Unknown',
-          logoUrl: task.agency_org_logo || undefined
+      if (rpcTask.agency_id && rpcTask.agency_org_name) {
+        orgMap[rpcTask.agency_id] = {
+          name: rpcTask.agency_org_name || 'Unknown',
+          logoUrl: rpcTask.agency_org_logo || undefined
         };
       }
     });
@@ -857,6 +905,11 @@ export const getTasksSnapshot = cache(async (
     }
   }
 
+  // Type guard to check if task is RegularTaskRow
+  const isRegularTaskRow = (task: TaskRow): task is RegularTaskRow => {
+    return 'connections' in task;
+  };
+
   // Transform tasks to Task[] format using joined data and fetched maps
   // Preserve original created_at, due_date, and completed_at for sorting
   const tasksWithTimestamps: Array<{ task: Task; originalCreatedAt: number; originalDueDate: number | null; originalCompletedAt: number | null }> = tasksData
@@ -867,6 +920,7 @@ export const getTasksSnapshot = cache(async (
         return taskRow.connection_id && connectionsMap[taskRow.connection_id] !== undefined;
       } else {
         // Regular query data has nested connections
+        if (!isRegularTaskRow(taskRow)) return false;
         const connection = Array.isArray(taskRow.connections) ? taskRow.connections[0] : taskRow.connections;
         return connection !== null && connection !== undefined && connectionsMap[taskRow.connection_id] !== undefined;
       }
@@ -877,13 +931,16 @@ export const getTasksSnapshot = cache(async (
       
       if (isRpcData) {
         // RPC data has client_id and agency_id directly
-        const rpcTask = taskRow as any;
+        const rpcTask = taskRow as RpcTaskRow;
         connectionInfo = {
           clientId: rpcTask.client_id,
           agencyId: rpcTask.agency_id
         };
       } else {
         // Regular query data has nested connections
+        if (!isRegularTaskRow(taskRow)) {
+          throw new Error('Expected RegularTaskRow but got RpcTaskRow');
+        }
         const connection = Array.isArray(taskRow.connections) ? taskRow.connections[0] : taskRow.connections;
         if (!connection) {
           throw new Error('Invalid connection');

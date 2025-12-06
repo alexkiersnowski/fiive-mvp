@@ -15,7 +15,7 @@ import { RequestDetailModal } from '../requests/RequestDetailModal';
 import { NewRequestModal } from '../requests/NewRequestModal';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal';
 import { convertRequestToTask } from '../tasks/actions';
-import { fetchRequestById, deleteRequest } from '../requests/actions';
+import { deleteRequest } from '../requests/actions';
 import type { Request } from '../server';
 
 type PrefetchedComment = {
