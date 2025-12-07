@@ -2,6 +2,7 @@
 
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
 import type { TaskSortMode } from './taskSort'
 
 const isDev = () => process.env.NODE_ENV !== 'production';
@@ -81,6 +82,12 @@ export async function createTask(
     throw new Error('Failed to create task');
   }
 
+  // Revalidate affected pages
+  revalidatePath('/home')
+  revalidatePath('/tasks')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+
   return data;
 }
 
@@ -135,6 +142,13 @@ export async function convertRequestToTask(
     }
     throw new Error('Failed to convert request to task')
   }
+
+  // Revalidate affected pages
+  revalidatePath('/home')
+  revalidatePath('/requests')
+  revalidatePath('/tasks')
+  revalidatePath(`/clients/${payload.connectionId}/overview`)
+  revalidatePath(`/agencies/${payload.connectionId}/overview`)
 
   return {
     taskId: data.id,
@@ -245,6 +259,14 @@ export async function updateTaskAssignee(taskId: string, assigneeUserId: string 
     throw new Error('Failed to update task assignee');
   }
 
+  // Revalidate affected pages
+  if (connectionId) {
+    revalidatePath('/home')
+    revalidatePath('/tasks')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
+  }
+
   return data;
 }
 
@@ -319,6 +341,15 @@ export async function updateTaskStatus(
     throw new Error('Failed to update task status');
   }
 
+  // Revalidate affected pages
+  if (currentTask?.connection_id) {
+    const connectionId = currentTask.connection_id
+    revalidatePath('/home')
+    revalidatePath('/tasks')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
+  }
+
   return data;
 }
 
@@ -376,6 +407,15 @@ export async function updateTaskTitle(taskId: string, title: string) {
       console.error('Failed to update task title:', error);
     }
     throw new Error('Failed to update task title');
+  }
+
+  // Revalidate affected pages
+  if (taskInfo?.connection_id) {
+    const connectionId = taskInfo.connection_id
+    revalidatePath('/home')
+    revalidatePath('/tasks')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
   }
 
   return data;
@@ -437,6 +477,15 @@ export async function updateTaskDescription(taskId: string, description: string)
     throw new Error('Failed to update task description');
   }
 
+  // Revalidate affected pages
+  if (taskInfo?.connection_id) {
+    const connectionId = taskInfo.connection_id
+    revalidatePath('/home')
+    revalidatePath('/tasks')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
+  }
+
   return data;
 }
 
@@ -494,6 +543,15 @@ export async function updateTaskProject(taskId: string, projectId: string | null
       console.error('Failed to update task project:', error);
     }
     throw new Error('Failed to update task project');
+  }
+
+  // Revalidate affected pages
+  if (taskInfo?.connection_id) {
+    const connectionId = taskInfo.connection_id
+    revalidatePath('/home')
+    revalidatePath('/tasks')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
   }
 
   return data;
@@ -555,6 +613,15 @@ export async function updateTaskDueDate(taskId: string, dueDate: string | null) 
     throw new Error('Failed to update task due date');
   }
 
+  // Revalidate affected pages
+  if (taskInfo?.connection_id) {
+    const connectionId = taskInfo.connection_id
+    revalidatePath('/home')
+    revalidatePath('/tasks')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
+  }
+
   return data;
 }
 
@@ -612,6 +679,13 @@ export async function updateTaskClientVisible(taskId: string, clientVisible: boo
       console.error('Failed to update client visibility:', error);
     }
     throw new Error('Failed to update client visibility');
+  }
+
+  // Revalidate affected pages (visibility doesn't affect lists, only connection pages)
+  if (taskInfo?.connection_id) {
+    const connectionId = taskInfo.connection_id
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
   }
 
   return data;
@@ -716,6 +790,19 @@ export async function createComment(
     throw new Error('Failed to create task comment');
   }
 
+  // Fetch connection_id for revalidation
+  const { data: taskData } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .single()
+  
+  if (taskData?.connection_id) {
+    const connectionId = taskData.connection_id
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
+  }
+
   return data;
 }
 
@@ -731,6 +818,15 @@ export async function deleteComment(commentId: string) {
   }
 
   const supabase = await createClient();
+  
+  // Fetch task_id before deletion for revalidation
+  const { data: commentData } = await supabase
+    .from('task_comments')
+    .select('task_id')
+    .eq('id', commentId)
+    .eq('created_by_user_id', context.user.id)
+    .single()
+
   const now = new Date().toISOString();
 
   const { error } = await supabase
@@ -747,6 +843,21 @@ export async function deleteComment(commentId: string) {
       console.error('Failed to delete task comment:', error);
     }
     throw new Error('Failed to delete task comment');
+  }
+
+  // Revalidate connection pages if we have the task_id
+  if (commentData?.task_id) {
+    const { data: taskData } = await supabase
+      .from('tasks')
+      .select('connection_id')
+      .eq('id', commentData.task_id)
+      .single()
+    
+    if (taskData?.connection_id) {
+      const connectionId = taskData.connection_id
+      revalidatePath(`/clients/${connectionId}/overview`)
+      revalidatePath(`/agencies/${connectionId}/overview`)
+    }
   }
 
   return { success: true };
@@ -786,6 +897,21 @@ export async function deleteTask(taskId: string) {
       ? `Failed to delete task: ${error.message || JSON.stringify(error)}`
       : 'Failed to delete task';
     throw new Error(errorMessage);
+  }
+
+  // Fetch connection_id for revalidation
+  const { data: taskData } = await supabase
+    .from('tasks')
+    .select('connection_id')
+    .eq('id', taskId)
+    .single()
+  
+  if (taskData?.connection_id) {
+    const connectionId = taskData.connection_id
+    revalidatePath('/home')
+    revalidatePath('/tasks')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
   }
 
   return data;

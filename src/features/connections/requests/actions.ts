@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
+import { revalidatePath } from 'next/cache'
 
 const isDev = () => process.env.NODE_ENV !== 'production';
 
@@ -59,6 +60,13 @@ export async function createRequest(
   if (isDev()) {
     console.log('Request created successfully:', data);
   }
+  
+  // Revalidate affected pages
+  revalidatePath('/home')
+  revalidatePath('/requests')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -123,6 +131,14 @@ export async function updateRequestAssignee(requestId: string, assigneeUserId: s
   if (isDev()) {
     console.log('Request assignee updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = data.connection_id
+  revalidatePath('/home')
+  revalidatePath('/requests')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -190,6 +206,14 @@ export async function updateRequestStatus(
   if (isDev()) {
     console.log('Request status updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = data.connection_id
+  revalidatePath('/home')
+  revalidatePath('/requests')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -254,6 +278,14 @@ export async function updateRequestTitle(requestId: string, title: string) {
   if (isDev()) {
     console.log('Request title updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = data.connection_id
+  revalidatePath('/home')
+  revalidatePath('/requests')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -318,6 +350,14 @@ export async function updateRequestDescription(requestId: string, description: s
   if (isDev()) {
     console.log('Request description updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = data.connection_id
+  revalidatePath('/home')
+  revalidatePath('/requests')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -382,6 +422,14 @@ export async function updateRequestProject(requestId: string, projectId: string 
   if (isDev()) {
     console.log('Request project updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = data.connection_id
+  revalidatePath('/home')
+  revalidatePath('/requests')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -473,6 +521,19 @@ export async function createComment(
     console.log('Comment created successfully:', data);
   }
   
+  // Fetch connection_id for revalidation
+  const { data: requestData } = await supabase
+    .from('requests')
+    .select('connection_id')
+    .eq('id', requestId)
+    .single()
+  
+  if (requestData?.connection_id) {
+    const connectionId = requestData.connection_id
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
+  }
+  
   return {
     id: data.id,
     requestId: data.request_id,
@@ -497,6 +558,14 @@ export async function deleteComment(commentId: string) {
     console.log('deleteComment called with:', { commentId });
   }
   
+  // Fetch request_id before deletion for revalidation
+  const { data: commentData } = await supabase
+    .from('request_comments')
+    .select('request_id')
+    .eq('id', commentId)
+    .eq('created_by_user_id', context.user.id)
+    .single()
+  
   const now = new Date().toISOString();
   
   const { data, error } = await supabase
@@ -519,6 +588,21 @@ export async function deleteComment(commentId: string) {
   
   if (isDev()) {
     console.log('Comment deleted successfully:', data);
+  }
+  
+  // Revalidate connection pages if we have the request_id
+  if (commentData?.request_id) {
+    const { data: requestData } = await supabase
+      .from('requests')
+      .select('connection_id')
+      .eq('id', commentData.request_id)
+      .single()
+    
+    if (requestData?.connection_id) {
+      const connectionId = requestData.connection_id
+      revalidatePath(`/clients/${connectionId}/overview`)
+      revalidatePath(`/agencies/${connectionId}/overview`)
+    }
   }
   
   return { success: true, data };
@@ -582,5 +666,21 @@ export async function deleteRequest(requestId: string) {
   if (isDev()) {
     console.log('Request deleted successfully:', data);
   }
+  
+  // Fetch connection_id for revalidation
+  const { data: requestData } = await supabase
+    .from('requests')
+    .select('connection_id')
+    .eq('id', requestId)
+    .single()
+  
+  if (requestData?.connection_id) {
+    const connectionId = requestData.connection_id
+    revalidatePath('/home')
+    revalidatePath('/requests')
+    revalidatePath(`/clients/${connectionId}/overview`)
+    revalidatePath(`/agencies/${connectionId}/overview`)
+  }
+  
   return data;
 }
