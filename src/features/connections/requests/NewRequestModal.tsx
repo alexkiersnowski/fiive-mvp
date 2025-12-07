@@ -66,6 +66,15 @@ export function NewRequestModal({
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
   
+  // Track mount status to prevent state updates after unmount
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+  
   // Local state for form fields
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -133,7 +142,7 @@ export function NewRequestModal({
   const canCreate = title.trim().length > 0 && (!isGlobal || selectedConnectionId.length > 0)
   
   // Handle create request
-  const handleCreateRequest = useCallback(async () => {
+  const handleCreateRequest = useCallback(() => {
     if (!canCreate) return
     
     // Determine the connection ID to use
@@ -143,41 +152,48 @@ export function NewRequestModal({
     // Close modal immediately for snappy UX
     onClose()
     
-    try {
-      // Look up project name from projects list
-      const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId)
-      const projectName = selectedProject ? selectedProject.name : null
-      
-      // Emit optimistic row with temp id immediately
-      const tempId = `temp-${Date.now()}`
-      onRequestOptimistic?.({
-        tempId,
-        title,
-        description,
-        projectId: projectId === 'general' ? null : projectId,
-        projectName,
-        assigneeUserId
-      })
+    // Look up project name from projects list
+    const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId)
+    const projectName = selectedProject ? selectedProject.name : null
+    
+    // Emit optimistic row with temp id immediately
+    const tempId = `temp-${Date.now()}`
+    onRequestOptimistic?.({
+      tempId,
+      title,
+      description,
+      projectId: projectId === 'general' ? null : projectId,
+      projectName,
+      assigneeUserId
+    })
 
-      // Await the server insert to obtain the new request id
-      const created = await createRequest(
-        targetConnectionId,
-        title,
-        description,
-        projectId === 'general' ? null : projectId,
-        assigneeUserId
-      )
-      
-      // Only show success toast after server confirms
-      if (created?.id) {
-        toast.success('Request created successfully')
-        // Notify parent with the created id so it can fetch and prepend the row
-        onRequestCreated?.({ requestId: created.id, tempId })
-      }
-    } catch (error) {
-      console.error('Error creating request:', error)
-      toast.error('Failed to create request')
-    }
+    // Fire server action concurrently (void prevents promise leak warnings)
+    void createRequest(
+      targetConnectionId,
+      title,
+      description,
+      projectId === 'general' ? null : projectId,
+      assigneeUserId
+    )
+      .then((created) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        if (created?.id) {
+          // Log temp → real ID mapping for debugging
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Request] Created: tempId=${tempId} → requestId=${created.id}`)
+          }
+          toast.success('Request created successfully')
+          // Notify parent with the created id so it can fetch and prepend the row
+          onRequestCreated?.({ requestId: created.id, tempId })
+        }
+      })
+      .catch((error) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        console.error('Error creating request:', error)
+        toast.error('Failed to create request')
+      })
   }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onRequestCreated, onRequestOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit

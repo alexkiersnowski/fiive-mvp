@@ -46,6 +46,15 @@ export function NewProjectModal({ client, agencyMembers: _agencyMembers = [], is
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
   
+  // Track mount status to prevent state updates after unmount
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+  
   // Local state for form fields
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -74,75 +83,84 @@ export function NewProjectModal({ client, agencyMembers: _agencyMembers = [], is
   const canCreate = title.trim().length > 0
   
   // Handle create project
-  const handleCreateProject = useCallback(async () => {
+  const handleCreateProject = useCallback(() => {
     if (!canCreate) return
     
     // Close modal and show toast immediately for snappy UX
     onClose()
     toast.success('Project created successfully')
     
-    try {
-      // Emit optimistic row with temp id immediately
-      const tempId = `temp-${Date.now()}`
-      onProjectOptimistic?.({
-        tempId,
-        title,
-        description,
-        type: null,
-        assigneeUserId: null,
-        startDate,
-        endDate
-      })
+    // Emit optimistic row with temp id immediately
+    const tempId = `temp-${Date.now()}`
+    onProjectOptimistic?.({
+      tempId,
+      title,
+      description,
+      type: null,
+      assigneeUserId: null,
+      startDate,
+      endDate
+    })
 
-      // Parse dates from UI format ("d MMM yyyy") to ISO date strings for database
-      const parseDate = (dateStr: string | null | undefined): string | null => {
-        if (!dateStr || !dateStr.trim()) return null
-        const trimmed = dateStr.trim()
+    // Parse dates from UI format ("d MMM yyyy") to ISO date strings for database
+    const parseDate = (dateStr: string | null | undefined): string | null => {
+      if (!dateStr || !dateStr.trim()) return null
+      const trimmed = dateStr.trim()
 
-        const tryPattern = (pattern: string) => {
+      const tryPattern = (pattern: string) => {
+        try {
+          const parsed = parse(trimmed, pattern, new Date())
+          if (isNaN(parsed.getTime())) return null
+          return format(parsed, 'yyyy-MM-dd')
+        } catch {
+          return null
+        }
+      }
+
+      return (
+        tryPattern('d MMM yyyy') ??
+        (() => {
           try {
-            const parsed = parse(trimmed, pattern, new Date())
-            if (isNaN(parsed.getTime())) return null
-            return format(parsed, 'yyyy-MM-dd')
+            const parsed = new Date(trimmed)
+            return isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd')
           } catch {
             return null
           }
-        }
-
-        return (
-          tryPattern('d MMM yyyy') ??
-          (() => {
-            try {
-              const parsed = new Date(trimmed)
-              return isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd')
-            } catch {
-              return null
-            }
-          })()
-        )
-      }
-
-      const parsedStartDate = parseDate(startDate)
-      const parsedEndDate = parseDate(endDate)
-
-      // Await the server insert to obtain the new project id
-      const created = await createProject(
-        connectionId,
-        title,
-        description,
-        null, // type
-        null, // assigneeUserId
-        parsedStartDate,
-        parsedEndDate
+        })()
       )
-      // Notify parent with the created id so it can fetch and prepend the row
-      if (created?.id) {
-        onProjectCreated?.({ projectId: created.id, tempId })
-      }
-    } catch (error) {
-      console.error('Error creating project:', error)
-      toast.error('Failed to create project')
     }
+
+    const parsedStartDate = parseDate(startDate)
+    const parsedEndDate = parseDate(endDate)
+
+    // Fire server action concurrently (void prevents promise leak warnings)
+    void createProject(
+      connectionId,
+      title,
+      description,
+      null, // type
+      null, // assigneeUserId
+      parsedStartDate,
+      parsedEndDate
+    )
+      .then((created) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        if (created?.id) {
+          // Log temp → real ID mapping for debugging
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Project] Created: tempId=${tempId} → projectId=${created.id}`)
+          }
+          // Notify parent with the created id so it can fetch and prepend the row
+          onProjectCreated?.({ projectId: created.id, tempId })
+        }
+      })
+      .catch((error) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        console.error('Error creating project:', error)
+        toast.error('Failed to create project')
+      })
   }, [canCreate, connectionId, title, description, startDate, endDate, onProjectCreated, onProjectOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit

@@ -77,6 +77,15 @@ export function NewTaskModal({
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
   
+  // Track mount status to prevent state updates after unmount
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+  
   // Local state for form fields
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -215,7 +224,7 @@ export function NewTaskModal({
     : agencyMembers
   
   // Handle create task
-  const handleCreateTask = useCallback(async () => {
+  const handleCreateTask = useCallback(() => {
     if (!canCreate) return
     
     // Determine the connection ID to use
@@ -225,56 +234,63 @@ export function NewTaskModal({
     // Close modal immediately for snappy UX
     onClose()
     
-    try {
-      // Look up project name from projects list
-      const selectedProject = !projectId || projectId === '' ? null : projects.find(p => p.id === projectId)
-      const projectName = selectedProject ? selectedProject.name : null
-      
-      // Look up assignee details from members list
-      const assigneeMember = assigneeUserId ? membersToUse.find(m => m.id === assigneeUserId) : null
-      const assigneeData = assigneeMember ? {
-        id: assigneeMember.id,
-        name: `${assigneeMember.firstName} ${assigneeMember.lastName}`.trim() || assigneeMember.email,
-        email: assigneeMember.email,
-        avatarUrl: assigneeMember.avatarUrl
-      } : null
-      
-      // Determine if assignee is a client member (for visibility logic)
-      const isClientMemberAssignee = assigneeMember && 'orgType' in assigneeMember && assigneeMember.orgType === 'client'
-      
-      // Emit optimistic row with temp id immediately
-      const tempId = `temp-${Date.now()}`
-      onTaskOptimistic?.({
-        tempId,
-        title,
-        description,
-        projectId: !projectId || projectId === '' ? null : projectId,
-        projectName,
-        assigneeUserId,
-        assignee: assigneeData,
-        clientVisible: isClientMemberAssignee ? true : false,
-        clientVisibilityLocked: isClientMemberAssignee ? true : false
-      })
+    // Look up project name from projects list
+    const selectedProject = !projectId || projectId === '' ? null : projects.find(p => p.id === projectId)
+    const projectName = selectedProject ? selectedProject.name : null
+    
+    // Look up assignee details from members list
+    const assigneeMember = assigneeUserId ? membersToUse.find(m => m.id === assigneeUserId) : null
+    const assigneeData = assigneeMember ? {
+      id: assigneeMember.id,
+      name: `${assigneeMember.firstName} ${assigneeMember.lastName}`.trim() || assigneeMember.email,
+      email: assigneeMember.email,
+      avatarUrl: assigneeMember.avatarUrl
+    } : null
+    
+    // Determine if assignee is a client member (for visibility logic)
+    const isClientMemberAssignee = assigneeMember && 'orgType' in assigneeMember && assigneeMember.orgType === 'client'
+    
+    // Emit optimistic row with temp id immediately
+    const tempId = `temp-${Date.now()}`
+    onTaskOptimistic?.({
+      tempId,
+      title,
+      description,
+      projectId: !projectId || projectId === '' ? null : projectId,
+      projectName,
+      assigneeUserId,
+      assignee: assigneeData,
+      clientVisible: isClientMemberAssignee ? true : false,
+      clientVisibilityLocked: isClientMemberAssignee ? true : false
+    })
 
-      // Await the server insert to obtain the new task id
-      const created = await createTask(
-        targetConnectionId,
-        title,
-        description,
-        !projectId || projectId === '' ? null : projectId,
-        assigneeUserId
-      )
-      
-      // Only show success toast after server confirms
-      if (created?.id) {
-        toast.success('Task created successfully')
-        // Notify parent with the created id so it can fetch and prepend the row
-        onTaskCreated?.({ taskId: created.id, tempId })
-      }
-    } catch (error) {
-      console.error('Error creating task:', error)
-      toast.error('Failed to create task')
-    }
+    // Fire server action concurrently (void prevents promise leak warnings)
+    void createTask(
+      targetConnectionId,
+      title,
+      description,
+      !projectId || projectId === '' ? null : projectId,
+      assigneeUserId
+    )
+      .then((created) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        if (created?.id) {
+          // Log temp → real ID mapping for debugging
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Task] Created: tempId=${tempId} → taskId=${created.id}`)
+          }
+          toast.success('Task created successfully')
+          // Notify parent with the created id so it can fetch and prepend the row
+          onTaskCreated?.({ taskId: created.id, tempId })
+        }
+      })
+      .catch((error) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        console.error('Error creating task:', error)
+        toast.error('Failed to create task')
+      })
   }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, membersToUse, onTaskCreated, onTaskOptimistic, onClose])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
