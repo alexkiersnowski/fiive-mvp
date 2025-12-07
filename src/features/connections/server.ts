@@ -2524,7 +2524,8 @@ export const getCommentsForRequests = cache(async (
     `)
     .in('request_id', requestIds)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(50);
 
   if (error) {
     if (process.env.NODE_ENV !== 'production') {

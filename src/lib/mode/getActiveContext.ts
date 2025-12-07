@@ -165,7 +165,15 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
     }
 
     if (!profile || !organization || !membership) {
-      console.error('Missing required data:', { profile: !!profile, organization: !!organization, membership: !!membership });
+      // Only log as warning if we have a profile but missing org/membership (unexpected state)
+      // Silent return if no profile (user might not be logged in or profile not created yet)
+      if (profile && (!organization || !membership)) {
+        console.warn('User has profile but missing organization/membership:', { 
+          profile: !!profile, 
+          organization: !!organization, 
+          membership: !!membership 
+        });
+      }
       return null;
     }
 

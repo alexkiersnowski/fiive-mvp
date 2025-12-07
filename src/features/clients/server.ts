@@ -56,10 +56,10 @@ export const getClientsSnapshot = cache(async (
   
   const totalCount = unfilteredTotalCount ?? 0;
   
-  // Determine if we should use client-side filtering (≤100 items) or server-side search (>100 items)
-  // For MVP: when ≤100, fetch all and let client-side handle filtering
-  // When >100, use server-side search with pagination
-  const useClientSideFiltering = totalCount <= 100 && !search.trim();
+  // Determine if we should use client-side filtering (≤50 items) or server-side search (>50 items)
+  // For MVP: when ≤50, fetch all and let client-side handle filtering
+  // When >50, use server-side search with pagination
+  const useClientSideFiltering = totalCount <= 50 && !search.trim();
   
   // Build base query with joins including profiles for account manager search
   let query = supabase
