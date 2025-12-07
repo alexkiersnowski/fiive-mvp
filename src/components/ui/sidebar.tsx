@@ -213,12 +213,12 @@ const SidebarComponent = memo(function SidebarComponent({
             <Badge 
               variant="secondary" 
               className="self-start flex items-center gap-1 bg-orange-3 font-medium text-xs tracking-wide"
-              style={{ color: 'var(--color-orange-11)' }}
+              style={{ color: '#D87335' }}
             >
               <StarFour 
                 size={12} 
                 weight="fill"
-                style={{ fill: 'var(--color-orange-11)' }}
+                style={{ fill: '#D87335' }}
               />
               Early access
             </Badge>
@@ -255,12 +255,12 @@ const SidebarComponent = memo(function SidebarComponent({
             <Badge 
               variant="secondary" 
               className="self-start flex items-center gap-1 bg-orange-3 font-medium text-xs tracking-wide"
-              style={{ color: 'var(--color-orange-11)' }}
+              style={{ color: '#D87335' }}
             >
               <StarFour 
                 size={12} 
                 weight="fill"
-                style={{ fill: 'var(--color-orange-11)' }}
+                style={{ fill: '#D87335' }}
               />
               Founding member
             </Badge>
