@@ -187,6 +187,36 @@ export const sortTasksWithPinnedFirst = (tasks: Task[], mode: TaskSortMode = 'st
   return [...pinned, ...sortedRegular]
 }
 
+/**
+ * Groups tasks by status and sorts within each group
+ * Status order: in_progress, to_do, on_hold, done
+ * Within each group, tasks are sorted by the provided mode (default: created_at DESC)
+ */
+export const groupTasksByStatus = (tasks: Task[], mode: TaskSortMode = 'status'): Record<TaskStatus, Task[]> => {
+  const groups: Record<TaskStatus, Task[]> = {
+    in_progress: [],
+    to_do: [],
+    on_hold: [],
+    done: []
+  }
+
+  // Group tasks by status
+  for (const task of tasks) {
+    groups[task.status].push(task)
+  }
+
+  // Sort tasks within each group
+  // For status mode, use compareTasksByNewest within each group (created_at DESC)
+  // For newest mode, use compareTasksByNewest
+  const comparator = mode === 'status' ? compareTasksByNewest : getTaskComparator(mode)
+  
+  for (const status in groups) {
+    groups[status as TaskStatus].sort(comparator)
+  }
+
+  return groups
+}
+
 export type { Task }
 
 

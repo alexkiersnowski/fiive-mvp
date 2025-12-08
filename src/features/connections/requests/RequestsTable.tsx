@@ -1,25 +1,28 @@
 "use client"
 
-import { useState, useRef, useMemo } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
-import { RequestBadge } from '@/components/ui/request-badge'
-import { InlineEdit } from '@/components/ui/inline-edit'
+import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye, Users } from '@phosphor-icons/react'
+import { Plus, SortAscending, Eye, Users, Rows } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
+import { groupRequestsByStatus, type RequestStatus } from './requestSort'
 import type { Request } from '../server'
-import type { VirtualItem } from '@tanstack/react-virtual'
-import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import { useVirtualTable, VirtualListBody } from '@/components/virtual-table'
 import { useConnection } from '../ConnectionContext'
+import type { VirtualItem } from '@tanstack/react-virtual'
+import { RequestGroupHeader } from './RequestGroupHeader'
+import { RequestRow } from './RequestRow'
+
+// Drag ghost offset from cursor (pixels from left edge of row)
+const DRAG_GHOST_OFFSET_X = 200
+const DRAG_GHOST_OFFSET_Y = 22 // Half of row height (44px / 2)
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -58,22 +61,74 @@ interface RequestsTableProps {
 export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask }: RequestsTableProps) {
   const { snapshot: _snapshot, isDisconnected } = useConnection()
   const pathname = usePathname()
-  const _router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   const [searchQuery, setSearchQuery] = useState('')
-  const [sortValue, setSortValue] = useState('created')
-  const [_isSortDropdownOpen, _setIsSortDropdownOpen] = useState(false)
-  const [_requestStatus, _setRequestStatus] = useState('in_review')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
-  // Assignee ref for combobox functionality
-  const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
+  // Track collapsed groups (default: 'closed' and 'canceled' collapsed, rest expanded)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<RequestStatus>>(new Set(['closed', 'canceled']))
+  
+  // Drag & drop state
+  const [draggedRequestId, setDraggedRequestId] = useState<string | null>(null)
+  const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null)
+  const [hoveredGroupStatus, setHoveredGroupStatus] = useState<RequestStatus | null>(null)
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
+  const [hasDragged, setHasDragged] = useState(false)
+  const dragStartRef = useRef<{ requestId: string; startX: number; startY: number } | null>(null)
+  const hoverDetectionThrottleRef = useRef<number | null>(null)
+  
+  // Group requests by status and create flattened array structure
+  type FlattenedItem = 
+    | { type: 'group'; status: RequestStatus; count: number }
+    | { type: 'request'; request: Request }
+  
+  const flattenedItems = useMemo<FlattenedItem[]>(() => {
+    const grouped = groupRequestsByStatus(requests)
+    // Order: new, in_review, accepted, closed, canceled
+    const statusOrder: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
+    const items: FlattenedItem[] = []
+    
+    for (const status of statusOrder) {
+      const groupRequests = grouped[status]
+      // Always show group header, even if 0 requests
+      items.push({ type: 'group', status, count: groupRequests.length })
+      
+      // Add requests if group is not collapsed and has requests
+      if (!collapsedGroups.has(status) && groupRequests.length > 0) {
+        for (const request of groupRequests) {
+          items.push({ type: 'request', request })
+        }
+      }
+    }
+    
+    return items
+  }, [requests, collapsedGroups])
+  
+  // Toggle group collapse/expand - prevent during drag
+  const toggleGroup = useCallback((status: RequestStatus) => {
+    // Don't toggle if dragging
+    if (draggedRequestId !== null) {
+      return
+    }
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(status)) {
+        next.delete(status)
+      } else {
+        next.add(status)
+      }
+      return next
+    })
+  }, [draggedRequestId])
+  
+  const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
-  const isMutingStatus = useRef(false)
+  
+  // Track pending status updates per request ID to prevent flickering
+  const pendingStatusUpdatesRef = useRef<Map<string, { status: string; abortController: AbortController }>>(new Map())
   
   // Profile Card state
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -105,21 +160,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   )
 
   // Sort options (memoized to prevent recreation)
-  const sortOptions = useMemo(() => [
-    { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
-    { value: 'status', label: 'Status', buttonLabel: 'Status' }
-  ], [])
-
-  // Current sort label (memoized based on sortValue)
-  const currentSortLabel = useMemo(() => 
-    sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Created',
-    [sortOptions, sortValue]
-  )
-
-  const _handleSortChange = (newSortValue: string) => {
-    setSortValue(newSortValue)
-    // Sort will be applied when we implement actual data
-  }
+  const currentSortLabel = 'Created'
 
   // Assignee handlers with loading guard
   const handleAssigneeSelect = async (requestId: string, memberId: string) => {
@@ -200,11 +241,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     }
   }
 
-  // Status handler with loading guard
-  const handleStatusChange = async (requestId: string, newStatus: string) => {
-    // Prevent rapid-fire mutations
-    if (isMutingStatus.current) return
-    
+  // Status handler with loading guard and pending update tracking
+  const handleStatusChange = async (requestId: string, newStatus: string): Promise<void> => {
     const validStatuses = ['new', 'in_review', 'accepted', 'canceled', 'closed'] as const
     if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
@@ -215,40 +253,68 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     
     const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
     
+    // Cancel any existing pending update for this request
+    const existingPending = pendingStatusUpdatesRef.current.get(requestId)
+    if (existingPending) {
+      existingPending.abortController.abort()
+      pendingStatusUpdatesRef.current.delete(requestId)
+    }
+    
+    // Create new AbortController for this update
+    const abortController = new AbortController()
+    pendingStatusUpdatesRef.current.set(requestId, {
+      status: typedStatus,
+      abortController
+    })
+    
     // Notify parent for bidirectional updates (table → modal)
     if (onRequestUpdate) {
       onRequestUpdate(requestId, { status: typedStatus })
     }
     
-    // Set loading guard
-    isMutingStatus.current = true
-    
     try {
       await updateRequestStatus(requestId, typedStatus)
-      const statusLabels = {
-        new: 'New',
-        in_review: 'In review',
-        accepted: 'Accepted',
-        canceled: 'Canceled',
-        closed: 'Closed'
+      
+      // Check if this update was aborted before processing
+      if (abortController.signal.aborted) {
+        return
       }
-      toast.success(`Status updated to ${statusLabels[typedStatus]}`)
-      // Real-time subscription will handle UI updates
+      
+      // Check if this update is still the latest before applying
+      const pendingUpdate = pendingStatusUpdatesRef.current.get(requestId)
+      if (pendingUpdate && pendingUpdate.status === typedStatus && !abortController.signal.aborted) {
+        // Real-time subscription will handle UI updates
+      }
+      // If update was superseded, don't apply changes
     } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Failed to update status:', error)
+      // Ignore abort errors (request was cancelled by a newer update)
+      // Check both the signal and if it's an AbortError
+      if (abortController.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        return
       }
-      toast.error('Failed to update status')
-      // Revert parent state on error
-      if (onRequestUpdate) {
-        const originalRequest = requests.find(r => r.id === requestId)
-        if (originalRequest) {
-          onRequestUpdate(requestId, { status: originalRequest.status })
+      
+      // Only handle error if this update is still the latest
+      const pendingUpdate = pendingStatusUpdatesRef.current.get(requestId)
+      if (pendingUpdate && pendingUpdate.status === typedStatus && !abortController.signal.aborted) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to update status:', error)
+        }
+        toast.error('Failed to update status')
+        // Revert parent state on error
+        if (onRequestUpdate) {
+          const originalRequest = requests.find(r => r.id === requestId)
+          if (originalRequest) {
+            onRequestUpdate(requestId, { status: originalRequest.status })
+          }
         }
       }
     } finally {
-      // Clear loading guard
-      isMutingStatus.current = false
+      // Clean up pending update if this was the latest one
+      // Only clean up if this specific update (by status match) is still pending
+      const pendingUpdate = pendingStatusUpdatesRef.current.get(requestId)
+      if (pendingUpdate && pendingUpdate.status === typedStatus) {
+        pendingStatusUpdatesRef.current.delete(requestId)
+      }
     }
   }
 
@@ -270,10 +336,223 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     setProfileDialogOpen(true);
   };
 
-  // Navigation handler
-  const handleRowClick = (requestId: string) => {
+  // Navigation handler - prevent click if drag occurred
+  const handleRowClick = useCallback((requestId: string) => {
+    // Prevent modal opening if drag occurred
+    if (hasDragged) {
+      return
+    }
     onRequestClick?.(requestId)
-  }
+  }, [hasDragged, onRequestClick])
+  
+  // Check if user can drag a request (same permissions as editing status)
+  // Only agencies can drag requests (clients cannot edit request status)
+  const canDragRequest = useCallback((request: Request) => {
+    if (isDisconnected) return false
+    return isAgency
+  }, [isDisconnected, isAgency])
+  
+  // Handle drag start (mouse down on request row)
+  const handleDragStart = useCallback((requestId: string, e: React.MouseEvent) => {
+    // Only allow drag if user has permission
+    const request = requests.find(r => r.id === requestId)
+    if (!request || !canDragRequest(request)) {
+      return
+    }
+    
+    // Prevent drag if dropdown is open or other interactions are active
+    if (openActionsDropdown !== null) {
+      return
+    }
+    
+    dragStartRef.current = {
+      requestId,
+      startX: e.clientX,
+      startY: e.clientY
+    }
+    setDragStartPosition({ x: e.clientX, y: e.clientY })
+    setHasDragged(false)
+  }, [requests, canDragRequest, openActionsDropdown])
+  
+  // Handle mouse move during drag
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!dragStartRef.current) return
+    
+    const { requestId, startX, startY } = dragStartRef.current
+    const deltaX = Math.abs(e.clientX - startX)
+    const deltaY = Math.abs(e.clientY - startY)
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+    
+    // 10px threshold to start drag
+    if (distance > 10) {
+      if (!draggedRequestId) {
+        setDraggedRequestId(requestId)
+        setHasDragged(true)
+      }
+      
+      // Update drag offset for ghost positioning (always update for smooth ghost movement)
+      setDragOffset({
+        x: e.clientX - startX,
+        y: e.clientY - startY
+      })
+      
+      // Throttle hover detection to prevent jank (check every 50ms instead of every mousemove)
+      if (hoverDetectionThrottleRef.current === null) {
+        hoverDetectionThrottleRef.current = window.requestAnimationFrame(() => {
+          hoverDetectionThrottleRef.current = null
+          
+          // Simple detection: get all elements at cursor, skip ghost, find group
+          const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY)
+          let groupStatus: RequestStatus | null = null
+          
+          for (const element of elementsAtPoint) {
+            const htmlElement = element as HTMLElement
+            
+            // Skip ghost element
+            if (htmlElement.closest('[data-ghost]') || htmlElement.getAttribute('data-ghost') === 'true') {
+              continue
+            }
+            
+            // Traverse up from this element to find group header or request row
+            let currentElement: HTMLElement | null = htmlElement
+            while (currentElement) {
+              // Check for group header first
+              const groupAttr = currentElement.getAttribute('data-group-status')
+              if (groupAttr && ['new', 'in_review', 'accepted', 'closed', 'canceled'].includes(groupAttr)) {
+                groupStatus = groupAttr as RequestStatus
+                break
+              }
+              
+              // Check for request row status
+              const requestAttr = currentElement.getAttribute('data-request-status')
+              if (requestAttr && ['new', 'in_review', 'accepted', 'closed', 'canceled'].includes(requestAttr)) {
+                groupStatus = requestAttr as RequestStatus
+                break
+              }
+              
+              // Stop if we've reached the document body
+              if (currentElement === document.body || currentElement === document.documentElement) {
+                break
+              }
+              
+              currentElement = currentElement.parentElement
+            }
+            
+            // If we found a group, we're done
+            if (groupStatus) {
+              break
+            }
+          }
+          
+          // Set hovered group status
+          setHoveredGroupStatus(groupStatus)
+        })
+      }
+    }
+  }, [draggedRequestId, requests])
+  
+  // Handle mouse up (drop or cancel)
+  const handleMouseUp = useCallback(() => {
+    if (!dragStartRef.current) return
+    
+    const { requestId } = dragStartRef.current
+    
+    // If we were dragging and have a valid drop target
+    if (draggedRequestId === requestId && hoveredGroupStatus) {
+      const draggedRequest = requests.find(r => r.id === requestId)
+      // Only update if status actually changed
+      if (draggedRequest && draggedRequest.status !== hoveredGroupStatus) {
+        // Store original status for error recovery
+        const originalStatus = draggedRequest.status
+        
+        // Call status change with error recovery
+        handleStatusChange(requestId, hoveredGroupStatus).catch(() => {
+          // If status change fails, ensure UI is reverted immediately
+          // onRequestUpdate callback in handleStatusChange should handle this,
+          // but we ensure it happens here as well for drag operations
+          if (onRequestUpdate) {
+            const currentRequest = requests.find(r => r.id === requestId)
+            if (currentRequest && currentRequest.status !== originalStatus) {
+              onRequestUpdate(requestId, { status: originalStatus })
+            }
+          }
+        })
+      }
+    }
+    
+    // Reset drag state
+    dragStartRef.current = null
+    setDraggedRequestId(null)
+    setDragStartPosition(null)
+    setHoveredGroupStatus(null)
+    setDragOffset(null)
+    
+    // Reset hasDragged after a short delay to allow click handler to check it
+    setTimeout(() => {
+      setHasDragged(false)
+    }, 100)
+  }, [draggedRequestId, hoveredGroupStatus, requests, handleStatusChange, onRequestUpdate])
+  
+  // Attach document-level mouse event listeners when dragging
+  useEffect(() => {
+    if (dragStartRef.current) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      // Prevent text selection during drag
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'grabbing'
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+      }
+    }
+  }, [handleMouseMove, handleMouseUp])
+  
+  // Handle mouse leave document (cancel drag)
+  useEffect(() => {
+    const handleMouseLeave = () => {
+      if (dragStartRef.current) {
+        dragStartRef.current = null
+        setDraggedRequestId(null)
+        setDragStartPosition(null)
+        setHoveredGroupStatus(null)
+        setDragOffset(null)
+        setHasDragged(false)
+        // Reset body styles
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+      }
+    }
+    
+    document.addEventListener('mouseleave', handleMouseLeave)
+    return () => {
+      document.removeEventListener('mouseleave', handleMouseLeave)
+    }
+  }, [])
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (dragStartRef.current) {
+        dragStartRef.current = null
+        setDraggedRequestId(null)
+        setDragStartPosition(null)
+        setHoveredGroupStatus(null)
+        setDragOffset(null)
+        setHasDragged(false)
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+      }
+      // Cancel any pending hover detection
+      if (hoverDetectionThrottleRef.current !== null) {
+        cancelAnimationFrame(hoverDetectionThrottleRef.current)
+        hoverDetectionThrottleRef.current = null
+      }
+    }
+  }, [])
 
   const handleCopyLink = (requestId: string, connectionId: string) => {
     const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestId}`
@@ -300,68 +579,55 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     }
   }
 
-  // Virtual scroll setup using shared hook
+  // Virtual scroll setup using shared hook (now works with flattened items)
   const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
-    items: requests,
+    items: flattenedItems,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],
     parentRef
   })
   
-  // Check if there are active filters
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
-  
   // isNearEnd available for future use (e.g., showing loading indicator)
 
-  // Empty state logic: ONLY show empty state when no requests exist at all
-  // When requests exist but search returns no results, VirtualTableBody will show "no results"
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+  // Derived from current filter state — prevents flicker during search clear
+  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe;
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters;
 
   // Empty state component matching ClientsTable design
   const emptyState = isEmptyState ? (
-    <TableRow 
-      className="hover:bg-transparent"
-      style={{ 
-        backgroundColor: 'var(--color-base-surface-page-background)', 
-        borderBottomColor: 'var(--color-neutral-5)',
-        height: '100%'
-      }}
+    <div 
+      className="text-left" 
+      style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
     >
-      <TableCell 
-        colSpan={isAgency ? 8 : 8} 
-        className="text-left" 
-        style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px' }}
-      >
-        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-          <div className="flex flex-col items-start gap-2">
-            <h2 className="display-8-medium">Your best work starts here</h2>
-            <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Clients can submit requests from their portal, or you can add one for them.'
-                : 'Ask questions, share updates, or request new work directly from your agency.'
-              }
-            </span>
-          </div>
-          {onNewRequest && !isDisconnected && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-              onClick={onNewRequest}
-            >
-              <Plus size={16} weight="regular" />
-              {isAgency ? 'New request' : 'Submit request'}
-            </Button>
-          )}
+      <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+        <div className="flex flex-col items-start gap-2">
+          <h2 className="display-8-medium">Your best work starts here</h2>
+          <span className="text-sm-regular text-neutral-11">
+            {isAgency 
+              ? 'Clients can submit requests from their portal, or you can add one for them.'
+              : 'Ask questions, share updates, or request new work directly from your agency.'
+            }
+          </span>
         </div>
-      </TableCell>
-    </TableRow>
+        {onNewRequest && !isDisconnected && (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+            onClick={onNewRequest}
+          >
+            <Plus size={16} weight="regular" />
+            {isAgency ? 'New request' : 'Submit request'}
+          </Button>
+        )}
+      </div>
+    </div>
   ) : null
 
   return (
     <div className="w-full min-w-0">
       {/* Search section - Sticky */}
-      <div className="sticky top-10 z-1 bg-[var(--color-base-surface-page-background)] pt-5 pb-4 px-5 rounded-t-lg">
+      <div className="sticky top-10 z-1 bg-[var(--color-base-surface-page-background)] pt-5 pb-4 px-5 rounded-t-lg relative">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
             <SearchInput
@@ -429,7 +695,14 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             </Tooltip>
             <Button
               variant="outline"
-              className="text-sm-regular h-[32px] flex items-center gap-2 shadow-none cursor-default pointer-events-none"
+              className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
+            >
+              <Rows size={16} />
+              Status
+            </Button>
+            <Button
+              variant="outline"
+              className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
             >
               <SortAscending size={16} />
               {currentSortLabel}
@@ -472,341 +745,136 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             )}
           </div>
         </div>
+        {/* Border with 20px margins to match table padding */}
+        <div className="absolute bottom-0 left-5 right-5 border-b border-[var(--color-neutral-4)]" />
       </div>
 
-      {/* Table Header - Sticky */}
-      {(unfilteredTotalCount > 0 || hasActiveFilters) && (
-      <div className="sticky top-[112px] z-10 bg-[var(--color-base-surface-page-background)] px-5">
-        <Table className="table-fixed w-full border-collapse">
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[25%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Title
-              </TableHead>
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Status
-              </TableHead>
-              {isAgency ? (
-                <>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Submitted by
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Project
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Assignee
-                  </TableHead>
-                </>
-              ) : (
-                <>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Owner
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Project
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Submitted by
-                  </TableHead>
-                </>
-              )}
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Created
-              </TableHead>
-              <TableHead className="w-[44px] p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-        </Table>
-      </div>
-      )}
-
-      {/* Table Body - Virtualized Scrollable */}
+      {/* List Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
-        <div className="px-5 pb-5">
+        <div className="pb-5 px-5">
           {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
           {isBootstrapping && requests.length === 0 ? (
             <div>
               <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
             </div>
           ) : (
-            <VirtualTableBody
-            items={requests}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-            onRowClick={(request) => handleRowClick(request.id)}
-            emptyState={isEmptyState ? emptyState : undefined}
-            renderRow={(request) => (
-              <>
-                <TableCell className="w-[25%] py-0 truncate">
-                  {request.title}
-                </TableCell>
-
-                {isAgency ? (
-                  <TableCell 
-                    className="w-[15%] py-0" 
-                    onClick={isDisconnected ? undefined : (e) => e.stopPropagation()}
-                  >
-                    {isDisconnected ? (
-                      <RequestBadge 
-                        variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'} 
-                        size="sm" 
-                        showText={true}
-                        className="inline-flex"
-                      />
-                    ) : (
-                      <InlineEdit
-                        type="badge"
-                        value={request.status}
-                        options={[
-                          { value: 'new', label: 'New' },
-                          { value: 'in_review', label: 'In review' },
-                          { value: 'accepted', label: 'Accepted' },
-                          { value: 'canceled', label: 'Canceled' },
-                          { value: 'closed', label: 'Closed' },
-                        ]}
-                        onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
-                        badgeComponent="request"
-                        className="truncate h-6 rounded-[8px]"
-                      />
-                    )}
-                  </TableCell>
-                ) : (
-                  <TableCell className="w-[15%] py-0">
-                    <RequestBadge 
-                      variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
-                      size="sm" 
-                      showText={true}
-                      customLabel={request.status === 'new' ? 'Submitted' : undefined}
-                      className="inline-flex"
+            <VirtualListBody
+              items={flattenedItems}
+              virtualItems={virtualItems}
+              rowVirtualizer={rowVirtualizer}
+              emptyState={isEmptyState ? emptyState : undefined}
+              getItemKey={(item, index) => {
+                if (item.type === 'group') {
+                  return `group-${item.status}`
+                }
+                return `request-${item.request.id}`
+              }}
+              renderItem={(item, index) => {
+                if (item.type === 'group') {
+                  // Check if this is the first group (new is always first)
+                  const isFirstGroup = item.status === 'new'
+                  return (
+                    <RequestGroupHeader
+                      status={item.status}
+                      count={item.count}
+                      isExpanded={!collapsedGroups.has(item.status)}
+                      onToggle={() => toggleGroup(item.status)}
+                      isAgency={isAgency}
+                      isDragHovered={hoveredGroupStatus === item.status && draggedRequestId !== null}
+                      isFirstGroup={isFirstGroup}
+                      isDraggingActive={draggedRequestId !== null}
                     />
-                  </TableCell>
-                )}
-
-                {isAgency ? (
-                  <>
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ListRow
-                        avatar
-                        avatarUrl={request.submittedBy.avatarUrl}
-                        text={request.submittedBy.name}
-                        variant="stacked"
-                        className="min-w-0"
-                        onClick={() => {
-                          const nameParts = request.submittedBy.name.split(' ')
-                          handleContactClick({
-                            id: request.submittedBy.id,
-                            first_name: nameParts[0] || '',
-                            last_name: nameParts.slice(1).join(' ') || '',
-                            email: request.submittedBy.email,
-                            avatar_url: request.submittedBy.avatarUrl || '',
-                            job_title: request.submittedBy.jobTitle || '',
-                            organization: {
-                              id: request.submittedBy.orgId,
-                              name: request.submittedBy.orgName,
-                              logo_url: request.submittedBy.orgLogo || ''
-                            }
-                          })
-                        }}
-                      />
-                    </TableCell>
-
-                    <TableCell className="w-[15%] py-0">
-                      {request.project ? (
-                        <Badge variant="neutral" className="text-xs">
-                          <span className="truncate">{request.project.name}</span>
-                        </Badge>
-                      ) : (
-                        <Badge variant="neutral" className="text-xs">
-                          <span className="truncate">General request</span>
-                        </Badge>
-                      )}
-                    </TableCell>
-
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={isDisconnected ? undefined : (e: React.MouseEvent) => e.stopPropagation()}
-                    >
-                      <ListRow
-                        ref={assigneeListRowRef}
-                        avatar={true}
-                        avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
-                        avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                        text={!request.assignee ? "Unassigned" : request.assignee.name}
-                        textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                        variant="stacked"
-                        className="min-w-0 min-h-[32px]"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                        onClick={() => {
-                          // Assignee click handled by combobox
-                        }}
-                        comboboxOptions={isDisconnected ? undefined : comboboxOptions}
-                        onComboboxSelect={isDisconnected ? undefined : (memberId) => handleAssigneeSelect(request.id, memberId)}
-                        comboboxPlaceholder={isDisconnected ? undefined : "Search members..."}
-                        comboboxWidth={isDisconnected ? undefined : "240px"}
-                        clearable={isDisconnected ? false : !!request.assignee}
-                        onClear={isDisconnected ? undefined : () => handleClearAssignee(request.id)}
-                        nonInteractive={isDisconnected}
-                      />
-                    </TableCell>
-                  </>
-                ) : (
-                  <>
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={request.assignee && !isDisconnected ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
-                    >
-                      <ListRow
-                        avatar={true}
-                        avatarUrl={request.assignee ? request.assignee.avatarUrl : undefined}
-                        avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                        text={!request.assignee ? "Unassigned" : request.assignee.name}
-                        textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                        variant="stacked"
-                        className="min-w-0"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                        nonInteractive={isDisconnected || !request.assignee}
-                        onClick={request.assignee && !isDisconnected ? () => {
-                          const nameParts = request.assignee!.name.split(' ')
-                          const assigneeMember = agencyMembers.find(member => member.id === request.assignee!.id)
-                          handleContactClick({
-                            id: request.assignee!.id,
-                            first_name: nameParts[0] || '',
-                            last_name: nameParts.slice(1).join(' ') || '',
-                            email: request.assignee!.email,
-                            avatar_url: request.assignee!.avatarUrl || '',
-                            job_title: assigneeMember?.jobTitle,
-                            organization: {
-                              id: agencyOrganization?.id || '',
-                              name: agencyOrganization?.name || '',
-                              logo_url: agencyOrganization?.logoUrl || ''
-                            }
-                          })
-                        } : undefined}
-                      />
-                    </TableCell>
-
-                    <TableCell className="w-[15%] py-0">
-                      {request.project ? (
-                        <Badge variant="neutral" className="text-xs">
-                          <span className="truncate">{request.project.name}</span>
-                        </Badge>
-                      ) : (
-                        <Badge variant="neutral" className="text-xs">
-                          <span className="truncate">General request</span>
-                        </Badge>
-                      )}
-                    </TableCell>
-
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ListRow
-                        avatar
-                        avatarUrl={request.submittedBy.avatarUrl}
-                        text={request.submittedBy.name}
-                        variant="stacked"
-                        className="min-w-0"
-                        onClick={() => {
-                          const nameParts = request.submittedBy.name.split(' ')
-                          handleContactClick({
-                            id: request.submittedBy.id,
-                            first_name: nameParts[0] || '',
-                            last_name: nameParts.slice(1).join(' ') || '',
-                            email: request.submittedBy.email,
-                            avatar_url: request.submittedBy.avatarUrl || '',
-                            job_title: request.submittedBy.jobTitle || '',
-                            organization: {
-                              id: request.submittedBy.orgId,
-                              name: request.submittedBy.orgName,
-                              logo_url: request.submittedBy.orgLogo || ''
-                            }
-                          })
-                        }}
-                      />
-                    </TableCell>
-                  </>
-                )}
-
-                <TableCell className="w-[15%] py-0 truncate">
-                  {request.createdAt}
-                </TableCell>
-
-                <TableCell 
-                  className="w-[44px] p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={openActionsDropdown === request.id} onOpenChange={(open) => setOpenActionsDropdown(open ? request.id : null)}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            openActionsDropdown === request.id
-                              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
-                              : 'hover:bg-[var(--color-interactive-surface-hover)]'
-                          }`}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleRowClick(request.id)
-                        }}>
-                          <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          View details
-                        </DropdownMenuItem>
-                        {!isDisconnected && isAgency && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setOpenActionsDropdown(null)
-                              onConvertToTask?.(request)
-                            }}
-                          >
-                            <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                            Convert to task
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleCopyLink(request.id, request.connectionId)
-                        }}>
-                          <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Copy link
-                        </DropdownMenuItem>
-                        {!isDisconnected && request.createdByOrgId === currentOrgId && (
-                          <>
-                            <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                            <DropdownMenuItem 
-                              onClick={() => {
-                                handleDeleteRequest(request.id)
-                                setOpenActionsDropdown(null)
-                              }}
-                              style={{ color: 'var(--color-red-11)' }}
-                            >
-                              <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                              Delete request
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </>
-            )}
-          />
+                  )
+                }
+                const isDragging = draggedRequestId === item.request.id
+                return (
+                  <RequestRow
+                    request={item.request}
+                    isAgency={isAgency}
+                    isDisconnected={isDisconnected}
+                    comboboxOptions={comboboxOptions}
+                    agencyMembers={agencyMembers}
+                    agencyOrganization={agencyOrganization}
+                    statusInlineRefs={statusInlineRefs}
+                    onStatusChange={handleStatusChange}
+                    onAssigneeSelect={handleAssigneeSelect}
+                    onClearAssignee={handleClearAssignee}
+                    onRowClick={handleRowClick}
+                    onCopyLink={handleCopyLink}
+                    onDeleteRequest={handleDeleteRequest}
+                    onContactClick={handleContactClick}
+                    openActionsDropdown={openActionsDropdown}
+                    setOpenActionsDropdown={setOpenActionsDropdown}
+                    baseRoute={baseRoute}
+                    currentOrgId={currentOrgId}
+                    onConvertToTask={onConvertToTask}
+                    isDragging={isDragging}
+                    onDragStart={handleDragStart}
+                    canDrag={canDragRequest(item.request)}
+                    isDraggingActive={draggedRequestId !== null}
+                  />
+                )
+              }}
+            />
           )}
         </div>
       </div>
+
+      {/* Drag Ghost Preview */}
+      {draggedRequestId && dragStartPosition && dragOffset && (() => {
+        const draggedRequest = requests.find(r => r.id === draggedRequestId)
+        if (!draggedRequest) return null
+        
+        // Calculate current cursor position
+        const currentX = dragStartPosition.x + dragOffset.x
+        const currentY = dragStartPosition.y + dragOffset.y
+        
+        return (
+          <div
+            data-ghost="true"
+            style={{
+              position: 'fixed',
+              left: currentX - DRAG_GHOST_OFFSET_X,
+              top: currentY - DRAG_GHOST_OFFSET_Y,
+              pointerEvents: 'none',
+              zIndex: 9999,
+              opacity: 0.9,
+              width: containerRef.current?.offsetWidth || 'auto',
+              maxWidth: containerRef.current?.offsetWidth || 'none',
+              backgroundColor: 'var(--color-base-surface-page-background)',
+              borderRadius: '4px'
+            }}
+            className="shadow-lg border border-[var(--color-neutral-6)]"
+          >
+            <RequestRow
+              request={draggedRequest}
+              isAgency={isAgency}
+              isDisconnected={isDisconnected}
+              comboboxOptions={comboboxOptions}
+              agencyMembers={agencyMembers}
+              agencyOrganization={agencyOrganization}
+              statusInlineRefs={statusInlineRefs}
+              onStatusChange={handleStatusChange}
+              onAssigneeSelect={handleAssigneeSelect}
+              onClearAssignee={handleClearAssignee}
+              onRowClick={() => {}}
+              onCopyLink={handleCopyLink}
+              onDeleteRequest={handleDeleteRequest}
+              onContactClick={handleContactClick}
+              openActionsDropdown={null}
+              setOpenActionsDropdown={() => {}}
+              baseRoute={baseRoute}
+              currentOrgId={currentOrgId}
+              onConvertToTask={onConvertToTask}
+              isDragging={false}
+              onDragStart={() => {}}
+              canDrag={false}
+              isGhost={true}
+              isDraggingActive={true}
+            />
+          </div>
+        )
+      })()}
 
       {/* Profile Card Dialog */}
       {selectedContact && (

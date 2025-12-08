@@ -595,3 +595,4 @@ const { data: matchingProfiles } = await supabase
    - Track revalidation frequency
    - Measure page load times
 
+

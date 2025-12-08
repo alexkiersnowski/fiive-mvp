@@ -398,3 +398,4 @@ Implementing granular cache tags will significantly improve scalability by:
 
 The migration should be done gradually, starting with low-risk functions and monitoring performance throughout.
 
+

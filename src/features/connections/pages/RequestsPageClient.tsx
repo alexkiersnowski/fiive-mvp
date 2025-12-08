@@ -488,12 +488,57 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             return
           }
           
-          // For non-delete updates, refresh first page to ensure server-side filtering is applied
-          // This ensures the request appears/disappears based on current filters
+          // For non-delete updates, use targeted update instead of refreshing entire first page
+          // This prevents flickering when optimistic updates are in progress
           try {
-            await refreshFirstPage()
+            const req = await fetchRequestById(connectionId, updated.id)
+            if (!req) return
+            
+            // Update selectedRequest if it's the one being updated
+            setSelectedRequest(prev => {
+              if (prev && prev.requestId === req.id) {
+                return {
+                  ...prev,
+                  title: req.title,
+                  description: req.description,
+                  assignee: req.assignee,
+                  project: req.project,
+                  status: req.status,
+                  createdAt: req.createdAt,
+                  createdByOrgId: req.createdByOrgId,
+                  createdByOrgType: req.createdByOrgType
+                }
+              }
+              return prev
+            })
+            
+            // Targeted update: update request in local state if it exists
+            // Only refresh if filters are active and request might not match current filters
+            const needsFullRefresh = debouncedSearchQuery || assignedToMe
+            
+            if (needsFullRefresh) {
+              // With filters active, request might appear/disappear, so refresh to apply server-side filtering
+              await refreshFirstPage()
+            } else {
+              // No filters - update request in place
+              setRequests(prev => {
+                const existingIndex = prev.findIndex(r => r.id === req.id)
+                if (existingIndex !== -1) {
+                  // Request exists in current list - update it
+                  const next = [...prev]
+                  next[existingIndex] = req
+                  return next
+                } else {
+                  // Request not in current list - might need to be added (e.g., status changed)
+                  // Check if it should be visible based on current view
+                  // For now, add it if it's not already there (will be sorted correctly)
+                  return [...prev, req]
+                }
+              })
+            }
           } catch (_) {
-            // Ignore errors - real-time updates are best-effort
+            // Fallback to full refresh only on error
+            await refreshFirstPage()
           }
         }
       )
@@ -892,11 +937,11 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     projectName?: string | null
     assigneeUserId: string | null
   }) => {
+    const now = new Date()
     const today = (() => {
-      const d = new Date()
-      const day = d.getDate()
-      const month = d.toLocaleDateString('en-US', { month: 'short' })
-      const year = d.getFullYear()
+      const day = now.getDate()
+      const month = now.toLocaleDateString('en-US', { month: 'short' })
+      const year = now.getFullYear()
       return `${day} ${month} ${year}`
     })()
 
@@ -923,8 +968,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         name: snapshot.partner.name,
         logoUrl: snapshot.partner.logo,
       },
-      createdAt: today,
-      createdByOrgId: context.organization.id,
+    // Use ISO string for proper sorting (will be formatted by server response)
+    // This ensures the optimistic request appears at the top when sorted by created_at DESC
+    createdAt: now.toISOString(),
+    createdByOrgId: context.organization.id,
     }
 
     setRequests(prev => [optimisticRow, ...prev])

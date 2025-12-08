@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -121,6 +121,9 @@ export function TasksCardClient({ connectionId, tasks, prefetchedNextTask = null
   const [selectedComments, setSelectedComments] = useState<CommentItem[]>([]);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  
+  // Track if modal is closing to prevent reopening during close animation
+  const isClosingModalRef = useRef(false);
 
   useEffect(() => {
     setPrefetchedTasks(tasks);
@@ -414,6 +417,11 @@ export function TasksCardClient({ connectionId, tasks, prefetchedNextTask = null
 
   const handleRowClick = useCallback(
     (taskId: string) => {
+      // Prevent opening modal if we're currently closing it (prevents double flicker)
+      if (isClosingModalRef.current) {
+        return;
+      }
+      
       const target = prefetchedTasks.find((item) => item.id === taskId);
       if (!target) {
         toast.error("Unable to load task details.");
@@ -617,11 +625,14 @@ export function TasksCardClient({ connectionId, tasks, prefetchedNextTask = null
   );
 
   const handleDetailModalClose = useCallback(() => {
+    // Set closing flag to prevent reopening during close animation
+    isClosingModalRef.current = true;
     setIsDetailModalOpen(false);
     setTimeout(() => {
       setSelectedTaskId(null);
       setSelectedTask(null);
       setSelectedComments([]);
+      isClosingModalRef.current = false;
     }, 300);
   }, []);
 

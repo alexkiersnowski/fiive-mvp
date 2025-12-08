@@ -4,7 +4,7 @@ import { escapeForILike } from '@/lib/utils';
 import { getActiveContext, type EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 import * as formatters from './formatters';
-import { sortTasks, type TaskSortMode } from './tasks/taskSort';
+import type { TaskSortMode } from './tasks/taskSort';
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -1603,9 +1603,27 @@ export const getTasksForConnection = cache(async (
 
     tasksQuery = tasksQuery.or(orParts.join(','))
   }
-  const orderedQuery = tasksQuery
-    .order('created_at', { ascending: false, nullsFirst: false })
-    .order('id', { ascending: false, nullsFirst: false })
+  
+  // Apply database-level sorting based on sortMode
+  // Note: Complex sorting (pinned tasks, status grouping, done tasks last) happens client-side
+  // Database provides efficient base ordering using indexes
+  let orderedQuery = tasksQuery
+  if (sortMode === 'status') {
+    // For status mode: use index idx_tasks_connection_ids_status_created
+    // Order by status, then created_at DESC, then id DESC
+    // Client-side code will regroup by status priority (in_progress, to_do, on_hold, done)
+    orderedQuery = tasksQuery
+      .order('status', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false, nullsFirst: false })
+  } else {
+    // For newest mode: order by created_at DESC, then id DESC
+    // Uses idx_tasks_connection_not_deleted index
+    orderedQuery = tasksQuery
+      .order('created_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false, nullsFirst: false })
+  }
+  
   const { data: taskRows, error: tasksError, count } = await orderedQuery.range(
     safeOffset,
     safeLimit > 0 ? safeOffset + safeLimit - 1 : safeOffset - 1
@@ -1639,10 +1657,13 @@ export const getTasksForConnection = cache(async (
     agencyOrgResult.data ?? null
   )
 
-  const sortedTasks = sortTasks(hydratedTasks, sortMode)
-  const totalCount = count ?? sortedTasks.length
+  // Note: Complex sorting (pinned tasks first, done tasks last, due_date sorting)
+  // still happens client-side via sortTasksWithPinnedFirst in TasksPageClient
+  // Database now provides base ordering, reducing client-side work
+  // For MVP, we keep client-side sorting for pinned/done logic but DB handles base order
+  const totalCount = count ?? hydratedTasks.length
 
-  return { tasks: sortedTasks, totalCount }
+  return { tasks: hydratedTasks, totalCount }
 })
 
 interface MembershipWithProfile {

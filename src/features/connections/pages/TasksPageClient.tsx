@@ -540,8 +540,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             return
           }
           
-          // For non-delete updates, refresh first page to ensure server-side filtering is applied
-          // This ensures the task appears/disappears based on current filters
+          // For non-delete updates, use targeted update instead of refreshing entire first page
           try {
             const task = await fetchTaskById(connectionId, updated.id)
             if (!task) return
@@ -568,9 +567,33 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
               return prev
             })
             
-            // Refresh first page to apply server-side filtering
-            await refreshFirstPage()
+            // Targeted update: update task in local state if it exists
+            // Only refresh if filters are active and task might not match current filters
+            const needsFullRefresh = debouncedSearchQuery || assignedToMe
+            
+            if (needsFullRefresh) {
+              // With filters active, task might appear/disappear, so refresh to apply server-side filtering
+              await refreshFirstPage()
+            } else {
+              // No filters - update task in place
+              setTasks(prev => {
+                const existingIndex = prev.findIndex(t => t.id === task.id)
+                if (existingIndex !== -1) {
+                  // Task exists in current list - update it
+                  const next = [...prev]
+                  const existingPinned = Boolean(next[existingIndex]?.isPinned)
+                  next[existingIndex] = existingPinned ? { ...task, isPinned: true } : task
+                  return sortTasksWithMode(next)
+                } else {
+                  // Task not in current list - might need to be added (e.g., status changed)
+                  // Check if it should be visible based on current view
+                  // For now, add it if it's not already there (will be sorted correctly)
+                  return sortTasksWithMode([...prev, task])
+                }
+              })
+            }
           } catch (_) {
+            // Fallback to full refresh only on error
             await refreshFirstPage()
           }
         }
@@ -843,6 +866,9 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     text: string
   }>>([])
 
+  // Track if modal is closing to prevent reopening during close animation
+  const isClosingModalRef = useRef(false)
+
   function getTaskById(taskId: string) {
     return tasks.find(r => r.id === taskId)
   }
@@ -891,6 +917,11 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   }
 
   function handleRowClick(taskId: string) {
+    // Prevent opening modal if we're currently closing it (prevents double flicker)
+    if (isClosingModalRef.current) {
+      return
+    }
+    
     const task = getTaskById(taskId)
     if (task) {
       // Get comments from pre-fetched map (instant, no fetch)
@@ -942,12 +973,15 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   }
 
   function handleModalClose() {
+    // Set closing flag to prevent reopening during close animation
+    isClosingModalRef.current = true
     // Close modal first, then clear data after animation completes
     setIsModalOpen(false)
-    // Small delay to let animation finish
+    // Small delay to let animation finish, then clear closing flag
     setTimeout(() => {
       setSelectedTask(null)
       setSelectedTaskComments([])
+      isClosingModalRef.current = false
     }, 300)
   }
 
