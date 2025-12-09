@@ -1513,6 +1513,7 @@ export const getConnectionsForGlobalView = cache(async (
   id: string
   name: string
   logoUrl?: string
+  orgId: string // Organization ID (client_id for agencies, agency_id for clients)
 }>> => {
   const supabase = await createClient();
   
@@ -1523,6 +1524,7 @@ export const getConnectionsForGlobalView = cache(async (
       .from('connections')
       .select(`
         id,
+        client_id,
         organizations!connections_client_id_fkey (
           id,
           name,
@@ -1539,11 +1541,12 @@ export const getConnectionsForGlobalView = cache(async (
     }
     
     return connections
-      .filter((conn): conn is typeof conn & { organizations: { name: string; logo_url: string | null } } => !!conn.organizations)
+      .filter((conn): conn is typeof conn & { organizations: { name: string; logo_url: string | null }; client_id: string } => !!conn.organizations && !!conn.client_id)
       .map(conn => ({
         id: conn.id,
         name: conn.organizations.name,
-        logoUrl: conn.organizations.logo_url || undefined
+        logoUrl: conn.organizations.logo_url || undefined,
+        orgId: conn.client_id
       }));
   } else {
     // Client viewing agencies - get all agency connections
@@ -1552,6 +1555,7 @@ export const getConnectionsForGlobalView = cache(async (
       .from('connections')
       .select(`
         id,
+        agency_id,
         organizations!connections_agency_id_fkey (
           id,
           name,
@@ -1568,11 +1572,12 @@ export const getConnectionsForGlobalView = cache(async (
     }
     
     return connections
-      .filter((conn): conn is typeof conn & { organizations: { name: string; logo_url: string | null } } => !!conn.organizations)
+      .filter((conn): conn is typeof conn & { organizations: { name: string; logo_url: string | null }; agency_id: string } => !!conn.organizations && !!conn.agency_id)
       .map(conn => ({
         id: conn.id,
         name: conn.organizations.name,
-        logoUrl: conn.organizations.logo_url || undefined
+        logoUrl: conn.organizations.logo_url || undefined,
+        orgId: conn.agency_id
       }));
   }
 });

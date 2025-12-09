@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useTransition, useMemo } from 'react'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext';
 import TasksTable from '../tasks/TasksTable';
 import { TaskDetailModal } from '../tasks/TaskDetailModal'
@@ -1087,9 +1088,13 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     registerPinnedTask(payload.tempId)
   }, [connectionId, context.user, context.organization, snapshot.partner, sortTasksWithMode, sortedMembers, registerPinnedTask])
 
-  async function handleTaskCreated({ taskId, tempId }: { taskId: string; tempId?: string }) {
+  async function handleTaskCreated({ taskId, tempId, connectionId: providedConnectionId }: { taskId: string; tempId?: string; connectionId: string }) {
+    // Use provided connectionId (captured before modal closed) to avoid race condition
+    // Fallback to connectionId from props if not provided (backward compatibility)
+    const targetConnectionId = providedConnectionId || connectionId
+    
     try {
-      const task = await fetchTaskById(connectionId, taskId)
+      const task = await fetchTaskById(targetConnectionId, taskId)
       if (!task) return
       // Replace temp row if present; otherwise prepend and increment count
       setTasks(prev => {
@@ -1119,10 +1124,14 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       // if (!tempId && context.variant === 'agency' && task.status === 'new') {
       //   setNewTasksCount(prev => (prev || 0) + 1)
       // }
+      
+      // Show success toast after server confirms and task is successfully fetched
+      toast.success('Task created successfully')
     } catch (error) {
       if (isDev()) {
         console.error('Failed to insert newly created task into table:', error)
       }
+      toast.error('Failed to create task')
     }
   }
 

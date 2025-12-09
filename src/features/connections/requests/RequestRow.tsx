@@ -191,19 +191,6 @@ export function RequestRow({
 
       {isAgency ? (
         <>
-          {/* Project */}
-          <div className="min-w-0 py-0 px-3">
-            {request.project ? (
-              <Badge variant="neutral" className="text-xs">
-                <span className="truncate">{request.project.name}</span>
-              </Badge>
-            ) : (
-              <Badge variant="neutral" className="text-xs">
-                <span className="truncate">General request</span>
-              </Badge>
-            )}
-          </div>
-
           {/* Assignee */}
           <div 
             className="min-w-0 py-0 px-3"
@@ -231,6 +218,19 @@ export function RequestRow({
               onClear={isDisconnected ? undefined : () => onClearAssignee(request.id)}
               nonInteractive={isDisconnected}
             />
+          </div>
+
+          {/* Project */}
+          <div className="min-w-0 py-0 px-3">
+            {request.project ? (
+              <Badge variant="neutral" className="text-xs">
+                <span className="truncate">{request.project.name}</span>
+              </Badge>
+            ) : (
+              <Badge variant="neutral" className="text-xs">
+                <span className="truncate">General request</span>
+              </Badge>
+            )}
           </div>
         </>
       ) : (

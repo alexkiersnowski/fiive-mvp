@@ -19,6 +19,7 @@ interface NewTaskModalProps {
     id: string
     name: string
     logoUrl?: string
+    orgId: string // Organization ID (client_id for agencies, agency_id for clients)
   }> // For global mode - list of all connections
   agencyMembers?: Array<{
     id: string
@@ -50,7 +51,7 @@ interface NewTaskModalProps {
     clientVisible?: boolean
     clientVisibilityLocked?: boolean
   }) => void
-  onTaskCreated?: (payload: { taskId: string; tempId?: string }) => void
+  onTaskCreated?: (payload: { taskId: string; tempId?: string; connectionId: string }) => void
   connectionId?: string // Optional for global mode
   currentOrgId: string
   variant?: 'agency' | 'client'
@@ -273,21 +274,20 @@ export function NewTaskModal({
       assigneeUserId
     )
       .then((created) => {
-        if (!isMountedRef.current) return // Guard against unmounted updates
-        
         if (created?.id) {
           // Log temp → real ID mapping for debugging
           if (process.env.NODE_ENV !== 'production') {
             console.log(`[Task] Created: tempId=${tempId} → taskId=${created.id}`)
           }
-          toast.success('Task created successfully')
           // Notify parent with the created id so it can fetch and prepend the row
-          onTaskCreated?.({ taskId: created.id, tempId })
+          // Parent will show toast after successfully fetching the task
+          // Pass connectionId to avoid race condition with modal closing
+          // Call this even if component unmounted - parent callback is safe
+          onTaskCreated?.({ taskId: created.id, tempId, connectionId: targetConnectionId })
         }
       })
       .catch((error) => {
-        if (!isMountedRef.current) return // Guard against unmounted updates
-        
+        // Show error toast even if component unmounted (toast is safe to call)
         console.error('Error creating task:', error)
         toast.error('Failed to create task')
       })
@@ -321,12 +321,14 @@ export function NewTaskModal({
     ? connections.find(c => c.id === selectedConnectionId)
     : client
   
-  // Connection options for global mode (for combobox)
-  const connectionComboboxOptions = connections.map(c => ({
-    value: c.id,
-    label: c.name,
-    avatar: c.logoUrl
-  }))
+  // Connection options for global mode (for combobox) - sorted alphabetically by name
+  const connectionComboboxOptions = [...connections]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+    .map(c => ({
+      value: c.id,
+      label: c.name,
+      avatar: c.logoUrl
+    }))
   
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

@@ -270,6 +270,10 @@ export function RequestsContent({
     const selectedConnection = connections.find(c => c.id === selectedConnectionId);
     if (!selectedConnection) return;
 
+    // Find an existing request for this connection to reuse its client/agency structure
+    // This ensures we use the exact same client ID that the server uses, preventing duplicate subgroups
+    const existingRequest = requests.find(r => r.connectionId === selectedConnectionId);
+    
     // Create optimistic request
     const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     
@@ -277,6 +281,33 @@ export function RequestsContent({
     // Agency view: selectedConnection is a client, current org is agency
     // Client view: selectedConnection is an agency, current org is client
     const isAgency = context.variant === 'agency';
+    
+    // Reuse client/agency from existing request if available to ensure exact ID match
+    // Otherwise fall back to constructing from connection/context
+    const client = existingRequest?.client || (isAgency 
+      ? {
+          id: selectedConnection.id,
+          name: selectedConnection.name,
+          logoUrl: selectedConnection.logoUrl,
+        }
+      : {
+          id: context.organization.id,
+          name: context.organization.name || '',
+          logoUrl: context.organization.logoUrl,
+        });
+    
+    const agency = existingRequest?.agency || (isAgency
+      ? {
+          id: context.organization.id,
+          name: context.organization.name || '',
+          logoUrl: context.organization.logoUrl,
+        }
+      : {
+          id: selectedConnection.id,
+          name: selectedConnection.name,
+          logoUrl: selectedConnection.logoUrl,
+        });
+    
     const optimisticRequest: Request = {
       id: payload.tempId,
       connectionId: selectedConnectionId,
@@ -295,28 +326,8 @@ export function RequestsContent({
         orgLogo: undefined,
       },
       assignee: null,
-      client: isAgency 
-        ? {
-            id: selectedConnection.id,
-            name: selectedConnection.name,
-            logoUrl: selectedConnection.logoUrl,
-          }
-        : {
-            id: context.organization.id,
-            name: context.organization.name || '',
-            logoUrl: context.organization.logoUrl,
-          },
-      agency: isAgency
-        ? {
-            id: context.organization.id,
-            name: context.organization.name || '',
-            logoUrl: context.organization.logoUrl,
-          }
-        : {
-            id: selectedConnection.id,
-            name: selectedConnection.name,
-            logoUrl: selectedConnection.logoUrl,
-          },
+      client,
+      agency,
       createdAt: today,
       createdByOrgId: context.organization.id,
       createdByOrgType: context.variant,
@@ -325,7 +336,7 @@ export function RequestsContent({
     setRequests(prev => [optimisticRequest, ...prev]);
     setTotalCount(prev => prev + 1);
     setUnfilteredTotalCount(prev => prev + 1);
-  }, [selectedConnectionId, connections, context]);
+  }, [selectedConnectionId, connections, context, requests]);
 
   const handleRequestCreated = useCallback(async ({ requestId, tempId }: { requestId: string; tempId?: string }) => {
     if (!selectedConnectionId) return;

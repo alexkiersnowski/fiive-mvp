@@ -41,6 +41,7 @@ interface TasksContentProps {
     id: string
     name: string
     logoUrl?: string
+    orgId: string // Organization ID (client_id for agencies, agency_id for clients)
   }>;
   membersByConnection?: Record<string, Array<{
     id: string
@@ -341,6 +342,8 @@ export function TasksContent({
     const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     
     const isAgency = context.variant === 'agency';
+    // Use orgId (organization ID) instead of connection ID for client/agency
+    // This ensures the optimistic task groups correctly with server-returned tasks
     const optimisticTask: Task = {
       id: payload.tempId,
       connectionId: selectedConnectionId,
@@ -361,7 +364,7 @@ export function TasksContent({
       assignee: payload.assignee || null,
       client: isAgency 
         ? {
-            id: selectedConnection.id,
+            id: selectedConnection.orgId, // Use organization ID, not connection ID
             name: selectedConnection.name,
             logoUrl: selectedConnection.logoUrl,
           }
@@ -377,7 +380,7 @@ export function TasksContent({
             logoUrl: context.organization.logoUrl,
           }
         : {
-            id: selectedConnection.id,
+            id: selectedConnection.orgId, // Use organization ID, not connection ID
             name: selectedConnection.name,
             logoUrl: selectedConnection.logoUrl,
           },
@@ -397,23 +400,38 @@ export function TasksContent({
     setUnfilteredTotalCount(prev => prev + 1);
   }, [selectedConnectionId, connections, context]);
 
-  const handleTaskCreated = useCallback(async ({ taskId, tempId }: { taskId: string; tempId?: string }) => {
-    if (!selectedConnectionId) {
+  // Track pending task creations to show toast when task appears
+  const pendingTaskCreationsRef = useRef<Set<string>>(new Set());
+
+  const handleTaskCreated = useCallback(async ({ taskId, tempId, connectionId }: { taskId: string; tempId?: string; connectionId: string }) => {
+    console.log('[TasksContent] handleTaskCreated called', { taskId, tempId, connectionId });
+    
+    if (!connectionId) {
+      console.warn('[TasksContent] handleTaskCreated: No connectionId provided');
       return;
     }
     
     if (!taskId) {
+      console.warn('[TasksContent] handleTaskCreated: No taskId');
       return;
     }
     
+    // Mark this task as pending creation
+    pendingTaskCreationsRef.current.add(taskId);
+    
     try {
-      // Use connectionId directly (like the working connection-specific version)
+      console.log('[TasksContent] Fetching task from server...', { taskId, connectionId });
+      // Use connectionId from callback (captured before modal closed) to avoid race condition
       // Skip cache for immediate post-insert fetch to avoid stale data
-      const task = await fetchTaskByIdGlobal(taskId, context, selectedConnectionId, true);
+      const task = await fetchTaskByIdGlobal(taskId, context, connectionId, true);
       if (!task) {
-        console.error('Failed to fetch newly created task');
+        console.error('[TasksContent] Failed to fetch newly created task');
+        pendingTaskCreationsRef.current.delete(taskId);
+        toast.error('Failed to create task');
         return;
       }
+      
+      console.log('[TasksContent] Task fetched successfully, updating state and showing toast');
       
       // Replace temp row if present; otherwise prepend and increment count
       setTasks(prev => {
@@ -421,6 +439,14 @@ export function TasksContent({
         const next = [task, ...without];
         return next;
       });
+      
+      // Show success toast after server confirms and task is successfully fetched
+      // Only show if this was a pending creation (to avoid duplicate toasts)
+      if (pendingTaskCreationsRef.current.has(taskId)) {
+        pendingTaskCreationsRef.current.delete(taskId);
+        console.log('[TasksContent] Showing success toast');
+        toast.success('Task created successfully');
+      }
       
       // Update selectedTask if it matches tempId (using functional update to avoid stale closure)
       if (tempId) {
@@ -442,16 +468,18 @@ export function TasksContent({
         console.error('Error fetching comments:', error);
       }
     } catch (error) {
-      console.error('Failed to fetch newly created task:', error, { 
+      console.error('[TasksContent] Failed to fetch newly created task:', error, { 
         taskId, 
         tempId, 
-        selectedConnectionId,
+        connectionId,
         orgId: context.orgId,
         variant: context.variant,
         errorMessage: error instanceof Error ? error.message : String(error)
       });
+      pendingTaskCreationsRef.current.delete(taskId);
+      toast.error('Failed to create task');
     }
-  }, [selectedConnectionId, context]);
+  }, [context]);
 
   const handleTaskClick = useCallback(async (taskId: string) => {
     // Try to get task from local state first

@@ -1,27 +1,26 @@
 "use client"
 
-import { useState, useRef, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useRef, useMemo, useCallback } from 'react'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
-import { RequestBadge } from '@/components/ui/request-badge'
-import { InlineEdit } from '@/components/ui/inline-edit'
+import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, CaretDown, Check, Eye, Users } from '@phosphor-icons/react'
+import { Plus, SortAscending, Eye, Users, Rows, RowsPlusBottom } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { PaywallModal } from '@/components/ui/paywall-modal'
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateRequestAssignee, updateRequestStatus } from '@/features/connections/requests/actions'
 import type { Request } from './types'
+import { useVirtualTable, VirtualListBody } from '@/components/virtual-table'
 import type { VirtualItem } from '@tanstack/react-virtual'
-import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import { groupRequestsByStatusAndClient, flattenGroupedRequests, type FlattenedItem, type RequestStatus } from './requestGrouping'
+import { StatusGroupHeader } from './StatusGroupHeader'
+import { ClientGroupHeader } from './ClientGroupHeader'
+import { GlobalRequestRow } from './GlobalRequestRow'
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -62,18 +61,21 @@ interface RequestsTableProps {
 }
 
 export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, sortOptions = [], sortValue: propSortValue = 'created', onSortChange, allowedConnectionIds = null }: RequestsTableProps) {
-  const _router = useRouter()
-  
+  const pathname = usePathname()
+  const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   const [searchQuery, setSearchQuery] = useState('')
-  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
   // Paywall modal state
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
   
-  // Assignee ref for combobox functionality
-  const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
+  // Track collapsed groups
+  // Default: 'closed' and 'canceled' status groups collapsed
+  const [collapsedStatuses, setCollapsedStatuses] = useState<Set<RequestStatus>>(new Set(['closed', 'canceled']))
+  // Track collapsed client groups per status: Map<status, Set<clientId>>
+  const [collapsedClients, setCollapsedClients] = useState<Map<RequestStatus, Set<string>>>(new Map())
+  
+  const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
@@ -108,15 +110,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     [agencyMembers]
   )
 
-  // Current sort label (memoized based on sortValue)
-  const currentSortLabel = useMemo(() => 
-    sortOptions.find(option => option.value === propSortValue)?.buttonLabel || 'Created',
-    [sortOptions, propSortValue]
-  )
-
-  const handleSortChange = (newSortValue: string) => {
-    onSortChange?.(newSortValue)
-  }
+  // Sort is always "Created" for MVP
+  const currentSortLabel = 'Created'
 
   // Assignee handlers with loading guard
   const handleAssigneeSelect = async (requestId: string, memberId: string) => {
@@ -291,9 +286,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
 
   const handleCopyLink = (requestId: string, connectionId: string) => {
-    // Determine baseRoute based on isAgency prop
-    // Agencies view clients, clients view agencies
-    const baseRoute = isAgency ? 'clients' : 'agencies'
     const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestId}`
     navigator.clipboard.writeText(fullUrl).then(() => {
       toast.success('Link copied to clipboard')
@@ -303,69 +295,57 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
   
   const handleDeleteRequest = async (requestId: string) => {
-    // Optimistically notify parent immediately (removes from UI instantly)
-    // Parent handles API call, error recovery, and toast notifications
+    // Parent handles optimistic update, toast, and server action
     onRequestDeleted?.(requestId)
   }
 
+  // Group requests by status and client
+  const { grouped: groupedRequests, allClients } = useMemo(() => groupRequestsByStatusAndClient(requests), [requests])
+  
+  // Flatten grouped requests for virtualization
+  const flattenedItems = useMemo<FlattenedItem[]>(() => {
+    return flattenGroupedRequests(groupedRequests, allClients, collapsedStatuses, collapsedClients)
+  }, [groupedRequests, allClients, collapsedStatuses, collapsedClients])
+  
+  // Toggle status group collapse/expand
+  const toggleStatusGroup = useCallback((status: RequestStatus) => {
+    setCollapsedStatuses(prev => {
+      const next = new Set(prev)
+      if (next.has(status)) {
+        next.delete(status)
+      } else {
+        next.add(status)
+      }
+      return next
+    })
+  }, [])
+  
+  // Toggle client group collapse/expand
+  const toggleClientGroup = useCallback((status: RequestStatus, clientId: string) => {
+    setCollapsedClients(prev => {
+      const next = new Map(prev)
+      const clientsForStatus = next.get(status) || new Set<string>()
+      const newClientsForStatus = new Set(clientsForStatus)
+      if (newClientsForStatus.has(clientId)) {
+        newClientsForStatus.delete(clientId)
+      } else {
+        newClientsForStatus.add(clientId)
+      }
+      next.set(status, newClientsForStatus)
+      return next
+    })
+  }, [])
+
   // Virtual scroll setup using shared hook
   const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
-    items: requests,
+    items: flattenedItems,
     onLoadMore,
     scrollRestoreDeps: [searchQuery],
     parentRef
   })
   
-  // Check if there are active filters
   const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
-  
-  // isNearEnd available for future use (e.g., showing loading indicator)
-
-  // Empty state logic: ONLY show empty state when no requests exist at all
-  // When requests exist but search returns no results, VirtualTableBody will show "No results found"
-  // This matches the behavior of the connection-specific RequestsTable
   const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
-
-  // Empty state component matching ClientsTable design
-  const emptyState = isEmptyState ? (
-    <TableRow 
-      className="hover:bg-transparent"
-      style={{ 
-        backgroundColor: 'var(--color-base-surface-page-background)', 
-        borderBottomColor: 'var(--color-neutral-5)',
-        height: '100%'
-      }}
-    >
-      <TableCell 
-        colSpan={8} 
-        className="text-left" 
-        style={{ height: 'calc(100vh - 267px)', minHeight: '400px', paddingLeft: '120px' }}
-      >
-        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-          <div className="flex flex-col items-start gap-2">
-            <h2 className="display-8-medium">Your best work starts here</h2>
-            <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Clients can submit requests from their portal, or you can add one for them.'
-                : 'Ask questions, share updates, or request new work directly from your agency.'
-              }
-            </span>
-          </div>
-          {onNewRequest && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-              onClick={onNewRequest}
-            >
-              <Plus size={16} weight="regular" />
-              {isAgency ? 'New request' : 'Submit request'}
-            </Button>
-          )}
-        </div>
-      </TableCell>
-    </TableRow>
-  ) : null
 
   return (
     <div className="w-full min-w-0">
@@ -455,85 +435,33 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     {isAgency ? 'Assigned to me' : 'Submitted by me'}
                   </TooltipContent>
                 </Tooltip>
-                <DropdownMenu modal={false} open={isSortDropdownOpen} onOpenChange={setIsSortDropdownOpen}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={`text-sm-regular h-[32px] flex items-center gap-2 shadow-none cursor-pointer transition-all duration-75 ${
-                        isSortDropdownOpen
-                          ? 'bg-interactive-surface-hover hover:bg-interactive-surface-hover'
-                          : 'hover:bg-interactive-surface-hover'
-                      }`}
-                    >
-                      <SortAscending size={16} />
-                      {currentSortLabel}
-                      <CaretDown size={16} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64">
-                    {sortOptions.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onClick={(e) => {
-                          handleSortChange(option.value)
-                          setIsSortDropdownOpen(false)
-                          const trigger = e.currentTarget.closest('[data-radix-dropdown-menu-trigger]') as HTMLElement
-                          setTimeout(() => {
-                            trigger?.blur()
-                          }, 0)
-                        }}
-                        className="flex items-center justify-between"
-                      >
-                        <span>{option.label}</span>
-                        {propSortValue === option.value && <Check size={16} className="text-inherit" />}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button
+                  variant="outline"
+                  className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
+                >
+                  <Rows size={16} />
+                  Status
+                </Button>
+                <Button
+                  variant="outline"
+                  className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
+                >
+                  <RowsPlusBottom size={16} />
+                  Client (A-Z)
+                </Button>
+                <Button
+                  variant="outline"
+                  className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
+                >
+                  <SortAscending size={16} />
+                  {currentSortLabel}
+                </Button>
               </div>
             </div>
+            {/* Border with 20px margins to match content padding */}
+            <div className="absolute bottom-0 left-5 right-5 border-b border-[var(--color-neutral-4)]" />
           </div>
 
-          {/* Table Header */}
-          {(unfilteredTotalCount > 0 || hasActiveFilters) && (
-            <div className="px-5">
-              <Table className="table-fixed w-full border-collapse">
-                <TableHeader>
-                  <TableRow
-                    className="hover:bg-transparent"
-                    style={{
-                      borderBottom: '1px solid var(--color-neutral-4)',
-                    }}
-                  >
-                    <TableHead className="w-[25%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Title
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Status
-                    </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      {isAgency ? 'Client' : 'Agency'}
-                    </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Submitted by
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Project
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      {isAgency ? 'Assignee' : 'Owner'}
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Created
-                    </TableHead>
-                    <TableHead className="w-[44px] py-0 p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
-                      <span className="sr-only">Actions</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-              </Table>
-            </div>
-          )}
         </div>
       </div>
 
@@ -554,262 +482,111 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             backgroundColor: 'var(--color-base-surface-page-background)',
           }}
         >
-          <div className="px-5 pb-5">
-          {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
+          <div className="pb-5 px-5">
           {isBootstrapping && requests.length === 0 ? (
             <div>
               <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
             </div>
           ) : (
-            <VirtualTableBody
-            items={requests}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-            onRowClick={(request) => handleRowClick(request.id)}
-            emptyState={isEmptyState ? emptyState : undefined}
-            renderRow={(request) => (
-              <>
-                <TableCell className="w-[25%] py-0 truncate">
-                  {request.title}
-                </TableCell>
-
-                {isAgency ? (
-                  <TableCell 
-                    className="w-[12%] py-0" 
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <InlineEdit
-                      type="badge"
-                      value={request.status}
-                      options={[
-                        { value: 'new', label: 'New' },
-                        { value: 'in_review', label: 'In review' },
-                        { value: 'accepted', label: 'Accepted' },
-                        { value: 'canceled', label: 'Canceled' },
-                        { value: 'closed', label: 'Closed' },
-                      ]}
-                      onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
-                      badgeComponent="request"
-                      className="truncate h-6 rounded-[8px]"
-                    />
-                  </TableCell>
-                ) : (
-                  <TableCell className="w-[12%] py-0">
-                    <RequestBadge 
-                      variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
-                      size="sm" 
-                      showText={true}
-                      customLabel={request.status === 'new' ? 'Submitted' : undefined}
-                      className="inline-flex"
-                    />
-                  </TableCell>
-                )}
-
-                {/* Client/Agencies column */}
-                <TableCell className="w-[15%] py-0">
-                  <div className="flex items-center gap-2">
-                    {isAgency ? (
-                      <>
-                        <Avatar className="w-5 h-5">
-                          <AvatarImage src={request.client.logoUrl} alt={request.client.name} />
-                          <AvatarFallback 
-                            className="text-[10px] font-medium text-white"
-                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                          >
-                            {request.client.name.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {request.client.name}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Avatar className="w-5 h-5">
-                          <AvatarImage src={request.agency?.logoUrl} alt={request.agency?.name || ''} />
-                          <AvatarFallback 
-                            className="text-[10px] font-medium text-white"
-                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                          >
-                            {request.agency?.name?.charAt(0).toUpperCase() || 'A'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {request.agency?.name || 'Unknown'}
-                        </span>
-                      </>
+            <VirtualListBody
+              items={flattenedItems}
+              virtualItems={virtualItems}
+              rowVirtualizer={rowVirtualizer}
+              emptyState={isEmptyState ? (
+                <div 
+                  className="text-left" 
+                  style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
+                >
+                  <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                    <div className="flex flex-col items-start gap-2">
+                      <h2 className="display-8-medium">Your best work starts here</h2>
+                      <span className="text-sm-regular text-neutral-11">
+                        {isAgency 
+                          ? 'Clients can submit requests from their portal, or you can add one for them.'
+                          : 'Ask questions, share updates, or request new work directly from your agency.'
+                        }
+                      </span>
+                      </div>
+                    {onNewRequest && (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+                        onClick={onNewRequest}
+                      >
+                        <Plus size={16} weight="regular" />
+                        {isAgency ? 'New request' : 'Submit request'}
+                      </Button>
                     )}
                   </div>
-                </TableCell>
+                </div>
+              ) : undefined}
+              getItemKey={(item, index) => {
+                if (item.type === 'status-group') {
+                  return `status-${item.status}`
+                }
+                if (item.type === 'client-group') {
+                  return `client-${item.status}-${item.clientId}`
+                }
+                return `request-${item.request.id}`
+              }}
+              renderItem={(item, index) => {
+                if (item.type === 'status-group') {
+                  const isFirstGroup = item.status === 'new'
+                  return (
+                    <StatusGroupHeader
+                      status={item.status}
+                      count={item.count}
+                      isExpanded={!collapsedStatuses.has(item.status)}
+                      onToggle={() => toggleStatusGroup(item.status)}
+                      isAgency={isAgency}
+                      isFirstGroup={isFirstGroup}
+                    />
+                  )
+                }
+                if (item.type === 'client-group') {
+                  // Find if this is the first client in this status group
+                  const statusGroupIndex = flattenedItems.findIndex(i => i.type === 'status-group' && i.status === item.status)
+                  const itemsAfterStatusGroup = flattenedItems.slice(statusGroupIndex + 1)
+                  const firstClientGroupIndex = itemsAfterStatusGroup.findIndex(i => i.type === 'client-group' && i.status === item.status)
+                  const isFirstClient = index === statusGroupIndex + 1 + firstClientGroupIndex
 
-                <TableCell 
-                  className="w-[15%] py-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <ListRow
-                    avatar
-                    avatarUrl={request.submittedBy.avatarUrl}
-                    text={request.submittedBy.name}
-                    variant="stacked"
-                    className="min-w-0"
-                    onClick={() => {
-                      const nameParts = request.submittedBy.name.split(' ')
-                      handleContactClick({
-                        id: request.submittedBy.id,
-                        first_name: nameParts[0] || '',
-                        last_name: nameParts.slice(1).join(' ') || '',
-                        email: request.submittedBy.email,
-                        avatar_url: request.submittedBy.avatarUrl || '',
-                        job_title: request.submittedBy.jobTitle || '',
-                        organization: {
-                          id: request.submittedBy.orgId,
-                          name: request.submittedBy.orgName,
-                          logo_url: request.submittedBy.orgLogo || ''
-                        }
-                      })
-                    }}
+                  return (
+                    <ClientGroupHeader
+                      clientId={item.clientId}
+                      clientName={item.clientName}
+                      clientLogoUrl={item.clientLogoUrl}
+                      count={item.count}
+                      isExpanded={!((collapsedClients.get(item.status) || new Set()).has(item.clientId))}
+                      onToggle={() => toggleClientGroup(item.status, item.clientId)}
+                      isAgency={isAgency}
+                      isFirstClient={isFirstClient}
+                    />
+                  )
+                }
+                // item.type === 'request'
+                return (
+                  <GlobalRequestRow
+                    request={item.request}
+                    isAgency={isAgency}
+                    comboboxOptions={comboboxOptions}
+                    agencyMembers={agencyMembers}
+                    statusInlineRefs={statusInlineRefs}
+                    onStatusChange={handleStatusChange}
+                    onAssigneeSelect={handleAssigneeSelect}
+                    onClearAssignee={handleClearAssignee}
+                    onRowClick={handleRowClick}
+                    onCopyLink={handleCopyLink}
+                    onDeleteRequest={handleDeleteRequest}
+                    onContactClick={handleContactClick}
+                    openActionsDropdown={openActionsDropdown}
+                    setOpenActionsDropdown={setOpenActionsDropdown}
+                    currentOrgId={currentOrgId}
+                    onConvertToTask={onConvertToTask}
                   />
-                </TableCell>
-
-                <TableCell className="w-[12%] py-0">
-                  {request.project ? (
-                    <Badge variant="neutral" className="text-xs">
-                      <span className="truncate">{request.project.name}</span>
-                    </Badge>
-                  ) : (
-                    <Badge variant="neutral" className="text-xs">
-                      <span className="truncate">General request</span>
-                    </Badge>
-                  )}
-                </TableCell>
-
-                <TableCell 
-                  className="w-[12%] py-0"
-                  onClick={isAgency ? (e: React.MouseEvent) => e.stopPropagation() : (request.assignee ? (e: React.MouseEvent) => e.stopPropagation() : undefined)}
-                >
-                  {isAgency ? (
-                    <ListRow
-                      ref={assigneeListRowRef}
-                      avatar={true}
-                      avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
-                      avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                      text={!request.assignee ? "Unassigned" : request.assignee.name}
-                      textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                      variant="stacked"
-                      className="min-w-0 min-h-[32px]"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                      onClick={() => {
-                        // Assignee click handled by combobox
-                      }}
-                      comboboxOptions={comboboxOptions}
-                      onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
-                      comboboxPlaceholder="Search members..."
-                      comboboxWidth="240px"
-                      clearable={!!request.assignee}
-                      onClear={() => handleClearAssignee(request.id)}
-                    />
-                  ) : (
-                    <ListRow
-                      avatar={true}
-                      avatarUrl={request.assignee ? request.assignee.avatarUrl : undefined}
-                      avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                      text={!request.assignee ? "Unassigned" : request.assignee.name}
-                      textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                      variant="stacked"
-                      className="min-w-0"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                      nonInteractive={!request.assignee}
-                      onClick={request.assignee ? () => {
-                        const nameParts = request.assignee!.name.split(' ')
-                        const assigneeMember = agencyMembers.find(member => member.id === request.assignee!.id)
-                        handleContactClick({
-                          id: request.assignee!.id,
-                          first_name: nameParts[0] || '',
-                          last_name: nameParts.slice(1).join(' ') || '',
-                          email: request.assignee!.email,
-                          avatar_url: request.assignee!.avatarUrl || '',
-                          job_title: assigneeMember?.jobTitle,
-                          organization: {
-                            id: request.agency?.id || '',
-                            name: request.agency?.name || '',
-                            logo_url: request.agency?.logoUrl || ''
-                          }
-                        })
-                      } : undefined}
-                    />
-                  )}
-                </TableCell>
-
-                <TableCell className="w-[12%] py-0 truncate">
-                  {request.createdAt}
-                </TableCell>
-
-                <TableCell 
-                  className="w-[44px] p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={openActionsDropdown === request.id} onOpenChange={(open) => setOpenActionsDropdown(open ? request.id : null)}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            openActionsDropdown === request.id
-                              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
-                              : 'hover:bg-[var(--color-interactive-surface-hover)]'
-                          }`}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleRowClick(request.id)
-                        }}>
-                          <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          View details
-                        </DropdownMenuItem>
-                        {isAgency && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setOpenActionsDropdown(null)
-                              onConvertToTask?.(request)
-                            }}
-                          >
-                            <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                            Convert to task
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleCopyLink(request.id, request.connectionId)
-                        }}>
-                          <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Copy link
-                        </DropdownMenuItem>
-                        {request.createdByOrgId === currentOrgId && (
-                          <>
-                            <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                            <DropdownMenuItem 
-                              onClick={() => {
-                                handleDeleteRequest(request.id)
-                                setOpenActionsDropdown(null)
-                              }}
-                              style={{ color: 'var(--color-red-11)' }}
-                            >
-                              <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                              Delete request
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </>
-            )}
-          />
+                )
+              }}
+            />
           )}
           </div>
         </div>

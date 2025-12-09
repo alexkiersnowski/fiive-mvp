@@ -224,12 +224,14 @@ export function NewRequestModal({
     ? connections.find(c => c.id === selectedConnectionId)
     : client
   
-  // Connection options for global mode (for combobox)
-  const connectionComboboxOptions = connections.map(c => ({
-    value: c.id,
-    label: c.name,
-    avatar: c.logoUrl
-  }))
+  // Connection options for global mode (for combobox) - sorted A-Z
+  const connectionComboboxOptions = [...connections]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+    .map(c => ({
+      value: c.id,
+      label: c.name,
+      avatar: c.logoUrl
+    }))
   
   // Project options: General request + actual projects
   const projectOptions = [
