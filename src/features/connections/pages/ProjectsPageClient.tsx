@@ -40,9 +40,9 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     try { 
       const sortParam = searchParams.get('sort')
       // Validate sort value against allowed values
-      const validSorts = ['newest_first', 'project_asc', 'project_desc', 'end_date_asc']
-      return sortParam && validSorts.includes(sortParam) ? sortParam : 'newest_first'
-    } catch { return 'newest_first' }
+      const validSorts = ['project_asc', 'end_date_asc']
+      return sortParam && validSorts.includes(sortParam) ? sortParam : 'project_asc'
+    } catch { return 'project_asc' }
   })()
   
   const initialSearch = (() => {
@@ -69,6 +69,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   // Search state
   const [searchQuery, setSearchQuery] = useState(initialSearch)
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialSearch)
+  const previousDebouncedSearchRef = useRef<string>(initialSearch)
   // Sort state
   const [sort, setSort] = useState<string>(initialSort)
   
@@ -76,8 +77,9 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   const [hasMore, setHasMore] = useState(initialProjects.length === PAGE_SIZE)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const parentRef = useRef<HTMLDivElement>(null)
-  // Buffer initial empty render
-  const isBootstrapping = false
+  // Buffer initial empty render with skeleton when search/assigned filter changes
+  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
+  const [isSearching, setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
   const [_isPending, startTransition] = useTransition()
@@ -209,6 +211,22 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     return () => clearTimeout(timeoutId)
   }, [searchQuery])
 
+  // Sync search to URL parameters (matching global tables pattern)
+  useEffect(() => {
+    const currentSearchParam = searchParams.get('search') || ''
+    
+    if (debouncedSearchQuery !== currentSearchParam) {
+      const params = new URLSearchParams(searchParams.toString())
+      if (debouncedSearchQuery.trim()) {
+        params.set('search', debouncedSearchQuery.trim())
+      } else {
+        params.delete('search')
+      }
+      const newUrl = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`
+      router.replace(newUrl, { scroll: false })
+    }
+  }, [debouncedSearchQuery, searchParams, pathname, router])
+
   // Track if this is the initial mount
   const isInitialMount = useRef(true)
 
@@ -217,9 +235,25 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     // Skip on initial mount if there's no search query and sort is default (we already have initialProjects)
     if (isInitialMount.current && !debouncedSearchQuery && sort === initialSort) {
       isInitialMount.current = false
+      previousDebouncedSearchRef.current = debouncedSearchQuery
       return
     }
     isInitialMount.current = false
+
+    // Set loading state to show skeleton only when:
+    // 1. There's an active search query, OR
+    // 2. We're clearing search (had search before, now don't)
+    // Don't show skeleton on initial page load or tab navigation without search
+    const hadSearchBefore = previousDebouncedSearchRef.current.trim().length > 0
+    const hasSearchNow = debouncedSearchQuery.trim().length > 0
+    const isClearingSearch = hadSearchBefore && !hasSearchNow
+    
+    if (hasSearchNow || isClearingSearch) {
+      setIsSearching(true)
+    }
+    
+    // Update previous search ref for next comparison
+    previousDebouncedSearchRef.current = debouncedSearchQuery
 
     // Cancel all in-flight projects
     inFlightProjects.current.clear()
@@ -248,6 +282,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
             setCurrentOffset(PAGE_SIZE)
             setPrefetchedProjects([])
             setPrefetchedOffset(null)
+            setIsSearching(false)
           })
         }
       } catch (error) {
@@ -256,6 +291,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         }
         if (isMountedRef.current) {
           setHasMore(false)
+          setIsSearching(false)
         }
       }
     }
@@ -594,7 +630,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     setSort(newSort)
     // Update URL - the fetch useEffect will handle the actual fetch when sort state changes
     const newSearchParams = new URLSearchParams(searchParams.toString())
-    if (newSort !== 'newest_first') {
+    if (newSort !== 'project_asc') {
       newSearchParams.set('sort', newSort)
     } else {
       newSearchParams.delete('sort')
@@ -909,8 +945,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         totalCount={totalCount}
         unfilteredTotalCount={unfilteredTotalCount}
         parentRef={parentRef}
-        isBootstrapping={isBootstrapping}
-        isSearching={searchQuery.trim() !== debouncedSearchQuery.trim()}
+        isBootstrapping={isBootstrapping || isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)}
         isAgency={context.variant === 'agency'}
         agencyOrganization={context.variant === 'client' ? {
           id: snapshot.agency.id,

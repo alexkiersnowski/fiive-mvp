@@ -11,10 +11,10 @@ interface ProjectsPageProps {
 // Server component that fetches data from Supabase (mock data for now)
 export async function ProjectsPage({ connectionId, searchParams }: ProjectsPageProps) {
   // Validate sort value against allowed values
-  const validSorts = ['newest_first', 'project_asc', 'project_desc', 'end_date_asc']
+  const validSorts = ['project_asc', 'end_date_asc']
   const sort = searchParams?.sort && validSorts.includes(searchParams.sort) 
     ? searchParams.sort 
-    : 'newest_first'
+    : 'project_asc'
   
   // Get search query from URL params
   const searchQuery = searchParams?.search || undefined

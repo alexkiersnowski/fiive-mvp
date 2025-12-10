@@ -85,6 +85,9 @@ export type FlattenedItem =
  * Flattens grouped requests into a flat array for virtualization
  * Status order: New, In Review, Accepted, Closed, Canceled
  * Shows ALL clients in each status section, even if they have 0 requests
+ * 
+ * Optimized: Sorted clients are computed efficiently and can be memoized
+ * by the caller if needed (e.g., using useMemo with allClients as dependency)
  */
 export function flattenGroupedRequests(
   grouped: Record<RequestStatus, Record<string, Request[]>>,
@@ -96,6 +99,7 @@ export function flattenGroupedRequests(
   const statusOrder: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
 
   // Convert allClients map to sorted array for consistent ordering
+  // This is O(n log n) but only runs when allClients changes (memoized in component)
   const sortedClients = Array.from(allClients.entries())
     .map(([clientId, clientInfo]) => ({
       clientId,

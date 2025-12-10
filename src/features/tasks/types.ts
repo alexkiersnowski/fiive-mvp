@@ -65,14 +65,17 @@ export type TasksSnapshot = {
   unfilteredTotalCount: number; // Total count without search/filter applied
   cursor?: string | null;
   hasNextPage: boolean;
+  // Client-based pagination: track which connections have been loaded
+  loadedConnectionIds?: string[]; // Connection IDs that have been loaded in this snapshot
 };
 
 export type TasksPaginationOptions = {
   search?: string;
-  cursor?: string;
-  limit?: number;
-  sort?: string; // 'status', 'due_date', 'client_asc', 'client_desc', 'agency_asc', 'agency_desc'
+  cursor?: string; // Now represents connection cursor, not task cursor
+  limit?: number; // Number of connections to load per page (default: 20)
   assignedToUserId?: string;
   assignedToUserIds?: string[]; // For filtering by multiple user IDs (e.g., all client team members)
+  // Client-based pagination: track which connections have been loaded
+  loadedConnectionIds?: string[]; // Connection IDs already loaded (to avoid duplicates)
 };
 

@@ -7,7 +7,7 @@ import RequestsTable from '@/features/requests/RequestsTable';
 import { RequestsHeader } from '@/features/requests/RequestsHeader';
 import { RequestDetailModal } from '@/features/connections/requests/RequestDetailModal';
 import { NewRequestModal } from '@/features/connections/requests/NewRequestModal';
-import { fetchMoreRequests, fetchRequestByIdGlobal, fetchCommentsForRequestGlobal } from '@/features/requests/actions';
+import { fetchMoreRequests, fetchRequestByIdGlobal, fetchCommentsForRequestGlobal, searchRequestsGlobal } from '@/features/requests/actions';
 import { fetchProjectsForConnection } from '@/features/connections/requests/actions';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '@/features/connections/tasks/ConvertToTaskModal';
 import { PaywallModal } from '@/components/ui/paywall-modal';
@@ -21,7 +21,6 @@ interface RequestsContentProps {
   snapshot: RequestsSnapshot;
   context: EnhancedModeContext;
   initialSearchValue?: string;
-  initialSortValue?: string;
   initialComments?: Record<string, Comment[]>;
   agencyMembers?: Array<{
     id: string
@@ -44,7 +43,6 @@ export function RequestsContent({
   snapshot, 
   context, 
   initialSearchValue = '', 
-  initialSortValue = 'created',
   initialComments = {},
   agencyMembers = [],
   connections = [],
@@ -68,9 +66,9 @@ export function RequestsContent({
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState(snapshot.unfilteredTotalCount);
   const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
   const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
+  const [loadedConnectionIds, setLoadedConnectionIds] = useState<string[]>(snapshot.loadedConnectionIds || []);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
-  const [sortValue, setSortValue] = useState(initialSortValue || 'created');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
   const [, startTransition] = useTransition();
@@ -106,21 +104,19 @@ export function RequestsContent({
   // Paywall modal state
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
 
-  // Sort options - different for agency vs client views
-  const sortOptions = context.variant === 'agency'
-    ? [
-        { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
-        { value: 'client_asc', label: 'Client (A-Z)', buttonLabel: 'Client (A-Z)' },
-        { value: 'client_desc', label: 'Client (Z-A)', buttonLabel: 'Client (Z-A)' }
-      ]
-    : [
-        { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
-        { value: 'agency_asc', label: 'Agency (A-Z)', buttonLabel: 'Agency (A-Z)' },
-        { value: 'agency_desc', label: 'Agency (Z-A)', buttonLabel: 'Agency (Z-A)' }
-      ];
-
   // Sync local state with server snapshot when props change
+  // But if search is active, we need to fetch search results instead
   useEffect(() => {
+    // Check URL param directly to avoid timing issues with debounced value
+    const currentSearchParam = searchParams.get('search') || '';
+    const hasActiveSearch = currentSearchParam.trim().length > 0;
+    
+    // If search is active, don't sync snapshot - we'll fetch search results instead
+    // This prevents the count from updating before search results load
+    if (hasActiveSearch) {
+      return;
+    }
+    
     // Use transition for smooth updates (prevents flicker)
     startTransition(() => {
       setRequests(snapshot.requests);
@@ -128,9 +124,10 @@ export function RequestsContent({
       setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
       setCursor(snapshot.cursor || null);
       setHasNextPage(snapshot.hasNextPage);
+      setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
       setIsFetchingServerResults(false);
     });
-  }, [snapshot, startTransition]);
+  }, [snapshot, startTransition, searchParams]);
 
   // Sync comments when initialComments prop changes (when snapshot changes, page re-fetches comments)
   useEffect(() => {
@@ -149,13 +146,12 @@ export function RequestsContent({
     return () => clearTimeout(timer);
   }, [searchValue]);
 
-  // Trigger server fetch when debounced search, sort, or assignedToMe changes (for complete results)
+  // Trigger server fetch when debounced search or assignedToMe changes (for complete results)
   useEffect(() => {
     const currentSearchParam = searchParams.get('search') || '';
-    const currentSortParam = searchParams.get('sort') || 'created';
     const currentAssignedParam = searchParams.get('assigned') === 'me';
     
-    if (debouncedSearchValue !== currentSearchParam || sortValue !== currentSortParam || assignedToMe !== currentAssignedParam) {
+    if (debouncedSearchValue !== currentSearchParam || assignedToMe !== currentAssignedParam) {
       setIsFetchingServerResults(true);
       const params = new URLSearchParams(searchParams.toString());
       if (debouncedSearchValue.trim()) {
@@ -163,7 +159,6 @@ export function RequestsContent({
       } else {
         params.delete('search');
       }
-      params.set('sort', sortValue);
       if (assignedToMe) {
         params.set('assigned', 'me');
       } else {
@@ -171,7 +166,39 @@ export function RequestsContent({
       }
       router.push(`/requests?${params.toString()}`, { scroll: false });
     }
-  }, [debouncedSearchValue, sortValue, assignedToMe, router, searchParams]);
+  }, [debouncedSearchValue, assignedToMe, router, searchParams]);
+
+  // Fetch search results when search query is active
+  useEffect(() => {
+    const hasActiveSearch = debouncedSearchValue.trim().length > 0;
+    
+    // Only fetch search results if search is active
+    if (!hasActiveSearch) {
+      return;
+    }
+    
+    setIsFetchingServerResults(true);
+    searchRequestsGlobal(context, {
+      search: debouncedSearchValue,
+      limit: 50, // Search-based pagination: 50 requests per page
+      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+      createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+      cursor: undefined // Start from beginning for new search
+    }).then(snapshot => {
+      startTransition(() => {
+        setRequests(snapshot.requests);
+        setTotalCount(snapshot.total);
+        setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
+        setCursor(snapshot.cursor || null);
+        setHasNextPage(snapshot.hasNextPage);
+        setLoadedConnectionIds([]); // Not used for search mode
+        setIsFetchingServerResults(false);
+      });
+    }).catch(error => {
+      console.error('Error searching requests:', error);
+      setIsFetchingServerResults(false);
+    });
+  }, [debouncedSearchValue, assignedToMe, context, startTransition]);
 
   // Display: Use server results directly (no optimistic filtering)
   const displayedRequests = requests;
@@ -193,19 +220,35 @@ export function RequestsContent({
   const loadMore = useCallback(async () => {
     if (!hasNextPage || isLoading || !cursor) return;
     
+    const hasActiveSearch = debouncedSearchValue.trim().length > 0;
+    
     setIsLoading(true);
     try {
-      const snapshot = await fetchMoreRequests(context, {
+      let snapshot: RequestsSnapshot;
+      
+      if (hasActiveSearch) {
+        // Use search-based pagination (offset-based)
+        snapshot = await searchRequestsGlobal(context, {
+          search: debouncedSearchValue,
+          limit: 50, // Search-based pagination: 50 requests per page
+          cursor, // Offset-based cursor for search
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+        });
+      } else {
+        // Use connection-based pagination (normal mode)
+        snapshot = await fetchMoreRequests(context, {
         cursor,
         search: debouncedSearchValue,
-        sort: sortValue,
-        limit: 50,
+        limit: 20, // Number of connections to load per page
         assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
+        loadedConnectionIds: loadedConnectionIds // Pass already loaded connection IDs to avoid duplicates
       });
+      }
       
       startTransition(() => {
-        // Merge new requests with existing ones
+        // Merge new requests with existing ones (avoid duplicates)
         setRequests(prev => {
           const existingIds = new Set(prev.map(r => r.id));
           const newRequests = snapshot.requests.filter(r => !existingIds.has(r.id));
@@ -215,6 +258,7 @@ export function RequestsContent({
         setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
         setCursor(snapshot.cursor || null);
         setHasNextPage(snapshot.hasNextPage);
+        setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
       });
     } catch (error) {
       console.error('Error loading more requests:', error);
@@ -222,17 +266,19 @@ export function RequestsContent({
     } finally {
       setIsLoading(false);
     }
-  }, [hasNextPage, isLoading, cursor, context, debouncedSearchValue, sortValue, assignedToMe, startTransition]);
+  }, [hasNextPage, isLoading, cursor, context, debouncedSearchValue, assignedToMe, loadedConnectionIds, startTransition]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchValue(value);
-    // Debounced server fetch handled by useEffect
-  }, []);
-
-  const handleSortChange = useCallback((newSortValue: string) => {
-    setSortValue(newSortValue);
-    // Server fetch handled by useEffect
-  }, []);
+    // Show skeleton immediately when search changes (better UX feedback)
+    // Keep count persistent (less jarring than showing 0)
+    if (value.trim() !== debouncedSearchValue.trim()) {
+      setIsFetchingServerResults(true);
+      // Clear requests immediately to show skeletons, but keep count persistent
+      setRequests([]);
+      // Don't clear totalCount - keep it persistent until new results arrive
+    }
+  }, [debouncedSearchValue]);
 
   const handleNewRequest = useCallback(() => {
     setIsNewRequestModalOpen(true);
@@ -644,7 +690,7 @@ export function RequestsContent({
       <div ref={parentRef}>
         <RequestsTable
           requests={displayedRequests}
-          isBootstrapping={isFetchingServerResults && displayedRequests.length === 0}
+          isBootstrapping={isFetchingServerResults}
           unfilteredTotalCount={unfilteredTotalCount}
           onLoadMore={loadMore}
           onNewRequest={handleNewRequest}
@@ -662,9 +708,6 @@ export function RequestsContent({
           isAgency={isAgency}
           agencyMembers={agencyMembers}
           onSearchChange={handleSearchChange}
-          sortOptions={sortOptions}
-          sortValue={sortValue}
-          onSortChange={handleSortChange}
           onConvertToTask={handleRequestConvertToTask}
           allowedConnectionIds={allowedConnectionIds}
         />
@@ -782,6 +825,8 @@ export function RequestsContent({
         variant={context.variant}
         isGlobal={true}
         onConnectionSelect={handleConnectionSelect}
+        allowedConnectionIds={allowedConnectionIds}
+        onPaywallBlocked={() => setIsPaywallModalOpen(true)}
       />
 
       {/* Paywall Modal */}

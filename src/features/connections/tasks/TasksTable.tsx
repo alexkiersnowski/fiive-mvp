@@ -9,16 +9,18 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Badge } from '@/components/ui/badge'
 import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, LockSimple, ClipboardText, Rows } from '@phosphor-icons/react'
+import { Plus, SortAscending, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateTaskAssignee, updateTaskStatus, deleteTask, fetchProjectsForConnection } from './actions'
-import { sortTasksWithPinnedFirst, groupTasksByStatus, type TaskSortMode } from './taskSort'
+import { sortTasksWithPinnedFirst, groupTasksByStatus } from './taskSort'
 import type { Task, TaskStatus } from '../server'
 import { useVirtualTable, VirtualListBody } from '@/components/virtual-table'
 import { useConnection } from '../ConnectionContext'
 import type { VirtualItem } from '@tanstack/react-virtual'
 import { TaskGroupHeader } from './TaskGroupHeader'
 import { TaskRow } from './TaskRow'
+import { useStableSet } from '../useStableCollapseState'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // Drag ghost offset from cursor (pixels from left edge of row)
 const DRAG_GHOST_OFFSET_X = 200
@@ -58,10 +60,9 @@ interface TasksTableProps {
     logoUrl?: string
   }
   onTaskDeleted?: (taskId: string) => void
-  sortMode?: TaskSortMode
 }
 
-export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], onTaskUpdate, currentOrgId: _currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onTaskDeleted, sortMode = 'status' }: TasksTableProps) {
+export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], onTaskUpdate, currentOrgId: _currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onTaskDeleted }: TasksTableProps) {
   const { isDisconnected } = useConnection()
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
@@ -69,8 +70,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   const [searchQuery, setSearchQuery] = useState('')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
-  // Track collapsed groups (default: all expanded)
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<TaskStatus>>(new Set())
+  // Track collapsed groups with stable references (default: only 'done' collapsed)
+  const collapsedGroupsState = useStableSet<TaskStatus>(new Set(['done']))
   
   // Drag & drop state
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
@@ -82,7 +83,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   const hoverDetectionThrottleRef = useRef<number | null>(null)
   
   // Client-side sorting function (applied to tasks prop)
-  const orderTasks = useCallback((list: Task[]) => sortTasksWithPinnedFirst(list, sortMode), [sortMode])
+  const orderTasks = useCallback((list: Task[]) => sortTasksWithPinnedFirst(list), [])
   
   // Apply sorting to tasks prop
   const orderedTasks = useMemo(() => orderTasks(tasks), [tasks, orderTasks])
@@ -93,7 +94,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     | { type: 'task'; task: Task }
   
   const flattenedItems = useMemo<FlattenedItem[]>(() => {
-    const grouped = groupTasksByStatus(orderedTasks, sortMode)
+    const grouped = groupTasksByStatus(orderedTasks)
     // Order: In progress, To do, On hold, Done
     const statusOrder: TaskStatus[] = ['in_progress', 'to_do', 'on_hold', 'done']
     const items: FlattenedItem[] = []
@@ -104,7 +105,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       items.push({ type: 'group', status, count: groupTasks.length })
       
       // Add tasks if group is not collapsed and has tasks
-      if (!collapsedGroups.has(status) && groupTasks.length > 0) {
+      if (!collapsedGroupsState.set.has(status) && groupTasks.length > 0) {
         for (const task of groupTasks) {
           items.push({ type: 'task', task })
         }
@@ -112,24 +113,16 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     }
     
     return items
-  }, [orderedTasks, collapsedGroups, sortMode])
+  }, [orderedTasks, collapsedGroupsState.set])
   
-  // Toggle group collapse/expand - prevent during drag
+  // Toggle group collapse/expand - prevent during drag - uses stable reference hook
   const toggleGroup = useCallback((status: TaskStatus) => {
     // Don't toggle if dragging
     if (draggedTaskId !== null) {
       return
     }
-    setCollapsedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(status)) {
-        next.delete(status)
-      } else {
-        next.add(status)
-      }
-      return next
-    })
-  }, [draggedTaskId])
+    collapsedGroupsState.toggle(status)
+  }, [draggedTaskId, collapsedGroupsState])
   
   const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
@@ -674,7 +667,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
             <SearchInput
-              placeholder="Search by title, project, or status…"
+              placeholder="Search tasks by title…"
               value={searchQuery}
               onChange={(value) => {
                 setSearchQuery(value)
@@ -735,14 +728,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
               <TooltipContent side="bottom" align="center" sideOffset={4}>
                 {isAgency ? 'Assigned to me' : 'Assigned to my team'}
               </TooltipContent>
-            </Tooltip>
-            <Button
-              variant="outline"
-              className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
-            >
-              <Rows size={16} />
-              Status
-            </Button>
+              </Tooltip>
             <Button
               variant="outline"
               className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
@@ -795,10 +781,62 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       {/* List Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="pb-5 px-5">
-          {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
-          {isBootstrapping && tasks.length === 0 ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+          {isBootstrapping ? (
+            <div className="space-y-0">
+              {/* Status Group Skeleton - 1x only, starts the block */}
+              <div
+                className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                style={{
+                  gridTemplateColumns: isAgency 
+                    ? '44px 4fr 3fr 3fr 3fr 3fr 44px 44px'
+                    : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                }}
+              >
+                <div className="flex items-center justify-center">
+                  <Skeleton className="w-3 h-3" />
+                </div>
+                <div className="flex items-center gap-3 px-3">
+                  <Skeleton className="w-12 h-5 rounded" />
+                  <Skeleton className="w-16 h-4 rounded" />
+                </div>
+              </div>
+              {/* Task Row Skeletons - 20 per status group */}
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((taskIndex) => (
+                <div
+                  key={taskIndex}
+                  className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                  style={{
+                    gridTemplateColumns: isAgency 
+                      ? '44px 4fr 3fr 3fr 3fr 3fr 44px 44px'
+                      : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                  }}
+                >
+                  {/* Empty drag handle cell */}
+                  <div></div>
+                  {/* Title */}
+                  <div className="px-3">
+                    <Skeleton className="w-32 h-4 rounded" />
+                  </div>
+                  {/* Status */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {/* Assignee */}
+                  <div className="px-3">
+                    <Skeleton className="w-16 h-4 rounded" />
+                  </div>
+                  {/* Due Date */}
+                  <div className="px-3">
+                    <Skeleton className="w-24 h-4 rounded" />
+                  </div>
+                  {/* Project */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {isAgency && <div></div>}
+                  <div></div>
+                </div>
+              ))}
             </div>
           ) : (
             <VirtualListBody
@@ -820,7 +858,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                     <TaskGroupHeader
                       status={item.status}
                       count={item.count}
-                      isExpanded={!collapsedGroups.has(item.status)}
+                      isExpanded={!collapsedGroupsState.set.has(item.status)}
                       onToggle={() => toggleGroup(item.status)}
                       isAgency={isAgency}
                       isDragHovered={hoveredGroupStatus === item.status && draggedTaskId !== null}

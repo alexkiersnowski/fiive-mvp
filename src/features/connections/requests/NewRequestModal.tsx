@@ -45,6 +45,8 @@ interface NewRequestModalProps {
   variant?: 'agency' | 'client'
   isGlobal?: boolean // If true, show client dropdown instead of fixed client
   onConnectionSelect?: (connectionId: string) => void // Callback when connection is selected in global mode
+  allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
+  onPaywallBlocked?: () => void // Callback when paywall blocks creation
 }
 
 export function NewRequestModal({ 
@@ -60,7 +62,9 @@ export function NewRequestModal({
   currentOrgId: _currentOrgId, 
   variant = 'agency',
   isGlobal = false,
-  onConnectionSelect
+  onConnectionSelect,
+  allowedConnectionIds = null,
+  onPaywallBlocked
 }: NewRequestModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
@@ -149,6 +153,13 @@ export function NewRequestModal({
     const targetConnectionId = isGlobal ? selectedConnectionId : connectionId
     if (!targetConnectionId) return
     
+    // Check paywall: if allowedConnectionIds is not null and targetConnectionId is not in the allowed list, block creation
+    if (allowedConnectionIds !== null && !allowedConnectionIds.includes(targetConnectionId)) {
+      // Connection is restricted - show paywall
+      onPaywallBlocked?.()
+      return
+    }
+    
     // Close modal immediately for snappy UX
     onClose()
     
@@ -194,7 +205,7 @@ export function NewRequestModal({
         console.error('Error creating request:', error)
         toast.error('Failed to create request')
       })
-  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onRequestCreated, onRequestOptimistic, onClose])
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onRequestCreated, onRequestOptimistic, onClose, allowedConnectionIds, onPaywallBlocked])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {

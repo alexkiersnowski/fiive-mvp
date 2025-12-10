@@ -66,6 +66,9 @@ export type FlattenedItem =
  * Flattens grouped tasks into a flat array for virtualization
  * Status order: In progress, To do, On hold, Done
  * Shows ALL clients in each status section, even if they have 0 tasks
+ * 
+ * Optimized: Sorted clients are computed efficiently and can be memoized
+ * by the caller if needed (e.g., using useMemo with allClients as dependency)
  */
 export function flattenGroupedTasks(
   grouped: Record<TaskStatus, Record<string, Task[]>>,
@@ -77,6 +80,7 @@ export function flattenGroupedTasks(
   const statusOrder: TaskStatus[] = ['in_progress', 'to_do', 'on_hold', 'done']
 
   // Convert allClients map to sorted array for consistent ordering
+  // This is O(n log n) but only runs when allClients changes (memoized in component)
   const sortedClients = Array.from(allClients.entries())
     .map(([clientId, clientInfo]) => ({
       clientId,

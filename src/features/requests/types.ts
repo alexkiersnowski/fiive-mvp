@@ -46,15 +46,18 @@ export type RequestsSnapshot = {
   unfilteredTotalCount: number; // Total count without search/filter applied
   cursor?: string | null;
   hasNextPage: boolean;
+  // Client-based pagination: track which connections have been loaded
+  loadedConnectionIds?: string[]; // Connection IDs that have been loaded in this snapshot
 };
 
 export type RequestsPaginationOptions = {
   search?: string;
-  cursor?: string;
-  limit?: number;
-  sort?: string;
+  cursor?: string; // Now represents connection cursor, not request cursor
+  limit?: number; // Number of connections to load per page (default: 15)
   assignedToUserId?: string;
   createdByUserId?: string;
   connectionIds?: string[]; // Optional: share connection IDs to avoid redundant queries
+  // Client-based pagination: track which connections have been loaded
+  loadedConnectionIds?: string[]; // Connection IDs already loaded (to avoid duplicates)
 };
 

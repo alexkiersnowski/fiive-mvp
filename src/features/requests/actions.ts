@@ -1,6 +1,6 @@
 'use server'
 
-import { getRequestsSnapshot, getRequestByIdGlobal } from './server';
+import { getRequestsSnapshot, getRequestByIdGlobal, searchRequestsGlobal as searchRequestsGlobalServer } from './server';
 import { getCommentsForRequest } from '@/features/connections/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { RequestsSnapshot, RequestsPaginationOptions } from './types';
@@ -33,6 +33,17 @@ export async function refreshRequestsData(
   options: RequestsPaginationOptions = {}
 ): Promise<RequestsSnapshot> {
   return await getRequestsSnapshot(context, options);
+}
+
+/**
+ * Search requests across all connections using full-text search
+ * Uses search-based pagination (offset-based) instead of connection-based pagination
+ */
+export async function searchRequestsGlobal(
+  context: EnhancedModeContext,
+  options: RequestsPaginationOptions = {}
+): Promise<RequestsSnapshot> {
+  return await searchRequestsGlobalServer(context, options);
 }
 
 /**

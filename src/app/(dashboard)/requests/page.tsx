@@ -9,7 +9,6 @@ import { RequestsContent } from './RequestsContent';
 interface RequestsPageProps {
   searchParams: Promise<{
     search?: string;
-    sort?: string;
     assigned?: string;
   }>;
 }
@@ -40,11 +39,11 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
   const [snapshot, allowedConnectionIds] = await Promise.all([
     getRequestsSnapshot(context, {
       search: resolvedSearchParams.search || '',
-      limit: 50,
-      sort: resolvedSearchParams.sort || 'created',
+      limit: 20, // Number of connections to load per page (not requests)
       assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
       createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
-      connectionIds // Share connection IDs to avoid redundant query
+      connectionIds, // Share connection IDs to avoid redundant query (but we'll still paginate)
+      loadedConnectionIds: [] // Start with empty array for initial load
     }),
     allowedConnectionIdsPromise
   ]);
@@ -75,7 +74,6 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
       snapshot={snapshot} 
       context={context}
       initialSearchValue={resolvedSearchParams.search || ''}
-      initialSortValue={resolvedSearchParams.sort || 'created'}
       initialComments={initialComments}
       agencyMembers={agencyMembers}
       connections={connections}

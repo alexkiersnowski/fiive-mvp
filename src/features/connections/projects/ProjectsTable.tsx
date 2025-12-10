@@ -19,6 +19,7 @@ import type { Project } from '../server'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 import type { VirtualItem } from '@tanstack/react-virtual'
 import { useConnection } from '../ConnectionContext'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface ProjectsTableProps {
   userAvatar?: string
@@ -54,7 +55,7 @@ interface ProjectsTableProps {
   onSortChange?: (sortValue: string) => void
 }
 
-export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitials: _userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId: _currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization: _agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
+export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitials: _userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId: _currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization: _agencyOrganization, onProjectDeleted, initialSortValue = 'project_asc', onSortChange }: ProjectsTableProps) {
   const { isDisconnected } = useConnection()
   const pathname = usePathname()
   const _router = useRouter()
@@ -111,15 +112,13 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
 
   // Sort options (memoized to prevent recreation)
   const sortOptions = useMemo(() => [
-    { value: 'newest_first', label: 'Newest first', buttonLabel: 'Newest first' },
     { value: 'project_asc', label: 'Project (A-Z)', buttonLabel: 'Project (A-Z)' },
-    { value: 'project_desc', label: 'Project (Z-A)', buttonLabel: 'Project (Z-A)' },
-    { value: 'end_date_asc', label: 'End date (soonest first)', buttonLabel: 'End date' }
+    { value: 'end_date_asc', label: 'End date', buttonLabel: 'End date' }
   ], [])
 
   // Current sort label (memoized based on sortValue)
   const currentSortLabel = useMemo(() => 
-    sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Newest first',
+    sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Project (A-Z)',
     [sortOptions, sortValue]
   )
 
@@ -386,7 +385,7 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
             <SearchInput
-              placeholder="Search by project or status…"
+              placeholder="Search projects by name…"
               value={searchQuery}
               onChange={(value) => {
                 setSearchQuery(value)
@@ -436,7 +435,7 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
                   <CaretDown size={16} />
             </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-55">
+              <DropdownMenuContent align="end" className="w-[180px]">
                 {sortOptions.map((option) => (
                   <DropdownMenuItem
                     key={option.value}
@@ -515,8 +514,44 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
         <div className="px-5 pb-5">
           {/* During initial bootstrap or when searching, suppress empty-state flash with skeleton block */}
           {(isBootstrapping || (isSearching && projects.length === 0 && searchQuery.trim().length > 0)) ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+            <div className="space-y-0">
+              {/* Project Row Skeletons - 20 rows */}
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((projectIndex) => (
+                <div
+                  key={projectIndex}
+                  className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                  style={{
+                    gridTemplateColumns: '25% 15% 15% 15% 15% 15% 44px',
+                  }}
+                >
+                  {/* Project */}
+                  <div className="px-3">
+                    <Skeleton className="w-32 h-4 rounded" />
+                  </div>
+                  {/* Status */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {/* Start date */}
+                  <div className="px-3">
+                    <Skeleton className="w-24 h-4 rounded" />
+                  </div>
+                  {/* End date */}
+                  <div className="px-3">
+                    <Skeleton className="w-24 h-4 rounded" />
+                  </div>
+                  {/* Requests */}
+                  <div className="px-3">
+                    <Skeleton className="w-8 h-4 rounded" />
+                  </div>
+                  {/* Tasks */}
+                  <div className="px-3">
+                    <Skeleton className="w-8 h-4 rounded" />
+                  </div>
+                  {/* Actions */}
+                  <div></div>
+                </div>
+              ))}
             </div>
           ) : (
             <VirtualTableBody

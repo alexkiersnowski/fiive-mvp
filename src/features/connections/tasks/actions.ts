@@ -3,7 +3,6 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import type { TaskSortMode } from './taskSort'
 
 const isDev = () => process.env.NODE_ENV !== 'production';
 
@@ -696,7 +695,7 @@ export async function updateTaskClientVisible(taskId: string, clientVisible: boo
  */
 export async function fetchTasksForConnection(
   connectionId: string,
-  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; assignedToUserIds?: string[]; createdByUserId?: string; sortMode?: TaskSortMode }
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; assignedToUserIds?: string[]; createdByUserId?: string }
 ) {
   // Import the server function dynamically to avoid circular dependencies
   const { getTasksForConnection } = await import('../server')

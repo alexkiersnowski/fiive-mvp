@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Badge } from '@/components/ui/badge'
 import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, Eye, Users, Rows } from '@phosphor-icons/react'
+import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
 import { groupRequestsByStatus, type RequestStatus } from './requestSort'
@@ -19,6 +19,8 @@ import { useConnection } from '../ConnectionContext'
 import type { VirtualItem } from '@tanstack/react-virtual'
 import { RequestGroupHeader } from './RequestGroupHeader'
 import { RequestRow } from './RequestRow'
+import { useStableSet } from '../useStableCollapseState'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // Drag ghost offset from cursor (pixels from left edge of row)
 const DRAG_GHOST_OFFSET_X = 200
@@ -66,8 +68,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   const [searchQuery, setSearchQuery] = useState('')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
-  // Track collapsed groups (default: 'closed' and 'canceled' collapsed, rest expanded)
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<RequestStatus>>(new Set(['closed', 'canceled']))
+  // Track collapsed groups with stable references (default: 'closed' and 'canceled' collapsed, rest expanded)
+  const collapsedGroupsState = useStableSet<RequestStatus>(new Set(['closed', 'canceled']))
   
   // Drag & drop state
   const [draggedRequestId, setDraggedRequestId] = useState<string | null>(null)
@@ -95,7 +97,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       items.push({ type: 'group', status, count: groupRequests.length })
       
       // Add requests if group is not collapsed and has requests
-      if (!collapsedGroups.has(status) && groupRequests.length > 0) {
+      if (!collapsedGroupsState.set.has(status) && groupRequests.length > 0) {
         for (const request of groupRequests) {
           items.push({ type: 'request', request })
         }
@@ -103,24 +105,16 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     }
     
     return items
-  }, [requests, collapsedGroups])
+  }, [requests, collapsedGroupsState.set])
   
-  // Toggle group collapse/expand - prevent during drag
+  // Toggle group collapse/expand - prevent during drag - uses stable reference hook
   const toggleGroup = useCallback((status: RequestStatus) => {
     // Don't toggle if dragging
     if (draggedRequestId !== null) {
       return
     }
-    setCollapsedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(status)) {
-        next.delete(status)
-      } else {
-        next.add(status)
-      }
-      return next
-    })
-  }, [draggedRequestId])
+    collapsedGroupsState.toggle(status)
+  }, [draggedRequestId, collapsedGroupsState])
   
   const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
@@ -631,7 +625,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
             <SearchInput
-              placeholder="Search by title, project, or status…"
+              placeholder="Search requests by title…"
               value={searchQuery}
               onChange={(value) => {
                 setSearchQuery(value)
@@ -692,14 +686,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               <TooltipContent side="bottom" align="center" sideOffset={4}>
                 {isAgency ? 'Assigned to me' : 'Submitted by me'}
               </TooltipContent>
-            </Tooltip>
-            <Button
-              variant="outline"
-              className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
-            >
-              <Rows size={16} />
-              Status
-            </Button>
+              </Tooltip>
             <Button
               variant="outline"
               className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
@@ -752,10 +739,62 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       {/* List Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="pb-5 px-5">
-          {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
-          {isBootstrapping && requests.length === 0 ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+          {isBootstrapping ? (
+            <div className="space-y-0">
+              {/* Status Group Skeleton - 1x only, starts the block */}
+              <div
+                className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                style={{
+                  gridTemplateColumns: isAgency 
+                    ? '44px 4fr 3fr 3fr 3fr 3fr 44px'
+                    : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                }}
+              >
+                <div className="flex items-center justify-center">
+                  <Skeleton className="w-3 h-3" />
+                </div>
+                <div className="flex items-center gap-3 px-3">
+                  <Skeleton className="w-12 h-5 rounded" />
+                  <Skeleton className="w-16 h-4 rounded" />
+                </div>
+              </div>
+              {/* Request Row Skeletons - 20 per status group */}
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((requestIndex) => (
+                <div
+                  key={requestIndex}
+                  className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                  style={{
+                    gridTemplateColumns: isAgency 
+                      ? '44px 4fr 3fr 3fr 3fr 3fr 44px'
+                      : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                  }}
+                >
+                  {/* Empty drag handle cell */}
+                  <div></div>
+                  {/* Title */}
+                  <div className="px-3">
+                    <Skeleton className="w-32 h-4 rounded" />
+                  </div>
+                  {/* Status */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {/* Assignee/Owner */}
+                  <div className="px-3">
+                    <Skeleton className="w-16 h-4 rounded" />
+                  </div>
+                  {/* Project */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {/* Created */}
+                  <div className="px-3">
+                    <Skeleton className="w-24 h-4 rounded" />
+                  </div>
+                  {/* Actions */}
+                  <div></div>
+                </div>
+              ))}
             </div>
           ) : (
             <VirtualListBody
@@ -777,7 +816,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     <RequestGroupHeader
                       status={item.status}
                       count={item.count}
-                      isExpanded={!collapsedGroups.has(item.status)}
+                      isExpanded={!collapsedGroupsState.set.has(item.status)}
                       onToggle={() => toggleGroup(item.status)}
                       isAgency={isAgency}
                       isDragHovered={hoveredGroupStatus === item.status && draggedRequestId !== null}

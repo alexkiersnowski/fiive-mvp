@@ -9,7 +9,6 @@ import { TasksContent } from './TasksContent';
 interface TasksPageProps {
   searchParams: Promise<{
     search?: string;
-    sort?: string;
     assigned?: string;
   }>;
 }
@@ -37,9 +36,9 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const [snapshot, allowedConnectionIds] = await Promise.all([
     getTasksSnapshot(context, {
       search: resolvedSearchParams.search || '',
-      limit: 50,
-      sort: resolvedSearchParams.sort || 'due_date',
-      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined
+      limit: 20, // Number of connections to load per page (not tasks)
+      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+      loadedConnectionIds: [] // Start with empty array for initial load
     }),
     allowedConnectionIdsPromise
   ]);
@@ -74,7 +73,6 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       snapshot={snapshot} 
       context={context}
       initialSearchValue={resolvedSearchParams.search || ''}
-      initialSortValue={resolvedSearchParams.sort || 'due_date'}
       initialComments={initialComments}
       agencyMembers={agencyMembers}
       clientMembers={clientMembers}

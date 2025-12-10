@@ -56,7 +56,7 @@ export const getRequestsSnapshot = cache(async (
   context: EnhancedModeContext,
   options: RequestsPaginationOptions = {}
 ): Promise<RequestsSnapshot> => {
-  const { search = '', cursor, limit = 50, sort = 'created', connectionIds: providedConnectionIds } = options;
+  const { search = '', cursor, limit = 20, connectionIds: providedConnectionIds, loadedConnectionIds = [] } = options;
   
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {
@@ -67,37 +67,80 @@ export const getRequestsSnapshot = cache(async (
       unfilteredTotalCount: 0,
       cursor: null,
       hasNextPage: false,
+      loadedConnectionIds: [],
     };
   }
 
   const supabase = await createClient();
   
-  // Use provided connection IDs or fetch them
-  let connectionIds: string[] = providedConnectionIds || [];
+  // PHASE 1: Client-based pagination - Fetch connections first (paginated)
+  // Sort connections by created_at desc (newest first)
+  // First, fetch ALL connection IDs (to filter out already loaded ones)
+  const allConnectionsQuery = context.variant === 'agency'
+    ? supabase
+        .from('connections')
+        .select('id, client_id, agency_id, created_at')
+        .eq('agency_id', context.orgId)
+        .neq('connection_status', 'disconnected')
+        .order('created_at', { ascending: false })
+    : supabase
+        .from('connections')
+        .select('id, client_id, agency_id, created_at')
+        .eq('client_id', context.orgId)
+        .neq('connection_status', 'disconnected')
+        .order('created_at', { ascending: false });
   
-  if (connectionIds.length === 0) {
-    connectionIds = await getConnectionIdsForOrg(context, supabase);
-  }
-
-  if (connectionIds.length === 0) {
-    // No connections, return empty result
+  const { data: allConnections, error: allConnectionsError } = await allConnectionsQuery;
+  
+  if (allConnectionsError || !allConnections) {
+    console.error('Error fetching all connections:', allConnectionsError);
     return {
       requests: [],
       total: 0,
       unfilteredTotalCount: 0,
       cursor: null,
       hasNextPage: false,
+      loadedConnectionIds: [],
+    };
+  }
+  
+  // Filter out already loaded connections
+  const remainingConnections = loadedConnectionIds.length > 0
+    ? allConnections.filter(conn => !loadedConnectionIds.includes(conn.id))
+    : allConnections;
+  
+  // Apply pagination to remaining connections
+  const connectionStartIndex = cursor ? parseInt(cursor, 10) : 0;
+  const connections = remainingConnections.slice(connectionStartIndex, connectionStartIndex + limit);
+  const totalConnectionsCount = remainingConnections.length;
+  const connectionIds = connections.map(c => c.id);
+  const newLoadedConnectionIds = [...loadedConnectionIds, ...connectionIds];
+  
+  // Check if there are more connections to load
+  const hasMoreConnections = totalConnectionsCount > connectionStartIndex + limit;
+
+  if (connectionIds.length === 0) {
+    // No more connections to load, return empty result
+    return {
+      requests: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+      loadedConnectionIds: loadedConnectionIds,
     };
   }
 
-  // Always fetch unfiltered total count (needed to distinguish empty state vs "No results" during search)
-  // This allows us to show empty state only when truly no requests exist, vs "No results" when search filters return nothing
-  // This MUST be fetched even when searching to properly distinguish between "no requests exist" and "search returned no results"
-  const { count: unfilteredTotalCountRaw, error: unfilteredCountError } = await supabase
-    .from('requests')
-    .select('id', { count: 'exact', head: true })
-    .in('connection_id', connectionIds)
-    .is('deleted_at', null);
+  // Always fetch unfiltered total count across ALL connections (needed to distinguish empty state vs "No results" during search)
+  // Reuse connection IDs from allConnections fetched above
+  const allConnectionIds = (allConnections || []).map(c => c.id);
+  const { count: unfilteredTotalCountRaw, error: unfilteredCountError } = allConnectionIds.length > 0
+    ? await supabase
+        .from('requests')
+        .select('id', { count: 'exact', head: true })
+        .in('connection_id', allConnectionIds)
+        .is('deleted_at', null)
+    : { count: 0, error: null };
 
   // Ensure we always have a valid number (default to 0 on error, but log it)
   const unfilteredTotalCount = unfilteredCountError ? 0 : (unfilteredTotalCountRaw ?? 0);
@@ -106,99 +149,24 @@ export const getRequestsSnapshot = cache(async (
     console.error('Error fetching unfiltered total count:', unfilteredCountError);
   }
 
-  // Normalize search query for status matching
-  const normalizeStatusQuery = (query: string): string | null => {
-    const normalized = query.toLowerCase().trim();
-    const STATUS_KEYWORDS: Record<string, 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'> = {
-      open: 'new',
-      new: 'new',
-      'in review': 'in_review',
-      in_review: 'in_review',
-      review: 'in_review',
-      reviewing: 'in_review',
-      accepted: 'accepted',
-      approve: 'accepted',
-      approved: 'accepted',
-      accept: 'accepted',
-      canceled: 'canceled',
-      cancelled: 'canceled',
-      cancel: 'canceled',
-      closed: 'closed',
-      close: 'closed',
-      completed: 'closed'
-    };
-    return STATUS_KEYWORDS[normalized] ?? null;
-  };
-
-  // When searching, find matching profile IDs and connection IDs in parallel
-  let matchingUserIds: string[] = [];
+  // When searching, find matching organization names via connections
   let matchingConnectionIds: string[] = [];
   
   if (search && search.trim().length > 0) {
     const trimmedQuery = search.trim();
     const escaped = escapeForILike(trimmedQuery);
     const searchPattern = `%${escaped}%`;
-    const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0);
     
-    // Parallelize profile search and connection/org search queries
-    const [profilesResult, connectionsForOrgSearchResult] = await Promise.all([
-      // Query profiles table for matching names (DB-level search)
-      (() => {
-        let profilesQuery = supabase
-          .from('profiles')
-          .select('id, first_name, last_name')
-          .is('deleted_at', null);
-        
-        if (searchTerms.length > 1) {
-          const firstTermEscaped = escapeForILike(searchTerms[0]);
-          const secondTermEscaped = escapeForILike(searchTerms[1]);
-          const firstPattern = `%${firstTermEscaped}%`;
-          const secondPattern = `%${secondTermEscaped}%`;
-          
-          profilesQuery = profilesQuery.or(
-            `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
-            `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
-            `first_name.ilike.${searchPattern},` +
-            `last_name.ilike.${searchPattern}`
-          );
-        } else {
-          profilesQuery = profilesQuery.or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern}`);
-        }
-        return profilesQuery;
-      })(),
-      // Get connection org IDs for organization name search
-      context.variant === 'agency'
-        ? supabase
-            .from('connections')
-            .select('client_id')
-            .eq('agency_id', context.orgId)
-        : supabase
-            .from('connections')
-            .select('agency_id')
-            .eq('client_id', context.orgId)
-    ]);
-    
-    // Process profile results
-    const { data: matchingProfiles, error: profilesError } = profilesResult;
-    if (!profilesError && matchingProfiles) {
-      if (searchTerms.length > 1) {
-        matchingUserIds = matchingProfiles
-          .filter(profile => {
-            const firstName = (profile.first_name || '').toLowerCase();
-            const lastName = (profile.last_name || '').toLowerCase();
-            const fullName = `${firstName} ${lastName}`.trim();
-            
-            return searchTerms.every(term => 
-              firstName.includes(term) || 
-              lastName.includes(term) || 
-              fullName.includes(term)
-            );
-          })
-          .map(p => p.id);
-      } else {
-        matchingUserIds = matchingProfiles.map(p => p.id);
-      }
-    }
+    // Get connection org IDs for organization name search
+    const connectionsForOrgSearchResult = context.variant === 'agency'
+      ? await supabase
+          .from('connections')
+          .select('client_id')
+          .eq('agency_id', context.orgId)
+      : await supabase
+          .from('connections')
+          .select('agency_id')
+          .eq('client_id', context.orgId);
     
     // Process connection/org search results
     const { data: connectionsForOrgSearch, error: connectionsForOrgSearchError } = connectionsForOrgSearchResult;
@@ -260,32 +228,14 @@ export const getRequestsSnapshot = cache(async (
     baseQuery = baseQuery.eq('created_by_user_id', options.createdByUserId);
   }
 
-  // Apply search filter if search is provided (DB-level for all fields)
+  // Apply search filter if search is provided - MVP: only search request title and organization name
   if (search && search.trim().length > 0) {
     const trimmedQuery = search.trim();
     const escaped = escapeForILike(trimmedQuery);
-    const matchedStatus = normalizeStatusQuery(trimmedQuery);
-    const searchLower = trimmedQuery.toLowerCase();
     
-    // Build OR list for search (all DB-level)
+    // Build OR list for search: request title OR organization name (via connection IDs)
     const orParts: string[] = [];
     orParts.push(`title.ilike.%${escaped}%`);
-    orParts.push(`project_name_cached.ilike.%${escaped}%`);
-    
-    // Handle "General request" search
-    if (searchLower.includes('general')) {
-      orParts.push(`project_id.is.null`);
-    }
-    
-    if (matchedStatus) {
-      orParts.push(`status.eq.${matchedStatus}`);
-    }
-    
-    // Add profile name matches (DB-level via user IDs)
-    if (matchingUserIds.length > 0) {
-      orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
-      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
-    }
     
     // Add client/agency organization name matches (DB-level via connection IDs)
     if (matchingConnectionIds.length > 0) {
@@ -302,34 +252,14 @@ export const getRequestsSnapshot = cache(async (
     console.error('Error fetching requests count:', countError);
   }
 
-  // Determine if we're sorting by organization name
-  const isClientNameSort = sort === 'client_asc' || sort === 'client_desc';
-  const isAgencyNameSort = sort === 'agency_asc' || sort === 'agency_desc';
-  const isOrgNameSort = isClientNameSort || isAgencyNameSort;
-  const startIndex = cursor ? parseInt(cursor, 10) : 0;
+  // Note: We no longer paginate requests - we fetch ALL requests for the current page's connections
+  // This is safe because we're only loading 15 connections at a time
+  // If a connection has 100+ requests, virtualization will handle rendering performance
+  const requestStartIndex = 0;
+  const requestLimit = 10000; // Very high limit to fetch all requests for current connections
 
-  // For org name sorting, use RPC function (bypasses PostgREST's two-level join limitation)
-  // For other sorts, use regular Supabase query
-  type RpcRequestRow = {
-    id: string;
-    title: string;
-    description: string | null;
-    status: string;
-    project_id: string | null;
-    project_name_cached: string | null;
-    connection_id: string;
-    created_by_user_id: string;
-    assignee_user_id: string | null;
-    created_at: string;
-    created_by_org_id: string;
-    client_id: string;
-    agency_id: string;
-    client_org_name: string | null;
-    agency_org_name: string | null;
-    client_org_logo: string | null;
-    agency_org_logo: string | null;
-  };
-  type RegularRequestRow = {
+  // Use regular Supabase query - always sort by created_at descending (newest first)
+  type RequestRow = {
     id: string;
     title: string;
     description: string | null;
@@ -358,78 +288,8 @@ export const getRequestsSnapshot = cache(async (
       name: string;
     }> | null;
   };
-  type RequestRow = RpcRequestRow | RegularRequestRow;
-  let requestsData: RequestRow[] | null = null;
-  let requestsError: { message?: string; code?: string } | null = null;
-  let useRpcSort = false; // Track if we successfully used RPC
-
-  if (isOrgNameSort) {
-    // Use RPC function for org name sorting
-    try {
-      const rpcParams = {
-        p_connection_ids: connectionIds,
-        p_sort_type: sort,
-        p_limit_count: limit,
-        p_offset_count: startIndex,
-        p_search_query: search && search.trim().length > 0 ? search.trim() : null,
-        p_assigned_to_user_id: options.assignedToUserId || null,
-        p_created_by_user_id: options.createdByUserId || null
-      };
-      
-      const rpcResult = await supabase.rpc('get_requests_sorted_by_org_name', rpcParams);
-      const { data: rpcData, error: rpcError } = rpcResult;
-
-      if (rpcError) {
-        // Log error details for debugging
-        if (process.env.NODE_ENV === 'development') {
-          console.error('RPC call failed:', {
-            message: rpcError.message,
-            code: rpcError.code,
-            details: rpcError.details,
-            hint: rpcError.hint
-          });
-        }
-        
-        // If function doesn't exist or has issues, fall back to regular query
-        if (!rpcError.message && !rpcError.code) {
-          console.warn('RPC function may not exist. Falling back to regular query (will not sort by org name).');
-          console.warn('Please ensure migration 20251207000001_get_requests_sorted_by_org_name.sql has been run.');
-        } else {
-          console.error('RPC function error:', rpcError.message || rpcError.code);
-        }
-        requestsData = null; // Force regular query
-      } else {
-        // RPC succeeded - returns JSON array
-        if (rpcData === null || rpcData === undefined) {
-          requestsData = [];
-        } else if (Array.isArray(rpcData)) {
-          requestsData = rpcData;
-        } else if (typeof rpcData === 'string') {
-          requestsData = JSON.parse(rpcData);
-        } else {
-          // Already JSON object
-          requestsData = rpcData;
-        }
-        useRpcSort = true; // Mark that we successfully used RPC
-      }
-    } catch (error) {
-      console.error('Exception calling RPC:', error instanceof Error ? error.message : String(error));
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Exception stack:', error instanceof Error ? error.stack : undefined);
-      }
-      console.warn('Falling back to regular query due to exception.');
-      requestsData = null; // Force regular query
-      useRpcSort = false;
-    }
-  }
   
-  // If RPC failed or we're not using org name sort, use regular query
-  // Note: If RPC failed, we fall back to 'created' sort since org name sorting won't work
-  if (!isOrgNameSort || requestsData === null) {
-    // If we were trying to sort by org name but RPC failed, change sort to 'created'
-    const effectiveSort = (isOrgNameSort && !useRpcSort) ? 'created' : sort;
-    // Use regular Supabase query for non-org-name sorts
-    let requestsQuery = supabase
+  let requestsQuery = supabase
       .from('requests')
       .select(`
         id,
@@ -464,29 +324,14 @@ export const getRequestsSnapshot = cache(async (
       requestsQuery = requestsQuery.eq('created_by_user_id', options.createdByUserId);
     }
 
-    // Apply search filter if search is provided
+    // Apply search filter if search is provided - MVP: only search request title and organization name
     if (search && search.trim().length > 0) {
       const trimmedQuery = search.trim();
       const escaped = escapeForILike(trimmedQuery);
-      const matchedStatus = normalizeStatusQuery(trimmedQuery);
-      const searchLower = trimmedQuery.toLowerCase();
       
+      // Build OR list for search: request title OR organization name (via connection IDs)
       const orParts: string[] = [];
       orParts.push(`title.ilike.%${escaped}%`);
-      orParts.push(`project_name_cached.ilike.%${escaped}%`);
-      
-      if (searchLower.includes('general')) {
-        orParts.push(`project_id.is.null`);
-      }
-      
-      if (matchedStatus) {
-        orParts.push(`status.eq.${matchedStatus}`);
-      }
-      
-      if (matchingUserIds.length > 0) {
-        orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
-        orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
-      }
       
       // Add client/agency organization name matches (DB-level via connection IDs)
       if (matchingConnectionIds.length > 0) {
@@ -496,25 +341,17 @@ export const getRequestsSnapshot = cache(async (
       requestsQuery = requestsQuery.or(orParts.join(','));
     }
 
-    // Apply sorting at database level
-    switch (effectiveSort) {
-      case 'created':
-        requestsQuery = requestsQuery.order('created_at', { ascending: false });
-        break;
-      case 'status':
-        requestsQuery = requestsQuery.order('status', { ascending: true }).order('created_at', { ascending: false });
-        break;
-      default:
-        requestsQuery = requestsQuery.order('created_at', { ascending: false });
-    }
+    // Always sort by created_at descending (newest first)
+    requestsQuery = requestsQuery.order('created_at', { ascending: false });
 
-    // Apply pagination at database level
-    requestsQuery = requestsQuery.range(startIndex, startIndex + limit - 1);
+    // No pagination - fetch all requests for current connections
+    // This is safe because we're only loading 15 connections at a time
+    requestsQuery = requestsQuery.range(requestStartIndex, requestStartIndex + requestLimit - 1);
 
     // Execute query
     const result = await requestsQuery;
-    requestsData = result.data;
-    requestsError = result.error;
+    const requestsData: RequestRow[] | null = result.data;
+    const requestsError = result.error;
 
     if (requestsError) {
       console.error('Error fetching requests:', requestsError);
@@ -524,9 +361,9 @@ export const getRequestsSnapshot = cache(async (
         unfilteredTotalCount: unfilteredTotalCount || 0,
         cursor: null,
         hasNextPage: false,
+        loadedConnectionIds: loadedConnectionIds,
       };
     }
-  }
 
   // If no requests, return early
   if (!requestsData || requestsData.length === 0) {
@@ -546,9 +383,6 @@ export const getRequestsSnapshot = cache(async (
     if (request.created_by_user_id) userIds.add(request.created_by_user_id);
     if (request.assignee_user_id) userIds.add(request.assignee_user_id);
   });
-
-  // Check if data comes from RPC function (has org names pre-joined)
-  const isRpcData = requestsData.length > 0 && 'client_org_name' in requestsData[0];
 
   // Fetch profiles, connections, memberships, and organizations in parallel
   const userIdArray = Array.from(userIds);
@@ -580,35 +414,33 @@ export const getRequestsSnapshot = cache(async (
           `)
           .in('user_id', userIdArray)
       : Promise.resolve({ data: null, error: null }),
-    // Fetch organizations only if not from RPC (RPC already includes org data)
-    !isRpcData
-      ? (async () => {
-          const connectionsData = await supabase
-            .from('connections')
-            .select('client_id, agency_id')
-            .in('id', uniqueConnectionIds);
-          
-          if (connectionsData.error || !connectionsData.data) {
-            return { data: null, error: connectionsData.error };
-          }
-          
-          const uniqueOrgIds = new Set<string>();
-          connectionsData.data.forEach(conn => {
-            if (conn.client_id) uniqueOrgIds.add(conn.client_id);
-            if (conn.agency_id) uniqueOrgIds.add(conn.agency_id);
-          });
-          
-          const orgIdsArray = Array.from(uniqueOrgIds);
-          if (orgIdsArray.length === 0) {
-            return { data: null, error: null };
-          }
-          
-          return await supabase
-            .from('organizations')
-            .select('id, name, logo_url, type')
-            .in('id', orgIdsArray);
-        })()
-      : Promise.resolve({ data: null, error: null })
+    // Fetch organizations
+    (async () => {
+      const connectionsData = await supabase
+        .from('connections')
+        .select('client_id, agency_id')
+        .in('id', uniqueConnectionIds);
+      
+      if (connectionsData.error || !connectionsData.data) {
+        return { data: null, error: connectionsData.error };
+      }
+      
+      const uniqueOrgIds = new Set<string>();
+      connectionsData.data.forEach(conn => {
+        if (conn.client_id) uniqueOrgIds.add(conn.client_id);
+        if (conn.agency_id) uniqueOrgIds.add(conn.agency_id);
+      });
+      
+      const orgIdsArray = Array.from(uniqueOrgIds);
+      if (orgIdsArray.length === 0) {
+        return { data: null, error: null };
+      }
+      
+      return await supabase
+        .from('organizations')
+        .select('id, name, logo_url, type')
+        .in('id', orgIdsArray);
+    })()
   ]);
 
   const { data: profilesData, error: profilesError } = profilesResult;
@@ -640,65 +472,23 @@ export const getRequestsSnapshot = cache(async (
     return acc;
   }, {} as Record<string, { clientId: string; agencyId: string }>);
 
-  // Build org maps - use RPC data if available, otherwise use fetched data
+  // Build org maps from fetched data
   const orgMap: Record<string, { name: string; logoUrl?: string }> = {};
   const orgTypeMap: Record<string, 'agency' | 'client'> = {};
   
-  if (isRpcData) {
-    // Build org map from RPC response data
-    requestsData.forEach((request) => {
-      const rpcRequest = request as RpcRequestRow;
-      if (rpcRequest.client_id && rpcRequest.client_org_name) {
-        orgMap[rpcRequest.client_id] = {
-          name: rpcRequest.client_org_name || 'Unknown',
-          logoUrl: rpcRequest.client_org_logo || undefined
-        };
-      }
-      if (rpcRequest.agency_id && rpcRequest.agency_org_name) {
-        orgMap[rpcRequest.agency_id] = {
-          name: rpcRequest.agency_org_name || 'Unknown',
-          logoUrl: rpcRequest.agency_org_logo || undefined
-        };
-      }
-    });
-    
-    // Fetch org types separately (not included in RPC response)
-    const uniqueOrgIds = new Set<string>();
-    Object.values(connectionsMap).forEach(conn => {
-      uniqueOrgIds.add(conn.clientId);
-      uniqueOrgIds.add(conn.agencyId);
-    });
-    const orgIdsArray = Array.from(uniqueOrgIds);
-    if (orgIdsArray.length > 0) {
-      const { data: orgTypesData } = await supabase
-        .from('organizations')
-        .select('id, type')
-        .in('id', orgIdsArray);
-      
-      if (orgTypesData) {
-        orgTypesData.forEach(org => {
-          if (org.type === 'agency' || org.type === 'client') {
-            orgTypeMap[org.id] = org.type as 'agency' | 'client';
-          }
-        });
-      }
-    }
-  } else {
-    // Build org map from fetched data
-    if (orgsError) {
-      console.error('Error fetching organizations:', orgsError);
-    }
-    
-    (orgsData || []).forEach(org => {
-      orgMap[org.id] = {
-        name: org.name || 'Unknown',
-        logoUrl: org.logo_url || undefined
-      };
-      if (org.type === 'agency' || org.type === 'client') {
-        orgTypeMap[org.id] = org.type as 'agency' | 'client';
-      }
-    });
+  if (orgsError) {
+    console.error('Error fetching organizations:', orgsError);
   }
+  
+  (orgsData || []).forEach(org => {
+    orgMap[org.id] = {
+      name: org.name || 'Unknown',
+      logoUrl: org.logo_url || undefined
+    };
+    if (org.type === 'agency' || org.type === 'client') {
+      orgTypeMap[org.id] = org.type as 'agency' | 'client';
+    }
+  });
 
   // Build user org map (for submittedBy org info)
   const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
@@ -715,49 +505,22 @@ export const getRequestsSnapshot = cache(async (
     });
   }
 
-  // Type guard to check if request is RegularRequestRow
-  const isRegularRequestRow = (request: RequestRow): request is RegularRequestRow => {
-    return 'connections' in request;
-  };
-
   // Transform requests to Request[] format using joined data and fetched maps
   const requestsWithTimestamps: Array<{ request: Request; originalCreatedAt: number }> = requestsData
     .filter(request => {
       // Filter out requests with invalid connections
-      if (isRpcData) {
-        // RPC data has client_id and agency_id directly
-        return request.connection_id && connectionsMap[request.connection_id] !== undefined;
-      } else {
-        // Regular query data has nested connections
-        if (!isRegularRequestRow(request)) return false;
-        const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
-        return connection !== null && connection !== undefined && connectionsMap[request.connection_id] !== undefined;
-      }
+      const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
+      return connection !== null && connection !== undefined && connectionsMap[request.connection_id] !== undefined;
     })
     .map(request => {
       // Extract connection info
-      let connectionInfo: { clientId: string; agencyId: string };
-      
-      if (isRpcData) {
-        // RPC data has client_id and agency_id directly
-        const rpcRequest = request as RpcRequestRow;
-        connectionInfo = {
-          clientId: rpcRequest.client_id,
-          agencyId: rpcRequest.agency_id
-        };
-      } else {
-        // Regular query data has nested connections
-        if (!isRegularRequestRow(request)) {
-          throw new Error('Expected RegularRequestRow but got RpcRequestRow');
-        }
-        const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
-        if (!connection) {
-          throw new Error('Invalid connection');
-        }
-        connectionInfo = connectionsMap[request.connection_id];
-        if (!connectionInfo) {
-          throw new Error('Connection not found in map');
-        }
+      const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
+      if (!connection) {
+        throw new Error('Invalid connection');
+      }
+      const connectionInfo = connectionsMap[request.connection_id];
+      if (!connectionInfo) {
+        throw new Error('Connection not found in map');
       }
 
       // Get organization data from maps (or RPC data)
@@ -771,24 +534,16 @@ export const getRequestsSnapshot = cache(async (
       // Extract project data
       let project = null;
       if (request.project_id) {
-        if (!isRpcData) {
-          // Regular query has joined project data
-          const requestWithJoins = request as typeof request & { projects?: { id: string; name: string } | Array<{ id: string; name: string }> };
-          const projectData = requestWithJoins.projects
-            ? (Array.isArray(requestWithJoins.projects) ? requestWithJoins.projects[0] : requestWithJoins.projects)
-            : null;
-          
-          if (projectData) {
-            project = { id: projectData.id, name: projectData.name };
-          } else if (request.project_name_cached) {
-            // Fallback to cached name if project lookup failed (e.g., RLS issue or project deleted)
-            project = { id: request.project_id, name: request.project_name_cached };
-          }
-        } else {
-          // RPC data - use cached project name (projects not included in RPC response for performance)
-          if (request.project_name_cached) {
-            project = { id: request.project_id, name: request.project_name_cached };
-          }
+        const requestWithJoins = request as typeof request & { projects?: { id: string; name: string } | Array<{ id: string; name: string }> };
+        const projectData = requestWithJoins.projects
+          ? (Array.isArray(requestWithJoins.projects) ? requestWithJoins.projects[0] : requestWithJoins.projects)
+          : null;
+        
+        if (projectData) {
+          project = { id: projectData.id, name: projectData.name };
+        } else if (request.project_name_cached) {
+          // Fallback to cached name if project lookup failed (e.g., RLS issue or project deleted)
+          project = { id: request.project_id, name: request.project_name_cached };
         }
       }
 
@@ -826,19 +581,419 @@ export const getRequestsSnapshot = cache(async (
       };
     });
 
-  // Extract requests - database has already sorted and paginated them
+  // Extract requests - database has already sorted them
+  // No pagination needed - we fetch all requests for current connections
   const requests: Request[] = requestsWithTimestamps.map(item => item.request);
 
-  // Calculate pagination info
-  const hasNextPage = (total || 0) > startIndex + limit;
-  const nextCursor = hasNextPage ? String(startIndex + limit) : null;
+  // Calculate pagination info based on connections, not requests
+  // hasMoreConnections indicates if there are more connections to load
+  // Total count should reflect total requests across ALL connections (for display purposes)
+  const nextCursor = hasMoreConnections ? String(connectionStartIndex + limit) : null;
+
+  return {
+    requests: requests,
+    total: total || 0, // Total count from filtered query across all connections
+    unfilteredTotalCount: unfilteredTotalCount || 0,
+    cursor: nextCursor,
+    hasNextPage: hasMoreConnections,
+    loadedConnectionIds: newLoadedConnectionIds,
+  };
+});
+
+/**
+ * Search requests across ALL connections using PostgreSQL full-text search
+ * Uses search-based pagination (offset-based) instead of connection-based pagination
+ * Returns results ranked by relevance using ts_rank()
+ */
+export const searchRequestsGlobal = cache(async (
+  context: EnhancedModeContext,
+  options: RequestsPaginationOptions = {}
+): Promise<RequestsSnapshot> => {
+  const { search = '', cursor, limit = 50, assignedToUserId, createdByUserId } = options;
+  
+  // Validate context before proceeding
+  if (!context || !context.orgId || !context.userId) {
+    console.error('Invalid context provided to searchRequestsGlobal:', { context });
+    return {
+      requests: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+      loadedConnectionIds: [],
+    };
+  }
+
+  // Validate search query
+  if (!search || !search.trim()) {
+    console.error('searchRequestsGlobal called without search query');
+    return {
+      requests: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+      loadedConnectionIds: [],
+    };
+  }
+
+  const supabase = await createClient();
+  
+  // Get all connection IDs for this context (cached to avoid repeated queries)
+  const allConnectionsQuery = context.variant === 'agency'
+    ? supabase
+        .from('connections')
+        .select('id')
+        .eq('agency_id', context.orgId)
+        .neq('connection_status', 'disconnected')
+    : supabase
+        .from('connections')
+        .select('id')
+        .eq('client_id', context.orgId)
+        .neq('connection_status', 'disconnected');
+  
+  const { data: allConnections, error: allConnectionsError } = await allConnectionsQuery;
+  
+  if (allConnectionsError || !allConnections || allConnections.length === 0) {
+    console.error('Error fetching connections for search:', allConnectionsError);
+    return {
+      requests: [],
+      total: 0,
+      unfilteredTotalCount: 0,
+      cursor: null,
+      hasNextPage: false,
+      loadedConnectionIds: [],
+    };
+  }
+
+  const connectionIds = allConnections.map(c => c.id);
+
+  // Always fetch unfiltered total count across ALL connections
+  const { count: unfilteredTotalCountRaw, error: unfilteredCountError } = await supabase
+    .from('requests')
+    .select('id', { count: 'exact', head: true })
+    .in('connection_id', connectionIds)
+    .is('deleted_at', null);
+
+  const unfilteredTotalCount = unfilteredCountError ? 0 : (unfilteredTotalCountRaw ?? 0);
+  
+  if (unfilteredCountError) {
+    console.error('Error fetching unfiltered total count:', unfilteredCountError);
+  }
+
+  // Prepare search query for PostgreSQL full-text search
+  const trimmedQuery = search.trim();
+  const searchTerms = trimmedQuery.split(/\s+/).filter(t => t.length > 0);
+  const tsQuery = searchTerms.map(term => term.replace(/[():&|!]/g, '')).join(' & ');
+
+  // Parse cursor (offset-based for search pagination)
+  const offset = cursor ? parseInt(cursor, 10) : 0;
+  const searchLimit = limit || 50;
+
+  // Build search query with full-text search
+  let requestsQuery = supabase
+    .from('requests')
+    .select(`
+      id,
+      title,
+      description,
+      status,
+      project_id,
+      project_name_cached,
+      connection_id,
+      created_by_user_id,
+      assignee_user_id,
+      created_at,
+      created_by_org_id,
+      connections!inner (
+        id,
+        client_id,
+        agency_id
+      ),
+      projects (
+        id,
+        name
+      )
+    `)
+    .in('connection_id', connectionIds)
+    .is('deleted_at', null)
+    .textSearch('search_vector', tsQuery, { type: 'websearch', config: 'english' });
+
+  if (assignedToUserId) {
+    requestsQuery = requestsQuery.eq('assignee_user_id', assignedToUserId);
+  }
+  
+  if (createdByUserId) {
+    requestsQuery = requestsQuery.eq('created_by_user_id', createdByUserId);
+  }
+
+  // Apply pagination (offset-based for search)
+  requestsQuery = requestsQuery
+    .order('created_at', { ascending: false })
+    .range(offset, offset + searchLimit - 1);
+
+  // Execute query
+  const { data: requestsData, error: requestsError } = await requestsQuery;
+
+  if (requestsError) {
+    console.error('Error searching requests:', requestsError);
+    return {
+      requests: [],
+      total: 0,
+      unfilteredTotalCount: unfilteredTotalCount || 0,
+      cursor: null,
+      hasNextPage: false,
+      loadedConnectionIds: [],
+    };
+  }
+
+  // Get total count of matching requests
+  let countQuery = supabase
+    .from('requests')
+    .select('id', { count: 'exact', head: true })
+    .in('connection_id', connectionIds)
+    .is('deleted_at', null)
+    .textSearch('search_vector', tsQuery, { type: 'websearch', config: 'english' });
+
+  if (assignedToUserId) {
+    countQuery = countQuery.eq('assignee_user_id', assignedToUserId);
+  }
+  
+  if (createdByUserId) {
+    countQuery = countQuery.eq('created_by_user_id', createdByUserId);
+  }
+
+  const { count: total, error: countError } = await countQuery;
+
+  if (countError) {
+    console.error('Error fetching search count:', countError);
+  }
+
+  // If no requests, return early
+  if (!requestsData || requestsData.length === 0) {
+    return {
+      requests: [],
+      total: total || 0,
+      unfilteredTotalCount: unfilteredTotalCount || 0,
+      cursor: null,
+      hasNextPage: false,
+      loadedConnectionIds: [],
+    };
+  }
+
+  // Extract unique connection IDs and user IDs for parallel lookups
+  const uniqueConnectionIds = [...new Set(requestsData.map(r => r.connection_id))];
+  const userIds = new Set<string>();
+  requestsData.forEach(request => {
+    if (request.created_by_user_id) userIds.add(request.created_by_user_id);
+    if (request.assignee_user_id) userIds.add(request.assignee_user_id);
+  });
+
+  // Fetch profiles, connections, memberships, and organizations in parallel
+  const userIdArray = Array.from(userIds);
+  const [profilesResult, connectionsResult, membershipsResult, orgsResult] = await Promise.all([
+    userIdArray.length > 0
+      ? supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email, avatar_url, job_title')
+          .in('id', userIdArray)
+      : Promise.resolve({ data: null, error: null }),
+    supabase
+      .from('connections')
+      .select('id, client_id, agency_id')
+      .in('id', uniqueConnectionIds),
+    userIdArray.length > 0
+      ? supabase
+          .from('memberships')
+          .select(`
+            user_id,
+            org_id,
+            organizations!inner(
+              id,
+              name,
+              logo_url
+            )
+          `)
+          .in('user_id', userIdArray)
+      : Promise.resolve({ data: null, error: null }),
+    (async () => {
+      const connectionsData = await supabase
+        .from('connections')
+        .select('client_id, agency_id')
+        .in('id', uniqueConnectionIds);
+      
+      if (connectionsData.error || !connectionsData.data) {
+        return { data: null, error: connectionsData.error };
+      }
+      
+      const uniqueOrgIds = new Set<string>();
+      connectionsData.data.forEach(conn => {
+        if (conn.client_id) uniqueOrgIds.add(conn.client_id);
+        if (conn.agency_id) uniqueOrgIds.add(conn.agency_id);
+      });
+      
+      const orgIdsArray = Array.from(uniqueOrgIds);
+      if (orgIdsArray.length === 0) {
+        return { data: null, error: null };
+      }
+      
+      return await supabase
+        .from('organizations')
+        .select('id, name, logo_url, type')
+        .in('id', orgIdsArray);
+    })()
+  ]);
+
+  const { data: profilesData, error: profilesError } = profilesResult;
+  const { data: connectionsData, error: searchConnectionsError } = connectionsResult;
+  const { data: membershipsData, error: membershipsError } = membershipsResult;
+  const { data: orgsData, error: orgsError } = orgsResult;
+
+  // Build profiles map
+  const profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
+  if (!profilesError && profilesData) {
+    profilesData.forEach(profile => {
+      profilesMap[profile.id] = profile;
+    });
+  }
+
+  if (searchConnectionsError) {
+    console.error('Error fetching connections:', searchConnectionsError);
+    return {
+      requests: [],
+      total: total || 0,
+      unfilteredTotalCount: unfilteredTotalCount || 0,
+      cursor: null,
+      hasNextPage: false,
+      loadedConnectionIds: [],
+    };
+  }
+
+  const connectionsMap = (connectionsData || []).reduce((acc, conn) => {
+    acc[conn.id] = { clientId: conn.client_id, agencyId: conn.agency_id };
+    return acc;
+  }, {} as Record<string, { clientId: string; agencyId: string }>);
+
+  // Build org maps from fetched data
+  const orgMap: Record<string, { name: string; logoUrl?: string }> = {};
+  const orgTypeMap: Record<string, 'agency' | 'client'> = {};
+  
+  if (orgsError) {
+    console.error('Error fetching organizations:', orgsError);
+  }
+  
+  (orgsData || []).forEach(org => {
+    orgMap[org.id] = {
+      name: org.name || 'Unknown',
+      logoUrl: org.logo_url || undefined
+    };
+    if (org.type === 'agency' || org.type === 'client') {
+      orgTypeMap[org.id] = org.type as 'agency' | 'client';
+    }
+  });
+
+  // Build user org map (for submittedBy org info)
+  const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  if (!membershipsError && membershipsData) {
+    membershipsData.forEach((membership: { user_id: string; organizations: { id: string; name: string; logo_url: string | null } | Array<{ id: string; name: string; logo_url: string | null }> }) => {
+      const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
+      if (org) {
+        userOrgMap[membership.user_id] = {
+          orgId: org.id,
+          orgName: org.name,
+          orgLogo: org.logo_url || undefined
+        };
+      }
+    });
+  }
+
+  // Transform requests to Request[] format using joined data and fetched maps
+  const requestsWithTimestamps: Array<{ request: Request; originalCreatedAt: number }> = requestsData
+    .filter(request => {
+      const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
+      return connection !== null && connection !== undefined && connectionsMap[request.connection_id] !== undefined;
+    })
+    .map(request => {
+      const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
+      if (!connection) {
+        throw new Error('Invalid connection');
+      }
+      const connectionInfo = connectionsMap[request.connection_id];
+      if (!connectionInfo) {
+        throw new Error('Connection not found in map');
+      }
+
+      // Get organization data from maps
+      const clientOrg = orgMap[connectionInfo.clientId];
+      const agencyOrg = orgMap[connectionInfo.agencyId];
+      
+      // Extract profile data from fetched map
+      const submittedByProfile = request.created_by_user_id ? profilesMap[request.created_by_user_id] || null : null;
+      const assigneeProfile = request.assignee_user_id ? profilesMap[request.assignee_user_id] || null : null;
+      
+      // Extract project data
+      let project = null;
+      if (request.project_id) {
+        const requestWithJoins = request as typeof request & { projects?: { id: string; name: string } | Array<{ id: string; name: string }> };
+        const projectData = requestWithJoins.projects
+          ? (Array.isArray(requestWithJoins.projects) ? requestWithJoins.projects[0] : requestWithJoins.projects)
+          : null;
+        
+        if (projectData) {
+          project = { id: projectData.id, name: projectData.name };
+        } else if (request.project_name_cached) {
+          project = { id: request.project_id, name: request.project_name_cached };
+        }
+      }
+
+      return {
+        request: {
+          id: request.id,
+          connectionId: request.connection_id,
+          title: request.title,
+          description: request.description || '',
+          status: request.status as 'new' | 'in_review' | 'accepted' | 'canceled',
+          project: project || null,
+          submittedBy: formatters.buildSubmittedBy(
+            request.created_by_user_id,
+            submittedByProfile,
+            userOrgMap
+          ),
+          assignee: formatters.buildAssignee(request.assignee_user_id, assigneeProfile),
+          client: formatters.buildOrganization(
+            connectionInfo.clientId,
+            clientOrg?.name,
+            clientOrg?.logoUrl,
+            'Unknown Client'
+          ),
+          agency: agencyOrg ? formatters.buildOrganization(
+            connectionInfo.agencyId,
+            agencyOrg.name,
+            agencyOrg.logoUrl,
+            'Unknown Agency'
+          ) : undefined,
+          createdAt: formatters.formatRequestDate(request.created_at),
+          createdByOrgId: request.created_by_org_id,
+          createdByOrgType: formatters.getOrgType(request.created_by_org_id, orgTypeMap)
+        } as Request,
+        originalCreatedAt: new Date(request.created_at).getTime()
+      };
+    });
+
+  // Extract requests (already sorted by created_at DESC from query)
+  const requests: Request[] = requestsWithTimestamps.map(item => item.request);
+
+  // Calculate pagination info (offset-based for search)
+  const hasMoreResults = (total || 0) > offset + searchLimit;
+  const nextCursor = hasMoreResults ? String(offset + searchLimit) : null;
 
   return {
     requests: requests,
     total: total || 0,
     unfilteredTotalCount: unfilteredTotalCount || 0,
-    cursor: nextCursor,
-    hasNextPage,
+    cursor: nextCursor, // Offset-based cursor for search pagination
+    hasNextPage: hasMoreResults,
+    loadedConnectionIds: [], // Not used for search mode
   };
 });
 

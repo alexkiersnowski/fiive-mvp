@@ -199,6 +199,7 @@ export const getRequestsPreview = cache(async (
     `)
     .in('connection_id', connectionIds)
     .is('deleted_at', null)
+    .in('status', ['new', 'in_review', 'accepted'])
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -442,9 +443,8 @@ export const getTasksPreview = cache(async (
     `)
     .in('connection_id', connectionIds)
     .is('deleted_at', null)
-    .neq('status', 'done')
-    .order('due_date', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: false })
+    .in('status', ['in_progress', 'to_do', 'on_hold'])
+    .order('updated_at', { ascending: false })
     .limit(limit);
 
   if (tasksError || !tasksData || tasksData.length === 0) {

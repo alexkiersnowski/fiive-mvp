@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/search-input'
@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Badge } from '@/components/ui/badge'
 import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, Eye, Users, Rows, RowsPlusBottom } from '@phosphor-icons/react'
+import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { PaywallModal } from '@/components/ui/paywall-modal'
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
@@ -21,6 +21,8 @@ import { groupRequestsByStatusAndClient, flattenGroupedRequests, type FlattenedI
 import { StatusGroupHeader } from './StatusGroupHeader'
 import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalRequestRow } from './GlobalRequestRow'
+import { useStableSet, useStableNestedSet } from './useStableCollapseState'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -50,17 +52,10 @@ interface RequestsTableProps {
   isAgency?: boolean
   onRequestDeleted?: (requestId: string) => void
   onConvertToTask?: (request: Request) => void
-  sortOptions?: Array<{
-    value: string
-    label: string
-    buttonLabel: string
-  }>
-  sortValue?: string
-  onSortChange?: (value: string) => void
   allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, sortOptions = [], sortValue: propSortValue = 'created', onSortChange, allowedConnectionIds = null }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, allowedConnectionIds = null }: RequestsTableProps) {
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   const [searchQuery, setSearchQuery] = useState('')
@@ -69,11 +64,11 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   // Paywall modal state
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
   
-  // Track collapsed groups
+  // Track collapsed groups with stable references
   // Default: 'closed' and 'canceled' status groups collapsed
-  const [collapsedStatuses, setCollapsedStatuses] = useState<Set<RequestStatus>>(new Set(['closed', 'canceled']))
+  const collapsedStatusesState = useStableSet<RequestStatus>(new Set(['closed', 'canceled']))
   // Track collapsed client groups per status: Map<status, Set<clientId>>
-  const [collapsedClients, setCollapsedClients] = useState<Map<RequestStatus, Set<string>>>(new Map())
+  const collapsedClientsState = useStableNestedSet<RequestStatus>(new Map())
   
   const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
@@ -300,41 +295,61 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
 
   // Group requests by status and client
+  // Only recomputes when requests array reference changes (which happens when requests are added/removed/updated)
   const { grouped: groupedRequests, allClients } = useMemo(() => groupRequestsByStatusAndClient(requests), [requests])
   
+  // Auto-expand groups that contain search results when search is active
+  // Note: 'closed' and 'canceled' status groups always stay collapsed
+  useEffect(() => {
+    // Only auto-expand if there's an active search query
+    if (searchQuery.trim().length === 0) {
+      return
+    }
+
+    // Expand all status groups that have requests (except 'closed' and 'canceled')
+    for (const status of Object.keys(groupedRequests) as RequestStatus[]) {
+      // Skip 'closed' and 'canceled' - they always stay collapsed
+      if (status === 'closed' || status === 'canceled') {
+        continue
+      }
+      
+      const clientGroups = groupedRequests[status]
+      const hasRequests = Object.values(clientGroups).some(requests => requests.length > 0)
+      
+      if (hasRequests) {
+        // Remove from collapsed set (expand the group)
+        collapsedStatusesState.remove(status)
+        
+        // Expand all client groups within this status that have requests
+        for (const [clientId, clientRequests] of Object.entries(clientGroups)) {
+          if (clientRequests.length > 0) {
+            // Remove from collapsed set (expand the client group)
+            collapsedClientsState.remove(status, clientId)
+          }
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requests, searchQuery, groupedRequests])
+  
   // Flatten grouped requests for virtualization
+  // Uses stable collapse state references - only recomputes when:
+  // - groupedRequests changes (requests changed)
+  // - allClients changes (new clients added)
+  // - collapse state contents actually change (not just reference)
   const flattenedItems = useMemo<FlattenedItem[]>(() => {
-    return flattenGroupedRequests(groupedRequests, allClients, collapsedStatuses, collapsedClients)
-  }, [groupedRequests, allClients, collapsedStatuses, collapsedClients])
+    return flattenGroupedRequests(groupedRequests, allClients, collapsedStatusesState.set, collapsedClientsState.map)
+  }, [groupedRequests, allClients, collapsedStatusesState.set, collapsedClientsState.map])
   
-  // Toggle status group collapse/expand
+  // Toggle status group collapse/expand - uses stable reference hook
   const toggleStatusGroup = useCallback((status: RequestStatus) => {
-    setCollapsedStatuses(prev => {
-      const next = new Set(prev)
-      if (next.has(status)) {
-        next.delete(status)
-      } else {
-        next.add(status)
-      }
-      return next
-    })
-  }, [])
+    collapsedStatusesState.toggle(status)
+  }, [collapsedStatusesState])
   
-  // Toggle client group collapse/expand
+  // Toggle client group collapse/expand - uses stable reference hook
   const toggleClientGroup = useCallback((status: RequestStatus, clientId: string) => {
-    setCollapsedClients(prev => {
-      const next = new Map(prev)
-      const clientsForStatus = next.get(status) || new Set<string>()
-      const newClientsForStatus = new Set(clientsForStatus)
-      if (newClientsForStatus.has(clientId)) {
-        newClientsForStatus.delete(clientId)
-      } else {
-        newClientsForStatus.add(clientId)
-      }
-      next.set(status, newClientsForStatus)
-      return next
-    })
-  }, [])
+    collapsedClientsState.toggle(status, clientId)
+  }, [collapsedClientsState])
 
   // Virtual scroll setup using shared hook
   const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
@@ -373,7 +388,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-3">
                 <SearchInput
-                  placeholder="Search requests…"
+                  placeholder="Search requests by client or title…"
                   value={searchQuery}
                   onChange={(value) => {
                     setSearchQuery(value)
@@ -439,20 +454,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   variant="outline"
                   className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
                 >
-                  <Rows size={16} />
-                  Status
-                </Button>
-                <Button
-                  variant="outline"
-                  className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
-                >
-                  <RowsPlusBottom size={16} />
-                  Client (A-Z)
-                </Button>
-                <Button
-                  variant="outline"
-                  className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
-                >
                   <SortAscending size={16} />
                   {currentSortLabel}
                 </Button>
@@ -483,9 +484,90 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           }}
         >
           <div className="pb-5 px-5">
-          {isBootstrapping && requests.length === 0 ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+          {isBootstrapping ? (
+            <div className="space-y-0">
+              {/* Status Group Skeleton - 1x only, starts the block */}
+              <div
+                className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                style={{
+                  gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                }}
+              >
+                <div className="flex items-center justify-center">
+                  <Skeleton className="w-3 h-3" />
+                </div>
+                <div className="flex items-center gap-3 px-3">
+                  <Skeleton className="w-12 h-5 rounded" />
+                  <Skeleton className="w-16 h-4 rounded" />
+                </div>
+                {/* Empty cells to match grid structure */}
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div></div>
+              </div>
+              {/* Client Group + 4 Request Rows - repeatable pattern (2-3 times) */}
+              {[1, 2, 3].map((clientIndex) => (
+                <div key={clientIndex}>
+                  {/* Client Group Skeleton */}
+                  <div
+                    className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-5 h-5 rounded-full" />
+                      <Skeleton className="w-24 h-4 rounded" />
+                      <Skeleton className="w-12 h-4 rounded" />
+                    </div>
+                    {/* Empty cells to match grid structure */}
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Request Row Skeletons - 4 per client group */}
+                  {[1, 2, 3, 4].map((requestIndex) => (
+                    <div
+                      key={`${clientIndex}-${requestIndex}`}
+                      className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                      style={{
+                        gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                      }}
+                    >
+                      {/* Empty drag handle cell */}
+                      <div></div>
+                      {/* Title */}
+                      <div className="px-3">
+                        <Skeleton className="w-32 h-4 rounded" />
+                      </div>
+                      {/* Status */}
+                      <div className="px-3">
+                        <Skeleton className="w-20 h-4 rounded" />
+                      </div>
+                      {/* Assignee */}
+                      <div className="px-3">
+                        <Skeleton className="w-16 h-4 rounded" />
+                      </div>
+                      {/* Project */}
+                      <div className="px-3">
+                        <Skeleton className="w-24 h-4 rounded" />
+                      </div>
+                      {/* Created */}
+                      <div className="px-3">
+                        <Skeleton className="w-20 h-4 rounded" />
+                      </div>
+                      <div></div>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           ) : (
             <VirtualListBody
@@ -537,7 +619,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     <StatusGroupHeader
                       status={item.status}
                       count={item.count}
-                      isExpanded={!collapsedStatuses.has(item.status)}
+                      isExpanded={!collapsedStatusesState.set.has(item.status)}
                       onToggle={() => toggleStatusGroup(item.status)}
                       isAgency={isAgency}
                       isFirstGroup={isFirstGroup}
@@ -557,7 +639,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                       clientName={item.clientName}
                       clientLogoUrl={item.clientLogoUrl}
                       count={item.count}
-                      isExpanded={!((collapsedClients.get(item.status) || new Set()).has(item.clientId))}
+                      isExpanded={!collapsedClientsState.get(item.status).has(item.clientId)}
                       onToggle={() => toggleClientGroup(item.status, item.clientId)}
                       isAgency={isAgency}
                       isFirstClient={isFirstClient}

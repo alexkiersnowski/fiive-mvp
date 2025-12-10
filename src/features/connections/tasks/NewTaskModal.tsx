@@ -57,6 +57,8 @@ interface NewTaskModalProps {
   variant?: 'agency' | 'client'
   isGlobal?: boolean // If true, show client dropdown instead of fixed client
   onConnectionSelect?: (connectionId: string) => void // Callback when connection is selected in global mode
+  allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
+  onPaywallBlocked?: () => void // Callback when paywall blocks creation
 }
 
 export function NewTaskModal({ 
@@ -72,7 +74,9 @@ export function NewTaskModal({
   currentOrgId: _currentOrgId, 
   variant = 'agency',
   isGlobal = false,
-  onConnectionSelect
+  onConnectionSelect,
+  allowedConnectionIds = null,
+  onPaywallBlocked
 }: NewTaskModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
@@ -232,6 +236,13 @@ export function NewTaskModal({
     const targetConnectionId = isGlobal ? selectedConnectionId : connectionId
     if (!targetConnectionId) return
     
+    // Check paywall: if allowedConnectionIds is not null and targetConnectionId is not in the allowed list, block creation
+    if (allowedConnectionIds !== null && !allowedConnectionIds.includes(targetConnectionId)) {
+      // Connection is restricted - show paywall
+      onPaywallBlocked?.()
+      return
+    }
+    
     // Close modal immediately for snappy UX
     onClose()
     
@@ -291,7 +302,7 @@ export function NewTaskModal({
         console.error('Error creating task:', error)
         toast.error('Failed to create task')
       })
-  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, membersToUse, onTaskCreated, onTaskOptimistic, onClose])
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, membersToUse, onTaskCreated, onTaskOptimistic, onClose, allowedConnectionIds, onPaywallBlocked])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {

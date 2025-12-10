@@ -1,6 +1,6 @@
 'use server'
 
-import { getTasksSnapshot, getTaskByIdGlobal } from './server';
+import { getTasksSnapshot, getTaskByIdGlobal, searchTasksGlobal as searchTasksGlobalServer } from './server';
 import { getCommentsForTask } from '@/features/connections/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { TasksSnapshot, TasksPaginationOptions } from './types';
@@ -33,6 +33,17 @@ export async function refreshTasksData(
   options: TasksPaginationOptions = {}
 ): Promise<TasksSnapshot> {
   return await getTasksSnapshot(context, options);
+}
+
+/**
+ * Search tasks across all connections using full-text search
+ * Uses search-based pagination (offset-based) instead of connection-based pagination
+ */
+export async function searchTasksGlobal(
+  context: EnhancedModeContext,
+  options: TasksPaginationOptions = {}
+): Promise<TasksSnapshot> {
+  return await searchTasksGlobalServer(context, options);
 }
 
 /**

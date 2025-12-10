@@ -7,7 +7,7 @@ import TasksTable from '@/features/tasks/TasksTable';
 import { TasksHeader } from '@/features/tasks/TasksHeader';
 import { TaskDetailModal } from '@/features/connections/tasks/TaskDetailModal';
 import { NewTaskModal } from '@/features/connections/tasks/NewTaskModal';
-import { fetchMoreTasks, refreshTasksData, fetchTaskByIdGlobal, fetchCommentsForTaskGlobal } from '@/features/tasks/actions';
+import { fetchMoreTasks, refreshTasksData, fetchTaskByIdGlobal, fetchCommentsForTaskGlobal, searchTasksGlobal } from '@/features/tasks/actions';
 import { fetchProjectsForConnection } from '@/features/connections/tasks/actions';
 import { PaywallModal } from '@/components/ui/paywall-modal';
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
@@ -19,7 +19,6 @@ interface TasksContentProps {
   snapshot: TasksSnapshot;
   context: EnhancedModeContext;
   initialSearchValue?: string;
-  initialSortValue?: string;
   initialComments?: Record<string, Comment[]>;
   agencyMembers?: Array<{
     id: string
@@ -61,7 +60,6 @@ export function TasksContent({
   snapshot, 
   context, 
   initialSearchValue = '', 
-  initialSortValue = 'due_date',
   initialComments = {},
   agencyMembers = [],
   clientMembers = [],
@@ -86,9 +84,9 @@ export function TasksContent({
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState(snapshot.unfilteredTotalCount);
   const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
   const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
+  const [loadedConnectionIds, setLoadedConnectionIds] = useState<string[]>(snapshot.loadedConnectionIds || []);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
-  const [sortValue, setSortValue] = useState(initialSortValue || 'due_date');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
   const [, startTransition] = useTransition();
@@ -114,22 +112,19 @@ export function TasksContent({
     return clientMembers.map(member => member.id).filter((id): id is string => Boolean(id));
   }, [context.variant, clientMembers]);
 
-  // Sort options - different for agency vs client views (MVP: only 3 sorts)
-  const sortOptions = context.variant === 'agency'
-    ? [
-        { value: 'due_date', label: 'Due date', buttonLabel: 'Due date' },
-        { value: 'client_asc', label: 'Client (A-Z)', buttonLabel: 'Client (A-Z)' },
-        { value: 'client_desc', label: 'Client (Z-A)', buttonLabel: 'Client (Z-A)' }
-      ]
-    : [
-        { value: 'due_date', label: 'Due date', buttonLabel: 'Due date' },
-        { value: 'agency_asc', label: 'Agency (A-Z)', buttonLabel: 'Agency (A-Z)' },
-        { value: 'agency_desc', label: 'Agency (Z-A)', buttonLabel: 'Agency (Z-A)' }
-      ];
-
   // Sync local state with server snapshot when props change
-  // But if assignedToMe is true for clients, we need to refetch with the client member filter
+  // But if search is active or assignedToMe is true for clients, we need to refetch with appropriate filters
   useEffect(() => {
+    // Check URL param directly to avoid timing issues with debounced value
+    const currentSearchParam = searchParams.get('search') || '';
+    const hasActiveSearch = currentSearchParam.trim().length > 0;
+    
+    // If search is active, don't sync snapshot - we'll fetch search results instead
+    // This prevents the count from updating before search results load
+    if (hasActiveSearch) {
+      return;
+    }
+    
     // If client has assignedToMe enabled, we need to fetch with clientTeamMemberIds filter
     // The initial snapshot doesn't have this filter applied
     if (assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0) {
@@ -143,9 +138,10 @@ export function TasksContent({
       setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
       setCursor(snapshot.cursor || null);
       setHasNextPage(snapshot.hasNextPage);
+      setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
       setIsFetchingServerResults(false);
     });
-  }, [snapshot, startTransition, assignedToMe, context.variant, clientTeamMemberIds]);
+  }, [snapshot, startTransition, assignedToMe, context.variant, clientTeamMemberIds, searchParams]);
 
   // Sync comments when initialComments prop changes
   useEffect(() => {
@@ -156,7 +152,15 @@ export function TasksContent({
   }, [initialComments]);
 
   // Debounce server fetch (150ms)
+  // But immediately update debounced value if search is cleared (better UX - no delay when clearing)
   useEffect(() => {
+    // If search is cleared, immediately update debounced value (triggers URL clear and refetch)
+    if (searchValue.trim() === '') {
+      setDebouncedSearchValue('');
+      return;
+    }
+    
+    // Otherwise, debounce the update
     const timer = setTimeout(() => {
       setDebouncedSearchValue(searchValue);
     }, 150);
@@ -164,11 +168,11 @@ export function TasksContent({
     return () => clearTimeout(timer);
   }, [searchValue]);
 
-  // Trigger server fetch when debounced search, sort, or assignedToMe changes
+  // Trigger server fetch when debounced search or assignedToMe changes
   useEffect(() => {
     const currentSearchParam = searchParams.get('search') || '';
-    const currentSortParam = searchParams.get('sort') || 'due_date';
     const currentAssignedParam = searchParams.get('assigned') === 'me';
+    const hasActiveSearch = debouncedSearchValue.trim().length > 0;
     
     // For clients with assignedToMe, we need clientTeamMemberIds to be available before fetching
     if (assignedToMe && context.variant === 'client' && clientTeamMemberIds.length === 0) {
@@ -178,7 +182,6 @@ export function TasksContent({
     
     // Check if values match - if so, reset navigation flag and return early
     const valuesMatch = debouncedSearchValue === currentSearchParam && 
-                       sortValue === currentSortParam && 
                        assignedToMe === currentAssignedParam;
     
     if (valuesMatch) {
@@ -186,13 +189,7 @@ export function TasksContent({
       return;
     }
     
-    // Prevent duplicate navigations
-    if (isNavigatingRef.current) {
-      return;
-    }
-    
-    // Only navigate if values actually differ
-    isNavigatingRef.current = true;
+    // Only navigate if values actually differ - always allow navigation for new values
     setIsFetchingServerResults(true);
     const params = new URLSearchParams(searchParams.toString());
     if (debouncedSearchValue.trim()) {
@@ -200,15 +197,54 @@ export function TasksContent({
     } else {
       params.delete('search');
     }
-    params.set('sort', sortValue);
     if (assignedToMe) {
       params.set('assigned', 'me');
     } else {
       params.delete('assigned');
     }
+    
+    // Reset navigation flag before pushing to allow subsequent updates
+    isNavigatingRef.current = false;
     router.push(`/tasks?${params.toString()}`, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearchValue, sortValue, assignedToMe, context.variant, clientTeamMemberIds]);
+  }, [debouncedSearchValue, assignedToMe, context.variant, clientTeamMemberIds]);
+
+  // Fetch search results when search query is active
+  useEffect(() => {
+    const hasActiveSearch = debouncedSearchValue.trim().length > 0;
+    
+    // Only fetch search results if search is active
+    if (!hasActiveSearch) {
+      return;
+    }
+    
+    // For clients with assignedToMe, we need clientTeamMemberIds to be available
+    if (assignedToMe && context.variant === 'client' && clientTeamMemberIds.length === 0) {
+      return;
+    }
+    
+    setIsFetchingServerResults(true);
+    searchTasksGlobal(context, {
+      search: debouncedSearchValue,
+      limit: 50, // Search-based pagination: 50 tasks per page
+      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+      assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
+      cursor: undefined // Start from beginning for new search
+    }).then(snapshot => {
+      startTransition(() => {
+        setTasks(snapshot.tasks);
+        setTotalCount(snapshot.total);
+        setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
+        setCursor(snapshot.cursor || null);
+        setHasNextPage(snapshot.hasNextPage);
+        setLoadedConnectionIds([]); // Not used for search mode
+        setIsFetchingServerResults(false);
+      });
+    }).catch(error => {
+      console.error('Error searching tasks:', error);
+      setIsFetchingServerResults(false);
+    });
+  }, [debouncedSearchValue, assignedToMe, context, clientTeamMemberIds, startTransition]);
   
   // Fetch filtered data when assignedToMe is true for clients (after clientTeamMemberIds is available)
   // This runs when assignedToMe changes or when clientTeamMemberIds becomes available
@@ -219,11 +255,11 @@ export function TasksContent({
     }
     
     setIsFetchingServerResults(true);
-    refreshTasksData(context, {
+      refreshTasksData(context, {
       search: debouncedSearchValue,
-      sort: sortValue,
-      limit: 50,
-      assignedToUserIds: clientTeamMemberIds
+      limit: 20,
+      assignedToUserIds: clientTeamMemberIds,
+      loadedConnectionIds: [] // Reset when filtering changes
     }).then(snapshot => {
       startTransition(() => {
         setTasks(snapshot.tasks);
@@ -231,13 +267,14 @@ export function TasksContent({
         setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
         setCursor(snapshot.cursor || null);
         setHasNextPage(snapshot.hasNextPage);
+        setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
         setIsFetchingServerResults(false);
       });
     }).catch(error => {
       console.error('Error fetching filtered tasks:', error);
       setIsFetchingServerResults(false);
     });
-  }, [assignedToMe, context, debouncedSearchValue, sortValue, clientTeamMemberIds, startTransition]);
+  }, [assignedToMe, context, debouncedSearchValue, clientTeamMemberIds, startTransition]);
 
   // Display: Use server results directly (no optimistic filtering)
   const displayedTasks = tasks;
@@ -259,18 +296,35 @@ export function TasksContent({
   const loadMore = useCallback(async () => {
     if (!hasNextPage || isLoading || !cursor) return;
     
+    const hasActiveSearch = debouncedSearchValue.trim().length > 0;
+    
     setIsLoading(true);
     try {
-      const snapshot = await fetchMoreTasks(context, {
+      let snapshot: TasksSnapshot;
+      
+      if (hasActiveSearch) {
+        // Use search-based pagination (offset-based)
+        snapshot = await searchTasksGlobal(context, {
+          search: debouncedSearchValue,
+          limit: 50, // Search-based pagination: 50 tasks per page
+          cursor, // Offset-based cursor for search
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
+        });
+      } else {
+        // Use connection-based pagination (normal mode)
+        snapshot = await fetchMoreTasks(context, {
         cursor,
         search: debouncedSearchValue,
-        sort: sortValue,
-        limit: 50,
+        limit: 20, // Number of connections to load per page
         assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
+        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
+        loadedConnectionIds: loadedConnectionIds // Pass already loaded connection IDs to avoid duplicates
       });
+      }
       
       startTransition(() => {
+        // Merge new tasks with existing ones (avoid duplicates)
         setTasks(prev => {
           const existingIds = new Set(prev.map(t => t.id));
           const newTasks = snapshot.tasks.filter(t => !existingIds.has(t.id));
@@ -280,6 +334,7 @@ export function TasksContent({
         setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
         setCursor(snapshot.cursor || null);
         setHasNextPage(snapshot.hasNextPage);
+        setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
       });
     } catch (error) {
       console.error('Error loading more tasks:', error);
@@ -287,15 +342,19 @@ export function TasksContent({
     } finally {
       setIsLoading(false);
     }
-  }, [hasNextPage, isLoading, cursor, context, debouncedSearchValue, sortValue, assignedToMe, clientTeamMemberIds, startTransition]);
+  }, [hasNextPage, isLoading, cursor, context, debouncedSearchValue, assignedToMe, clientTeamMemberIds, loadedConnectionIds, startTransition]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchValue(value);
-  }, []);
-
-  const handleSortChange = useCallback((newSortValue: string) => {
-    setSortValue(newSortValue);
-  }, []);
+    // Show skeleton immediately when search changes (better UX feedback)
+    // Keep count persistent (less jarring than showing 0)
+    if (value.trim() !== debouncedSearchValue.trim()) {
+      setIsFetchingServerResults(true);
+      // Clear tasks immediately to show skeletons, but keep count persistent
+      setTasks([]);
+      // Don't clear totalCount - keep it persistent until new results arrive
+    }
+  }, [debouncedSearchValue]);
 
   const handleNewTask = useCallback(() => {
     setIsNewTaskModalOpen(true);
@@ -574,86 +633,12 @@ export function TasksContent({
         : t
       );
       
-      // If status changed to/from 'done', re-sort to match RPC function logic
-      const statusChanged = updates.status !== undefined;
-      if (statusChanged) {
-        const isOrgNameSort = sortValue === 'client_asc' || sortValue === 'client_desc' || sortValue === 'agency_asc' || sortValue === 'agency_desc';
-        const isDueDateSort = sortValue === 'due_date';
-        
-        if (isOrgNameSort) {
-          // For org name sorts: group by org name, then separate Done from non-Done within each group
-          const isClientNameSort = sortValue === 'client_asc' || sortValue === 'client_desc';
-          return [...updated].sort((a, b) => {
-            // Determine which organization name to use for sorting
-            const aName = isClientNameSort 
-              ? a.client.name.toLowerCase()
-              : (a.agency?.name || '').toLowerCase();
-            const bName = isClientNameSort
-              ? b.client.name.toLowerCase()
-              : (b.agency?.name || '').toLowerCase();
-            
-            // Primary sort: by org name (A-Z or Z-A)
-            let nameComparison = 0;
-            if (sortValue === 'client_asc' || sortValue === 'agency_asc') {
-              if (aName < bName) nameComparison = -1;
-              else if (aName > bName) nameComparison = 1;
-            } else { // client_desc or agency_desc
-              if (aName > bName) nameComparison = -1;
-              else if (aName < bName) nameComparison = 1;
-            }
-            
-            // If org names are different, return the name comparison
-            if (nameComparison !== 0) {
-              return nameComparison;
-            }
-            
-            // Same org group: separate Done from non-Done
-            const aIsDone = a.status === 'done';
-            const bIsDone = b.status === 'done';
-            
-            // Done tasks go last within each org group
-            if (aIsDone && !bIsDone) return 1;
-            if (!aIsDone && bIsDone) return -1;
-            
-            // Both are Done: sort by completed_at DESC
-            if (aIsDone && bIsDone) {
-              const aCompleted = a.completedAtRaw ? new Date(a.completedAtRaw).getTime() : 0;
-              const bCompleted = b.completedAtRaw ? new Date(b.completedAtRaw).getTime() : 0;
-              if (aCompleted !== bCompleted) return bCompleted - aCompleted;
-              return new Date(b.createdAtRaw || 0).getTime() - new Date(a.createdAtRaw || 0).getTime();
-            }
-            
-            // Both are active: sort by due_date ASC, then created_at DESC
-            const aDue = a.dueDateRaw ? new Date(a.dueDateRaw).getTime() : Infinity;
-            const bDue = b.dueDateRaw ? new Date(b.dueDateRaw).getTime() : Infinity;
-            if (aDue !== bDue) return aDue - bDue;
-            return new Date(b.createdAtRaw || 0).getTime() - new Date(a.createdAtRaw || 0).getTime();
-          });
-        } else if (isDueDateSort) {
-          // For due_date sort: separate Done from non-Done globally
-          const doneTasks = updated.filter(t => t.status === 'done');
-          const nonDoneTasks = updated.filter(t => t.status !== 'done');
-          
-          // Sort Done tasks by completed_at DESC
-          const sortedDoneTasks = [...doneTasks].sort((a, b) => {
-            const aCompleted = a.completedAtRaw ? new Date(a.completedAtRaw).getTime() : 0;
-            const bCompleted = b.completedAtRaw ? new Date(b.completedAtRaw).getTime() : 0;
-            if (aCompleted !== bCompleted) return bCompleted - aCompleted;
-            return new Date(b.createdAtRaw || 0).getTime() - new Date(a.createdAtRaw || 0).getTime();
-          });
-          
-          // Non-Done tasks are already sorted by due_date (from RPC), just maintain order
-          return [...nonDoneTasks, ...sortedDoneTasks];
-        }
-        // For status sort, no re-sorting needed (already sorted by status)
-      }
-      
       return updated;
     });
     if (selectedTask && selectedTask.id === taskId) {
       setSelectedTask(prev => prev ? { ...prev, ...updates } : null);
     }
-  }, [selectedTask, sortValue]);
+  }, [selectedTask]);
 
   const handleTaskDeleted = useCallback(async (taskId: string) => {
     const deletedIndex = tasks.findIndex(t => t.id === taskId);
@@ -724,7 +709,7 @@ export function TasksContent({
       <div ref={parentRef}>
         <TasksTable
           tasks={displayedTasks}
-          isBootstrapping={isFetchingServerResults && displayedTasks.length === 0}
+          isBootstrapping={isFetchingServerResults}
           unfilteredTotalCount={unfilteredTotalCount}
           onLoadMore={loadMore}
           onNewTask={handleNewTask}
@@ -743,9 +728,6 @@ export function TasksContent({
           agencyMembers={agencyMembers}
           membersByConnection={membersByConnection}
           onSearchChange={handleSearchChange}
-          sortOptions={sortOptions}
-          sortValue={sortValue}
-          onSortChange={handleSortChange}
           allowedConnectionIds={allowedConnectionIds}
         />
       </div>
@@ -822,6 +804,8 @@ export function TasksContent({
           variant={context.variant}
           isGlobal={true}
           onConnectionSelect={handleConnectionSelect}
+          allowedConnectionIds={allowedConnectionIds}
+          onPaywallBlocked={() => setIsPaywallModalOpen(true)}
         />
       )}
 

@@ -107,14 +107,16 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  const previousDebouncedSearchRef = useRef<string>('')
   const [assignedToMe, setAssignedToMe] = useState<boolean>(initiallyAssigned)
   
   // Pagination state
   const [hasMore, setHasMore] = useState(initiallyAssigned ? true : initialRequests.length === PAGE_SIZE)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const parentRef = useRef<HTMLDivElement>(null)
-  // Buffer initial empty render with skeleton when assigned=me
+  // Buffer initial empty render with skeleton when assigned=me or when search/assigned filter changes
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
+  const [isSearching, setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
   const [_isPending, startTransition] = useTransition()
@@ -232,6 +234,22 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     return () => clearTimeout(timeoutId)
   }, [searchQuery])
 
+  // Sync search to URL parameters (matching global tables pattern)
+  useEffect(() => {
+    const currentSearchParam = searchParams.get('search') || ''
+    
+    if (debouncedSearchQuery !== currentSearchParam) {
+      const params = new URLSearchParams(searchParams.toString())
+      if (debouncedSearchQuery.trim()) {
+        params.set('search', debouncedSearchQuery.trim())
+      } else {
+        params.delete('search')
+      }
+      const newUrl = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`
+      router.replace(newUrl, { scroll: false })
+    }
+  }, [debouncedSearchQuery, searchParams, pathname, router])
+
   // Track if this is the initial mount
   const isInitialMount = useRef(true)
 
@@ -268,9 +286,25 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     // Skip on initial mount if there's no search query and not assigned to me (we already have initialRequests)
     if (isInitialMount.current && !debouncedSearchQuery && !assignedToMe) {
       isInitialMount.current = false
+      previousDebouncedSearchRef.current = debouncedSearchQuery
       return
     }
     isInitialMount.current = false
+
+    // Set loading state to show skeleton only when:
+    // 1. There's an active search query, OR
+    // 2. We're clearing search (had search before, now don't)
+    // Don't show skeleton on initial page load or tab navigation without search
+    const hadSearchBefore = previousDebouncedSearchRef.current.trim().length > 0
+    const hasSearchNow = debouncedSearchQuery.trim().length > 0
+    const isClearingSearch = hadSearchBefore && !hasSearchNow
+    
+    if (hasSearchNow || isClearingSearch) {
+      setIsSearching(true)
+    }
+    
+    // Update previous search ref for next comparison
+    previousDebouncedSearchRef.current = debouncedSearchQuery
 
     // Cancel all in-flight requests
     inFlightRequests.current.clear()
@@ -300,6 +334,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             setCurrentOffset(PAGE_SIZE)
             setPrefetchedRequests([])
             setPrefetchedOffset(null)
+            setIsSearching(false)
           })
           if (context.variant === 'agency') {
             setNewRequestsCount(result.newCount ?? 0)
@@ -327,6 +362,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         }
         if (isMountedRef.current) {
           setHasMore(false)
+          setIsSearching(false)
         }
       }
     }
@@ -1041,7 +1077,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           parentRef={parentRef}
         assignedToMe={assignedToMe}
         onToggleAssignedToMe={handleToggleAssignedToMe}
-        isBootstrapping={isBootstrapping}
+        isBootstrapping={isBootstrapping || isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)}
         isAgency={context.variant === 'agency'}
         agencyOrganization={context.variant === 'client' ? {
           id: snapshot.agency.id,

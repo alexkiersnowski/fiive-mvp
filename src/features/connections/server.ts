@@ -4,7 +4,6 @@ import { escapeForILike } from '@/lib/utils';
 import { getActiveContext, type EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ConnectionSnapshot } from './types';
 import * as formatters from './formatters';
-import type { TaskSortMode } from './tasks/taskSort';
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -696,94 +695,6 @@ export const getRequestsForConnection = cache(async (
   // Fetch requests and orgs in parallel (they don't depend on each other)
   const requestsStartTime = isDev ? performance.now() : 0;
   
-  // Normalize search query for status matching
-  const normalizeStatusQuery = (query: string): string | null => {
-    const normalized = query.toLowerCase().trim();
-    const STATUS_KEYWORDS: Record<string, 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'> = {
-      open: 'new',
-      new: 'new',
-      'in review': 'in_review',
-      in_review: 'in_review',
-      review: 'in_review',
-      reviewing: 'in_review',
-      accepted: 'accepted',
-      approve: 'accepted',
-      approved: 'accepted',
-      accept: 'accepted',
-      canceled: 'canceled',
-      cancelled: 'canceled',
-      cancel: 'canceled',
-      closed: 'closed',
-      close: 'closed',
-      completed: 'closed'
-    };
-    return STATUS_KEYWORDS[normalized] ?? null;
-  };
-
-
-  // When searching, first find matching profile IDs for name search (DB-level)
-  let matchingUserIds: string[] = [];
-  if (searchQuery && searchQuery.trim().length > 0) {
-    const trimmedQuery = searchQuery.trim();
-    const escaped = escapeForILike(trimmedQuery);
-    const searchPattern = `%${escaped}%`;
-    const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0);
-    
-    // Query profiles table for matching names (DB-level search)
-    // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
-    // Also match if full search term appears in either first_name or last_name
-    let profilesQuery = supabase
-      .from('profiles')
-      .select('id, first_name, last_name')
-      .is('deleted_at', null);
-    
-    if (searchTerms.length > 1) {
-      // Multi-word search: try to match first word in first_name AND second word in last_name
-      // OR vice versa, OR full term in either field
-      const firstTermEscaped = escapeForILike(searchTerms[0]);
-      const secondTermEscaped = escapeForILike(searchTerms[1]);
-      const firstPattern = `%${firstTermEscaped}%`;
-      const secondPattern = `%${secondTermEscaped}%`;
-      
-      // Match: (first_name contains first term AND last_name contains second term)
-      // OR (first_name contains second term AND last_name contains first term)
-      // OR (first_name contains full term) OR (last_name contains full term)
-      profilesQuery = profilesQuery.or(
-        `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
-        `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
-        `first_name.ilike.${searchPattern},` +
-        `last_name.ilike.${searchPattern}`
-      );
-    } else {
-      // Single word search: match in either first_name or last_name
-      profilesQuery = profilesQuery.or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern}`);
-    }
-    
-    const { data: matchingProfiles, error: profilesError } = await profilesQuery;
-    
-    if (!profilesError && matchingProfiles) {
-      // For multi-word searches, also filter in memory to ensure all terms match
-      if (searchTerms.length > 1) {
-        matchingUserIds = matchingProfiles
-          .filter(profile => {
-            const firstName = (profile.first_name || '').toLowerCase();
-            const lastName = (profile.last_name || '').toLowerCase();
-            const fullName = `${firstName} ${lastName}`.trim();
-            
-            // Check if all search terms appear somewhere in the name
-            return searchTerms.every(term => 
-              firstName.includes(term) || 
-              lastName.includes(term) || 
-              fullName.includes(term)
-            );
-          })
-          .map(p => p.id);
-      } else {
-        matchingUserIds = matchingProfiles.map(p => p.id);
-      }
-    }
-  }
-  
   // Build the base query for filtering (used for both count and data)
   // Note: Uses idx_requests_connection_not_deleted index for optimal performance
   // Exact counts require scanning matching rows, but the index makes this efficient
@@ -801,34 +712,11 @@ export const getRequestsForConnection = cache(async (
     baseQuery = baseQuery.eq('created_by_user_id', createdByUserId);
   }
   
-  // Apply search filter if searchQuery is provided (DB-level for all fields)
+  // Apply search filter if searchQuery is provided (title only)
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
     const escaped = escapeForILike(trimmedQuery);
-    const matchedStatus = normalizeStatusQuery(trimmedQuery);
-    const searchLower = trimmedQuery.toLowerCase();
-    
-    // Build OR list for search (all DB-level)
-    const orParts: string[] = [];
-    orParts.push(`title.ilike.%${escaped}%`);
-    orParts.push(`project_name_cached.ilike.%${escaped}%`);
-    
-    // Handle "General request" search
-    if (searchLower.includes('general')) {
-      orParts.push(`project_id.is.null`);
-    }
-    
-    if (matchedStatus) {
-      orParts.push(`status.eq.${matchedStatus}`);
-    }
-    
-    // Add profile name matches (DB-level via user IDs)
-    if (matchingUserIds.length > 0) {
-      orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
-      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
-    }
-    
-    baseQuery = baseQuery.or(orParts.join(','));
+    baseQuery = baseQuery.ilike('title', `%${escaped}%`);
   }
   
   // Build the requests query for fetching data
@@ -856,38 +744,19 @@ export const getRequestsForConnection = cache(async (
     requestsQuery = requestsQuery.eq('created_by_user_id', createdByUserId);
   }
   
-  // Apply search filter if searchQuery is provided (DB-level for all fields)
+  // Apply search filter if searchQuery is provided (title only)
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
     const escaped = escapeForILike(trimmedQuery);
-    const matchedStatus = normalizeStatusQuery(trimmedQuery);
-    const searchLower = trimmedQuery.toLowerCase();
-    
-    const orParts: string[] = [];
-    orParts.push(`title.ilike.%${escaped}%`);
-    orParts.push(`project_name_cached.ilike.%${escaped}%`);
-    
-    // Handle "General request" search
-    if (searchLower.includes('general')) {
-      orParts.push(`project_id.is.null`);
-    }
-    
-    if (matchedStatus) {
-      orParts.push(`status.eq.${matchedStatus}`);
-    }
-    
-    // Add profile name matches (DB-level via user IDs)
-    if (matchingUserIds.length > 0) {
-      orParts.push(`created_by_user_id.in.(${matchingUserIds.join(',')})`);
-      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`);
-    }
-    
-    requestsQuery = requestsQuery.or(orParts.join(','));
+    requestsQuery = requestsQuery.ilike('title', `%${escaped}%`);
   }
   
   // Apply pagination at database level (always, even when searching)
+  // Sort by status ASC, then created_at DESC, then id DESC
   requestsQuery = requestsQuery
+    .order('status', { ascending: true })
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .range(offset, offset + limit - 1);
   
   // Build newCount query to run in parallel (only needed for agency view, but fetch always for consistency)
@@ -1191,29 +1060,6 @@ type OrganizationRow = {
   logo_url?: string | null
 }
 
-const TASK_STATUS_KEYWORDS: Record<string, TaskStatus> = {
-  'to do': 'to_do',
-  todo: 'to_do',
-  open: 'to_do',
-  backlog: 'to_do',
-  'in progress': 'in_progress',
-  progress: 'in_progress',
-  active: 'in_progress',
-  working: 'in_progress',
-  'on hold': 'on_hold',
-  hold: 'on_hold',
-  paused: 'on_hold',
-  blocked: 'on_hold',
-  completed: 'done',
-  complete: 'done',
-  done: 'done',
-  finished: 'done'
-}
-
-const normalizeTaskStatusQuery = (query: string): TaskStatus | null => {
-  const normalized = query.toLowerCase().trim()
-  return TASK_STATUS_KEYWORDS[normalized] ?? null
-}
 
 const toOrgRecord = (org: OrganizationRow | null | undefined, fallbackId: string) => ({
   id: org?.id || fallbackId,
@@ -1433,7 +1279,7 @@ async function hydrateTaskRows(
 
 export const getTasksForConnection = cache(async (
   connectionId: string,
-  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; assignedToUserIds?: string[]; createdByUserId?: string; sortMode?: TaskSortMode }
+  options?: { limit?: number; offset?: number; searchQuery?: string; assignedToUserId?: string; assignedToUserIds?: string[]; createdByUserId?: string; sortBy?: 'status' | 'updated_at' }
 ): Promise<TasksWithCount> => {
   const isDev = process.env.NODE_ENV !== 'production'
   const supabase = await createClient()
@@ -1444,7 +1290,7 @@ export const getTasksForConnection = cache(async (
     assignedToUserId,
     assignedToUserIds,
     createdByUserId,
-    sortMode = 'status'
+    sortBy = 'status'
   } = options || {}
   const safeLimit = typeof limit === 'number' ? Math.max(0, limit) : 100
   const safeOffset = Math.max(0, offset ?? 0)
@@ -1469,86 +1315,6 @@ export const getTasksForConnection = cache(async (
     .select('id, name, logo_url')
     .eq('id', connection.agency_id)
     .single()
-
-  // When searching, first find matching profile IDs for assignee name search (DB-level)
-  let matchingUserIds: string[] = []
-  let projectIdsMatchingSearch: string[] = []
-  if (searchQuery && searchQuery.trim().length > 0) {
-    const trimmedQuery = searchQuery.trim()
-    const escaped = escapeForILike(trimmedQuery)
-    const searchPattern = `%${escaped}%`
-    const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0)
-    
-    // Query profiles table for matching names (DB-level search)
-    // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
-    // Also match if full search term appears in either first_name or last_name
-    let profilesQuery = supabase
-      .from('profiles')
-      .select('id, first_name, last_name')
-      .is('deleted_at', null)
-    
-    if (searchTerms.length > 1) {
-      // Multi-word search: try to match first word in first_name AND second word in last_name
-      // OR vice versa, OR full term in either field
-      const firstTermEscaped = escapeForILike(searchTerms[0])
-      const secondTermEscaped = escapeForILike(searchTerms[1])
-      const firstPattern = `%${firstTermEscaped}%`
-      const secondPattern = `%${secondTermEscaped}%`
-      
-      // Match: (first_name contains first term AND last_name contains second term)
-      // OR (first_name contains second term AND last_name contains first term)
-      // OR (first_name contains full term) OR (last_name contains full term)
-      profilesQuery = profilesQuery.or(
-        `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
-        `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
-        `first_name.ilike.${searchPattern},` +
-        `last_name.ilike.${searchPattern}`
-      )
-    } else {
-      // Single word search: match in either first_name or last_name
-      profilesQuery = profilesQuery.or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern}`)
-    }
-    
-    const { data: matchingProfiles, error: profilesError } = await profilesQuery
-    
-    if (!profilesError && matchingProfiles) {
-      // For multi-word searches, also filter in memory to ensure all terms match
-      if (searchTerms.length > 1) {
-        matchingUserIds = matchingProfiles
-          .filter(profile => {
-            const firstName = (profile.first_name || '').toLowerCase()
-            const lastName = (profile.last_name || '').toLowerCase()
-            const fullName = `${firstName} ${lastName}`.trim()
-            
-            // Check if all search terms appear somewhere in the name
-            return searchTerms.every(term => 
-              firstName.includes(term) || 
-              lastName.includes(term) || 
-              fullName.includes(term)
-            )
-          })
-          .map(p => p.id)
-      } else {
-        matchingUserIds = matchingProfiles.map(p => p.id)
-      }
-    }
-    
-    // Query projects table for matching project names
-    const { data: matchingProjects, error: projectSearchError } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('connection_id', connectionId)
-      .is('deleted_at', null)
-      .ilike('name', `%${escaped}%`)
-
-    if (projectSearchError) {
-      if (isDev) {
-        console.error('Error searching projects for tasks:', projectSearchError)
-      }
-    } else if (matchingProjects?.length) {
-      projectIdsMatchingSearch = matchingProjects.map(project => project.id)
-    }
-  }
 
   let tasksQuery = supabase
     .from('tasks')
@@ -1581,45 +1347,24 @@ export const getTasksForConnection = cache(async (
     tasksQuery = tasksQuery.eq('created_by_user_id', createdByUserId)
   }
 
+  // Search by title only
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim()
     const escaped = escapeForILike(trimmedQuery)
-    const statusMatch = normalizeTaskStatusQuery(trimmedQuery)
-    const orParts = [`title.ilike.%${escaped}%`, `description.ilike.%${escaped}%`]
-
-    if (statusMatch) {
-      orParts.push(`status.eq.${statusMatch}`)
-    }
-
-    if (projectIdsMatchingSearch.length > 0) {
-      const inClause = projectIdsMatchingSearch.map(id => `"${id}"`).join(',')
-      orParts.push(`project_id.in.(${inClause})`)
-    }
-
-    // Add assignee name matches (DB-level via user IDs)
-    if (matchingUserIds.length > 0) {
-      orParts.push(`assignee_user_id.in.(${matchingUserIds.join(',')})`)
-    }
-
-    tasksQuery = tasksQuery.or(orParts.join(','))
+    tasksQuery = tasksQuery.ilike('title', `%${escaped}%`)
   }
   
-  // Apply database-level sorting based on sortMode
-  // Note: Complex sorting (pinned tasks, status grouping, done tasks last) happens client-side
-  // Database provides efficient base ordering using indexes
-  let orderedQuery = tasksQuery
-  if (sortMode === 'status') {
-    // For status mode: use index idx_tasks_connection_ids_status_created
-    // Order by status, then created_at DESC, then id DESC
-    // Client-side code will regroup by status priority (in_progress, to_do, on_hold, done)
+  // Sort based on sortBy option
+  let orderedQuery = tasksQuery;
+  if (sortBy === 'updated_at') {
+    // Sort by updated_at DESC (most recently active first), then id DESC for consistency
     orderedQuery = tasksQuery
-      .order('status', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false, nullsFirst: false })
+      .order('updated_at', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false, nullsFirst: false })
   } else {
-    // For newest mode: order by created_at DESC, then id DESC
-    // Uses idx_tasks_connection_not_deleted index
+    // Default: sort by status ASC, then created_at DESC, then id DESC
     orderedQuery = tasksQuery
+      .order('status', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false, nullsFirst: false })
   }
@@ -2828,7 +2573,7 @@ export const getProjectsForConnection = cache(async (
 ): Promise<ProjectsWithCount> => {
   const isDev = process.env.NODE_ENV !== 'production';
   const startTime = isDev ? performance.now() : 0;
-  const { limit = 100, offset = 0, searchQuery, assignedToUserId: _assignedToUserId, createdByUserId: _createdByUserId, sort = 'newest_first' } = options || {};
+  const { limit = 100, offset = 0, searchQuery, assignedToUserId: _assignedToUserId, createdByUserId: _createdByUserId, sort = 'project_asc' } = options || {};
   const supabase = await createClient();
   
   // Fetch the connection info (cached, shared with getAgencyMembersForConnection)
@@ -2863,30 +2608,6 @@ export const getProjectsForConnection = cache(async (
   // Fetch projects and orgs in parallel
   const projectsStartTime = isDev ? performance.now() : 0;
   
-  // Normalize search query for project status matching
-  const normalizeProjectStatusQuery = (query: string): string | null => {
-    const normalized = query.toLowerCase().trim();
-    const PROJECT_STATUS_KEYWORDS: Record<string, 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'> = {
-      planned: 'planned',
-      plan: 'planned',
-      planning: 'planned',
-      active: 'active',
-      'on hold': 'on_hold',
-      onhold: 'on_hold',
-      on_hold: 'on_hold',
-      hold: 'on_hold',
-      paused: 'on_hold',
-      completed: 'completed',
-      complete: 'completed',
-      done: 'completed',
-      finished: 'completed',
-      canceled: 'canceled',
-      cancelled: 'canceled',
-      cancel: 'canceled'
-    };
-    return PROJECT_STATUS_KEYWORDS[normalized] ?? null;
-  };
-  
   // Build the base query for filtering (used for both count and data)
   let baseQuery = supabase
     .from('projects')
@@ -2898,13 +2619,7 @@ export const getProjectsForConnection = cache(async (
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
     const escaped = escapeForILike(trimmedQuery);
-    const matchedStatus = normalizeProjectStatusQuery(trimmedQuery);
-    
-    // Build OR list for search
-    const orParts: string[] = [];
-    orParts.push(`name.ilike.%${escaped}%`);
-    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
-    baseQuery = baseQuery.or(orParts.join(','));
+    baseQuery = baseQuery.ilike('name', `%${escaped}%`);
   }
   
   // Note: assignedToUserId and createdByUserId filters will be handled later
@@ -2931,13 +2646,7 @@ export const getProjectsForConnection = cache(async (
   if (searchQuery && searchQuery.trim().length > 0) {
     const trimmedQuery = searchQuery.trim();
     const escaped = escapeForILike(trimmedQuery);
-    const matchedStatus = normalizeProjectStatusQuery(trimmedQuery);
-    
-    // Build OR list for search
-    const orParts: string[] = [];
-    orParts.push(`name.ilike.%${escaped}%`);
-    if (matchedStatus) orParts.push(`status.eq.${matchedStatus}`);
-    projectsQuery = projectsQuery.or(orParts.join(','));
+    projectsQuery = projectsQuery.ilike('name', `%${escaped}%`);
   }
   
   // Note: assignedToUserId and createdByUserId filters will be added later
@@ -2945,25 +2654,19 @@ export const getProjectsForConnection = cache(async (
   // Apply sorting based on sort parameter
   let orderedQuery = projectsQuery;
   switch (sort) {
-    case 'newest_first':
-      orderedQuery = projectsQuery.order('created_at', { ascending: false });
-      break;
     case 'project_asc':
       orderedQuery = projectsQuery.order('name', { ascending: true });
       break;
-    case 'project_desc':
-      orderedQuery = projectsQuery.order('name', { ascending: false });
-      break;
     case 'end_date_asc':
       // Order by end_date ascending (soonest first)
-      // Projects without end dates (nulls) will sort last, and be sorted by created_at (newest first) as secondary sort
+      // Projects without end dates (nulls) will sort last, and be sorted by name (A-Z) as secondary sort
       orderedQuery = projectsQuery
         .order('end_date', { ascending: true })
-        .order('created_at', { ascending: false });
+        .order('name', { ascending: true });
       break;
     default:
-      // Default to newest first
-      orderedQuery = projectsQuery.order('created_at', { ascending: false });
+      // Default to project_asc
+      orderedQuery = projectsQuery.order('name', { ascending: true });
   }
   
   const [countResult, projectsResult, clientOrgResult, agencyOrgResult] = await Promise.all([

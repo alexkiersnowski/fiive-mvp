@@ -10,7 +10,7 @@ import { TaskDetailModal } from '../tasks/TaskDetailModal'
 import { NewTaskModal } from '../tasks/NewTaskModal'
 import type { Task, Comment } from '../server';
 import { fetchTasksForConnection, fetchTaskById, fetchCommentsForTasks } from '../tasks/actions';
-import { sortTasksWithPinnedFirst, type TaskSortMode } from '../tasks/taskSort';
+import { sortTasksWithPinnedFirst } from '../tasks/taskSort';
 import { sortMembersWithActiveFirst, type MemberSummary } from '../utils/memberSorting';
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
 import type { VirtualItem } from '@tanstack/react-virtual';
@@ -59,8 +59,6 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     : (context.organization.name ? context.organization.name.slice(0, 2).toUpperCase() : 'TM');
   const currentOrgId = context.organization.id;
 
-  const sortMode: TaskSortMode = 'status'
-
   // Local state for tasks (for optimistic updates)
   const pinnedTaskIdsRef = useRef<Set<string>>(new Set())
 
@@ -86,11 +84,11 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     pinnedTaskIdsRef.current.delete(taskId)
   }, [])
 
-  const [tasks, setTasks] = useState<Task[]>(() => (initiallyAssigned ? [] : mergePinnedTasks(sortTasksWithPinnedFirst(initialTasks, sortMode))))
+  const [tasks, setTasks] = useState<Task[]>(() => (initiallyAssigned ? [] : mergePinnedTasks(sortTasksWithPinnedFirst(initialTasks))))
 
   const sortTasksWithMode = useCallback((items: Task[]): Task[] => (
-    mergePinnedTasks(sortTasksWithPinnedFirst(items, sortMode))
-  ), [mergePinnedTasks, sortMode])
+    mergePinnedTasks(sortTasksWithPinnedFirst(items))
+  ), [mergePinnedTasks])
   // Optimistic new tasks disabled (relying on real-time updates)
   
   // Total count state (filtered)
@@ -102,14 +100,16 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  const previousDebouncedSearchRef = useRef<string>('')
   const [assignedToMe, setAssignedToMe] = useState<boolean>(initiallyAssigned)
   
   // Pagination state
   const [hasMore, setHasMore] = useState(initiallyAssigned ? true : initialTasks.length === PAGE_SIZE)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const parentRef = useRef<HTMLDivElement>(null)
-  // Buffer initial empty render with skeleton when assigned=me
+  // Buffer initial empty render with skeleton when assigned=me or when search/assigned filter changes
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
+  const [isSearching, setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
   const [_isPending, startTransition] = useTransition()
@@ -181,8 +181,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         offset: 0,
         searchQuery: debouncedSearchQuery || undefined,
           assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-        sortMode
+          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
       })
       if (!isMountedRef.current) return
       // Large state update - use transition for non-urgent render
@@ -291,6 +290,22 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return () => clearTimeout(timeoutId)
   }, [searchQuery])
 
+  // Sync search to URL parameters (matching global tables pattern)
+  useEffect(() => {
+    const currentSearchParam = searchParams.get('search') || ''
+    
+    if (debouncedSearchQuery !== currentSearchParam) {
+      const params = new URLSearchParams(searchParams.toString())
+      if (debouncedSearchQuery.trim()) {
+        params.set('search', debouncedSearchQuery.trim())
+      } else {
+        params.delete('search')
+      }
+      const newUrl = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`
+      router.replace(newUrl, { scroll: false })
+    }
+  }, [debouncedSearchQuery, searchParams, pathname, router])
+
   // Track if this is the initial mount
   const isInitialMount = useRef(true)
 
@@ -304,8 +319,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             offset: 0,
             searchQuery: debouncedSearchQuery || undefined,
             assignedToUserId: context.variant === 'agency' ? context.user?.id : undefined,
-            assignedToUserIds: context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-            sortMode
+            assignedToUserIds: context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
           })
           if (!isMountedRef.current) return
           setTasks(sortTasksWithMode(result.tasks))
@@ -325,9 +339,25 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     // Skip on initial mount if there's no search query and not assigned to me (we already have initialTasks)
     if (isInitialMount.current && !debouncedSearchQuery && !assignedToMe) {
       isInitialMount.current = false
+      previousDebouncedSearchRef.current = debouncedSearchQuery
       return
     }
     isInitialMount.current = false
+
+    // Set loading state to show skeleton only when:
+    // 1. There's an active search query, OR
+    // 2. We're clearing search (had search before, now don't)
+    // Don't show skeleton on initial page load or tab navigation without search
+    const hadSearchBefore = previousDebouncedSearchRef.current.trim().length > 0
+    const hasSearchNow = debouncedSearchQuery.trim().length > 0
+    const isClearingSearch = hadSearchBefore && !hasSearchNow
+    
+    if (hasSearchNow || isClearingSearch) {
+      setIsSearching(true)
+    }
+    
+    // Update previous search ref for next comparison
+    previousDebouncedSearchRef.current = debouncedSearchQuery
 
     // Cancel all in-flight tasks
     inFlightTasks.current.clear()
@@ -344,8 +374,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           offset: 0,
           searchQuery: debouncedSearchQuery || undefined,
           assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-          sortMode
+          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
         })
 
         if (isMountedRef.current) {
@@ -358,6 +387,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             setCurrentOffset(PAGE_SIZE)
             setPrefetchedTasks([])
             setPrefetchedOffset(null)
+            setIsSearching(false)
           })
           
           // Prefetch comments for search results
@@ -382,6 +412,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         }
         if (isMountedRef.current) {
           setHasMore(false)
+          setIsSearching(false)
         }
       }
     }
@@ -445,8 +476,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         offset,
         searchQuery: debouncedSearchQuery || undefined,
         assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-        sortMode
+        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
       })
       
       // Clear timeout - only if we still own this task
@@ -491,7 +521,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       }
       inFlightTasks.current.delete(offset)
     }
-  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, sortMode, sortTasksWithMode, clientTeamMemberIds])
+  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, sortTasksWithMode, clientTeamMemberIds])
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {
@@ -704,8 +734,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         offset: currentOffset,
         searchQuery: debouncedSearchQuery || undefined,
         assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-        sortMode
+        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
       })
       
       // Only update state if component is still mounted
@@ -759,7 +788,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       isLoadingMore.current = false
       inFlightTasks.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, sortMode, clientTeamMemberIds, mergeUniqueTasks])
+  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, clientTeamMemberIds, mergeUniqueTasks])
 
   // Toggle handler and URL sync for Assigned to me
   const handleToggleAssignedToMe = useCallback(() => {
@@ -1157,7 +1186,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           parentRef={parentRef}
         assignedToMe={assignedToMe}
         onToggleAssignedToMe={handleToggleAssignedToMe}
-        isBootstrapping={isBootstrapping}
+        isBootstrapping={isBootstrapping || isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)}
         isAgency={context.variant === 'agency'}
         agencyOrganization={context.variant === 'client' ? {
           id: snapshot.agency.id,
@@ -1165,7 +1194,6 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           logoUrl: snapshot.agency.logo || undefined
         } : undefined}
         onTaskDeleted={handleTableTaskDeleted}
-        sortMode={sortMode}
       />
       </div>
 
@@ -1212,8 +1240,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
               const result = await fetchTasksForConnection(connectionId, {
                 limit: PAGE_SIZE,
                 offset: 0,
-                searchQuery: debouncedSearchQuery || undefined,
-                sortMode
+                searchQuery: debouncedSearchQuery || undefined
               })
               if (!isMountedRef.current) return
               setTasks(sortTasksWithMode(result.tasks))

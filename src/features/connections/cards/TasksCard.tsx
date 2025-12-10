@@ -22,7 +22,7 @@ interface TasksCardProps {
 }
 
 async function defaultFetchTasks(connectionId: string) {
-  const { tasks } = await getTasksForConnection(connectionId, { limit: 5, offset: 0 });
+  const { tasks } = await getTasksForConnection(connectionId, { limit: 5, offset: 0, sortBy: 'updated_at' });
   return tasks;
 }
 
