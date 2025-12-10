@@ -127,6 +127,9 @@ export function TaskRow({
     onDragStart(task.id, e)
   }
 
+  // Calculate if status can be edited (used for conditional event handling and rendering)
+  const canEditStatus = !isDisconnected && (isAgency || (task.assignee ? clientEditableMembers.idSet.has(task.assignee.id) : false))
+
   return (
     <div
       ref={rowRef}
@@ -152,9 +155,12 @@ export function TaskRow({
       data-task-status={task.status}
     >
       {/* Drag Handle Icon - 44px cell */}
+      {canDrag && (
       <div className={`opacity-0 ${isDraggingActive ? '' : 'group-hover:opacity-100'} transition-opacity duration-75`}>
         <DragHandleIcon />
       </div>
+      )}
+      {!canDrag && <div></div>}
 
       {/* Title */}
       <div className="min-w-0 truncate py-0 px-3">
@@ -163,46 +169,41 @@ export function TaskRow({
 
       {/* Status */}
       <div 
-        className="min-w-0 py-0 px-3"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
+        className="min-w-0 py-0"
+        style={canEditStatus ? { paddingLeft: '4px', paddingRight: '4px' } : { paddingLeft: '8px', paddingRight: '4px' }}
+        onClick={canEditStatus ? (e) => e.stopPropagation() : undefined}
+        onMouseDown={canEditStatus ? (e) => e.stopPropagation() : undefined}
       >
-        {(() => {
-          const canEditStatus = !isDisconnected && (isAgency || (task.assignee ? clientEditableMembers.idSet.has(task.assignee.id) : false))
-          if (canEditStatus) {
-            return (
-              <InlineEdit
-                ref={(instance) => {
-                  statusInlineRefs.current[task.id] = instance
-                }}
-                type="badge"
-                value={task.status}
-                options={[
-                  { value: 'to_do', label: 'To do' },
-                  { value: 'in_progress', label: 'In progress' },
-                  { value: 'on_hold', label: 'On hold' },
-                  { value: 'done', label: 'Done' },
-                ]}
-                onSave={(newStatus) => {
-                  statusInlineRefs.current[task.id]?.closePopover()
-                  onStatusChange(task.id, newStatus)
-                }}
-                badgeComponent="task"
-                disablePopoverAnimation
-                disableHoverTransition
-                className="truncate h-6 rounded-[8px]"
-              />
-            )
-          }
-          return (
-            <TaskBadge 
-              variant={task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done'} 
-              size="sm" 
-              showText={true}
-              className="inline-flex"
-            />
-          )
-        })()}
+        {canEditStatus ? (
+          <InlineEdit
+            ref={(instance) => {
+              statusInlineRefs.current[task.id] = instance
+            }}
+            type="badge"
+            value={task.status}
+            options={[
+              { value: 'to_do', label: 'To do' },
+              { value: 'in_progress', label: 'In progress' },
+              { value: 'on_hold', label: 'On hold' },
+              { value: 'done', label: 'Done' },
+            ]}
+            onSave={(newStatus) => {
+              statusInlineRefs.current[task.id]?.closePopover()
+              onStatusChange(task.id, newStatus)
+            }}
+            badgeComponent="task"
+            disablePopoverAnimation
+            disableHoverTransition
+            className="truncate h-6 rounded-[8px]"
+          />
+        ) : (
+          <TaskBadge 
+            variant={task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done'} 
+            size="sm" 
+            showText={true}
+            className="inline-flex"
+          />
+        )}
       </div>
 
       {/* Assignee */}

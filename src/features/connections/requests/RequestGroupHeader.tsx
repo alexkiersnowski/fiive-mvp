@@ -64,6 +64,7 @@ export function RequestGroupHeader({ status, count, isExpanded, onToggle, isAgen
           variant={status}
           size="sm"
           showText={true}
+          customLabel={status === 'new' && !isAgency ? 'Submitted' : undefined}
           className="flex-shrink-0"
         />
         <span className="text-xs-regular text-[var(--color-base-text-tertiary)]">

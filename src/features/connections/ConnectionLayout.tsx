@@ -120,7 +120,7 @@ function ConnectionLayoutContent({
           <Alert className="relative" style={{ backgroundColor: 'var(--color-neutral-3)', padding: '20px' }}>
             <PencilSimpleSlash size={16} />
             <AlertDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-              This workspace is read-only. To resume collaboration, reconnect using your client&apos;s connection code.
+              This workspace is read-only. To resume collaboration, reconnect using your {currentUserType === 'client' ? 'agency' : 'client'}&apos;s connection code.
             </AlertDescription>
           </Alert>
         </div>

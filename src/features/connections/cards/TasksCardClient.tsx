@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
-import { Plus, ClipboardText, LockSimple } from "@phosphor-icons/react/dist/ssr";
+import { Plus, ClipboardText, LockSimple, ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import { CheckCircle, Eye, EyeSlash } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
@@ -895,21 +895,29 @@ export function TasksCardClient({ connectionId, tasks, prefetchedNextTask = null
         <p className="text-xs-regular text-tertiary">{description}</p>
       )}
 
-      {!isDisconnected && (
-        <div className="mt-auto flex justify-end">
-          {isAgency && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 shadow-none cursor-pointer transition-all duration-75"
-              onClick={handleNewTaskButtonClick}
-            >
-              <Plus size={16} weight="regular" />
-              Add task
-            </Button>
-          )}
-        </div>
-      )}
+      <div className="mt-auto flex justify-end">
+        {!isDisconnected && isAgency ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 shadow-none cursor-pointer transition-all duration-75"
+            onClick={handleNewTaskButtonClick}
+          >
+            <Plus size={16} weight="regular" />
+            Add task
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
+            onClick={() => router.push(`/${baseRoute}/${connectionId}/tasks`)}
+          >
+            <span className="mr-1">View all tasks</span>
+            <ArrowRight size={16} weight="regular" />
+          </Button>
+        )}
+      </div>
 
       <TaskDetailModal
         taskData={selectedTask}

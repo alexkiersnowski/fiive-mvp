@@ -146,8 +146,10 @@ export function GlobalTaskRow({
 
       {/* Status */}
       <div 
-        className="min-w-0 py-0 px-3"
-        onClick={(e) => e.stopPropagation()}
+        className="min-w-0 py-0"
+        style={canEditStatus ? { paddingLeft: '4px', paddingRight: '4px' } : { paddingLeft: '8px', paddingRight: '4px' }}
+        onClick={canEditStatus ? (e) => e.stopPropagation() : undefined}
+        onMouseDown={canEditStatus ? (e) => e.stopPropagation() : undefined}
       >
         {canEditStatus ? (
           <InlineEdit

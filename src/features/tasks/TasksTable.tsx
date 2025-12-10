@@ -422,9 +422,9 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     onTaskDeleted?.(taskId)
   }
 
-  // Group tasks by status and client
+  // Group tasks by status and client (agency view) or agency (client view)
   // Only recomputes when tasks array reference changes (which happens when tasks are added/removed/updated)
-  const { grouped: groupedTasks, allClients } = useMemo(() => groupTasksByStatusAndClient(tasks), [tasks])
+  const { grouped: groupedTasks, allGroups: allClients } = useMemo(() => groupTasksByStatusAndClient(tasks, isAgency), [tasks, isAgency])
   
   // Auto-expand groups that contain search results when search is active
   useEffect(() => {
@@ -457,11 +457,11 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   // Flatten grouped tasks for virtualization
   // Uses stable collapse state references - only recomputes when:
   // - groupedTasks changes (tasks changed)
-  // - allClients changes (new clients added)
+  // - allClients changes (new groups added)
   // - collapse state contents actually change (not just reference)
   const flattenedItems = useMemo<FlattenedItem[]>(() => {
-    return flattenGroupedTasks(groupedTasks, allClients, collapsedStatusesState.set, collapsedClientsState.map)
-  }, [groupedTasks, allClients, collapsedStatusesState.set, collapsedClientsState.map])
+    return flattenGroupedTasks(groupedTasks, allClients, collapsedStatusesState.set, collapsedClientsState.map, isAgency)
+  }, [groupedTasks, allClients, collapsedStatusesState.set, collapsedClientsState.map, isAgency])
   
   // Toggle status group collapse/expand - uses stable reference hook
   const toggleStatusGroup = useCallback((status: TaskStatus) => {
@@ -756,6 +756,9 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                       clientId={item.clientId}
                       clientName={item.clientName}
                       clientLogoUrl={item.clientLogoUrl}
+                      agencyId={item.agencyId}
+                      agencyName={item.agencyName}
+                      agencyLogoUrl={item.agencyLogoUrl}
                       count={item.count}
                       isExpanded={!collapsedClientsState.get(item.status).has(item.clientId)}
                       onToggle={() => toggleClientGroup(item.status, item.clientId)}

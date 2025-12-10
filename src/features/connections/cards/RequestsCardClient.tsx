@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { ListRow } from '@/components/ui/list-row';
-import { ChatCentered, Plus, Eye, Users } from '@phosphor-icons/react/dist/ssr';
+import { ChatCentered, Plus, Eye, Users, ArrowRight } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 
 import { useConnection } from '../ConnectionContext';
@@ -748,8 +748,18 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
         </p>
       )}
 
-      {!isDisconnected && (
-        <div className="mt-auto flex justify-end">
+      <div className="mt-auto flex justify-end">
+        {isDisconnected && !isAgency ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
+            onClick={() => router.push(`/${baseRoute}/${connectionId}/requests`)}
+          >
+            <span className="mr-1">View all requests</span>
+            <ArrowRight size={16} weight="regular" />
+          </Button>
+        ) : !isDisconnected ? (
           <Button
             variant="outline"
             size="sm"
@@ -759,8 +769,8 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
             <Plus size={16} weight="regular" />
             {buttonText}
           </Button>
-        </div>
-      )}
+        ) : null}
+      </div>
 
       <RequestDetailModal
         requestData={selectedRequest}

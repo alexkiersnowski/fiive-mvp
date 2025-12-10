@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ProjectBadge } from "@/components/ui/project-badge";
-import { Plus, Eye } from "@phosphor-icons/react/dist/ssr";
+import { Plus, Eye, ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 import {
   Table,
@@ -559,21 +559,29 @@ export default function ProjectsCardClient({
         <p className="text-xs-regular text-tertiary">{description}</p>
       )}
 
-      {!isDisconnected && (
-        <div className="mt-auto flex justify-end">
-          {isAgency && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 shadow-none cursor-pointer transition-all duration-75"
-              onClick={handleNewProjectButtonClick}
-            >
-              <Plus size={16} weight="regular" />
-              Add project
-            </Button>
-          )}
-        </div>
-      )}
+      <div className="mt-auto flex justify-end">
+        {!isDisconnected && isAgency ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 shadow-none cursor-pointer transition-all duration-75"
+            onClick={handleNewProjectButtonClick}
+          >
+            <Plus size={16} weight="regular" />
+            Add project
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
+            onClick={() => router.push(`/${baseRoute}/${connectionId}/projects`)}
+          >
+            <span className="mr-1">View all projects</span>
+            <ArrowRight size={16} weight="regular" />
+          </Button>
+        )}
+      </div>
 
       <ProjectDetailModal
         projectData={selectedProject}

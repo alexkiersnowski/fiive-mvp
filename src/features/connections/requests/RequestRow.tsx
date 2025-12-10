@@ -140,9 +140,12 @@ export function RequestRow({
       data-request-status={request.status}
     >
       {/* Drag Handle Icon - 44px cell */}
+      {canDrag && (
       <div className={`opacity-0 ${isDraggingActive ? '' : 'group-hover:opacity-100'} transition-opacity duration-75`}>
         <DragHandleIcon />
       </div>
+      )}
+      {!canDrag && <div></div>}
 
       {/* Title */}
       <div className="min-w-0 truncate py-0 px-3">
@@ -152,8 +155,8 @@ export function RequestRow({
       {/* Status */}
       <div 
         className="min-w-0 py-0 px-3"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(isAgency && !isDisconnected) ? (e) => e.stopPropagation() : undefined}
+        onMouseDown={(isAgency && !isDisconnected) ? (e) => e.stopPropagation() : undefined}
       >
         {isAgency && !isDisconnected ? (
           <InlineEdit
