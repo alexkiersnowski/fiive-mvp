@@ -66,7 +66,7 @@ interface TasksTableProps {
   allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
-export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, allowedConnectionIds = null }: TasksTableProps) {
+export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, allowedConnectionIds: _allowedConnectionIds = null }: TasksTableProps) {
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   const [searchQuery, setSearchQuery] = useState('')

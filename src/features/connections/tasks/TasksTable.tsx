@@ -484,7 +484,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         })
       }
     }
-  }, [draggedTaskId, tasks])
+  }, [draggedTaskId])
   
   // Handle mouse up (drop or cancel)
   const handleMouseUp = useCallback(() => {

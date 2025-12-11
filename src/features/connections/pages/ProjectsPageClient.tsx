@@ -107,8 +107,9 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   // Update isEmpty in context when unfilteredTotalCount changes
   // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
   useEffect(() => {
+    const isBootstrapping = isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
-  }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
+  }, [unfilteredTotalCount, isSearching, searchQuery, debouncedSearchQuery, setIsEmpty])
   
   // DRY: refresh first page (used by realtime fallback and deletes under search)
   const refreshFirstPage = useCallback(async () => {
@@ -944,7 +945,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
         totalCount={totalCount}
         unfilteredTotalCount={unfilteredTotalCount}
         parentRef={parentRef}
-        isBootstrapping={isBootstrapping || isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)}
+        isBootstrapping={isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)}
         isAgency={context.variant === 'agency'}
         agencyOrganization={context.variant === 'client' ? {
           id: snapshot.agency.id,
