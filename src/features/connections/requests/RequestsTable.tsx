@@ -489,7 +489,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   
   // Attach document-level mouse event listeners when dragging
   useEffect(() => {
-    if (dragStartRef.current) {
+    if (dragStartPosition) {
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
       // Prevent text selection during drag
@@ -503,7 +503,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         document.body.style.cursor = ''
       }
     }
-  }, [handleMouseMove, handleMouseUp])
+  }, [dragStartPosition, handleMouseMove, handleMouseUp])
   
   // Handle mouse leave document (cancel drag)
   useEffect(() => {

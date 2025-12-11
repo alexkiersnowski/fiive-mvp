@@ -531,7 +531,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   
   // Attach document-level mouse event listeners when dragging
   useEffect(() => {
-    if (dragStartRef.current) {
+    if (dragStartPosition) {
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
       // Prevent text selection during drag
@@ -545,7 +545,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         document.body.style.cursor = ''
       }
     }
-  }, [handleMouseMove, handleMouseUp])
+  }, [dragStartPosition, handleMouseMove, handleMouseUp])
   
   // Handle mouse leave document (cancel drag)
   useEffect(() => {
