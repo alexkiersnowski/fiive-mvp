@@ -973,6 +973,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     projectName?: string | null
     assigneeUserId: string | null
   }) => {
+    const now = new Date()
 
     const optimisticRow: Request = {
       id: payload.tempId,

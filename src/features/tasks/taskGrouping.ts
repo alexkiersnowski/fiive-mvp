@@ -72,7 +72,7 @@ export function groupTasksByStatusAndClient(tasks: Task[], isAgency: boolean = t
  */
 export type FlattenedItem = 
   | { type: 'status-group'; status: TaskStatus; count: number }
-  | { type: 'client-group'; status: TaskStatus; clientId: string; clientName: string; clientLogoUrl?: string; agencyId?: string; agencyName?: string; agencyLogoUrl?: string; count: number }
+  | { type: 'client-group'; status: TaskStatus; clientId: string; clientName?: string; clientLogoUrl?: string; agencyId?: string; agencyName?: string; agencyLogoUrl?: string; count: number }
   | { type: 'task'; task: Task }
 
 /**

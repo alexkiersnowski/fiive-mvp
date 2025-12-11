@@ -435,7 +435,6 @@ export default function TasksCardClient({
       fetchTasksSnapshot(context, {
         limit: 1,
         cursor: '5',
-        sort: 'due_date',
       }).then(nextSnapshot => {
         if (nextSnapshot.tasks.length > 0) {
           const newPrefetched = nextSnapshot.tasks[0];
