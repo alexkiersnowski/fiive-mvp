@@ -56,7 +56,7 @@ export const getRequestsSnapshot = cache(async (
   context: EnhancedModeContext,
   options: RequestsPaginationOptions = {}
 ): Promise<RequestsSnapshot> => {
-  const { search = '', cursor, limit = 20, connectionIds: providedConnectionIds, loadedConnectionIds = [] } = options;
+  const { search = '', cursor, limit = 20, connectionIds: _providedConnectionIds, loadedConnectionIds = [] } = options;
   
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {

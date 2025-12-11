@@ -15,15 +15,7 @@ interface RequestGroupHeaderProps {
   isDraggingActive?: boolean
 }
 
-const statusLabels: Record<RequestStatus, string> = {
-  new: 'New',
-  in_review: 'In review',
-  accepted: 'Accepted',
-  closed: 'Closed',
-  canceled: 'Canceled'
-}
-
-export function RequestGroupHeader({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup = false, isDraggingActive = false }: RequestGroupHeaderProps) {
+export function RequestGroupHeader({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup: _isFirstGroup = false, isDraggingActive = false }: RequestGroupHeaderProps) {
   return (
     <div
       className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full ${

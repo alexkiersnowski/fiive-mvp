@@ -1,5 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react'
-import type { TaskStatus } from './taskGrouping'
+import { useState, useCallback, useRef } from 'react'
 
 /**
  * Hook that provides stable Set references for collapse state

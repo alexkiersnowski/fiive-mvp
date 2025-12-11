@@ -13,15 +13,7 @@ interface StatusGroupHeaderProps {
   isFirstGroup?: boolean
 }
 
-const statusLabels: Record<RequestStatus, string> = {
-  new: 'New',
-  in_review: 'In review',
-  accepted: 'Accepted',
-  closed: 'Closed',
-  canceled: 'Canceled'
-}
-
-export function StatusGroupHeader({ status, count, isExpanded, onToggle, isAgency, isFirstGroup = false }: StatusGroupHeaderProps) {
+export function StatusGroupHeader({ status, count, isExpanded, onToggle, isAgency, isFirstGroup: _isFirstGroup = false }: StatusGroupHeaderProps) {
   return (
     <div
       className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]`}

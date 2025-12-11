@@ -1098,8 +1098,8 @@ export const searchTasksGlobal = cache(async (
     }>;
   };
 
-  const isRegularTaskRow = (task: any): task is RegularTaskRow => {
-    return 'connections' in task;
+  const isRegularTaskRow = (task: unknown): task is RegularTaskRow => {
+    return typeof task === 'object' && task !== null && 'connections' in task;
   };
 
   // Transform tasks to Task[] format using joined data and fetched maps

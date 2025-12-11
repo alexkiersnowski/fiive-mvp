@@ -7,7 +7,6 @@ import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
-import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
@@ -289,7 +288,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
   }
 
   // Status handler with loading guard and pending update tracking
-  const handleStatusChange = async (taskId: string, newStatus: string): Promise<void> => {
+  const handleStatusChange = useCallback(async (taskId: string, newStatus: string): Promise<void> => {
     const validStatuses = ['to_do', 'in_progress', 'on_hold', 'done'] as const
     if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
@@ -351,7 +350,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         pendingStatusUpdatesRef.current.delete(taskId)
       }
     }
-  }
+  }, [onTaskUpdate, tasks])
 
   // Profile Card handler
   const handleContactClick = (contact: {
@@ -844,13 +843,13 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
               virtualItems={virtualItems}
               rowVirtualizer={rowVirtualizer}
               emptyState={isEmptyState ? emptyState : undefined}
-              getItemKey={(item, index) => {
+              getItemKey={(item) => {
                 if (item.type === 'group') {
                   return `group-${item.status}`
                 }
                 return `task-${item.task.id}`
               }}
-              renderItem={(item, index) => {
+              renderItem={(item) => {
                 if (item.type === 'group') {
                   // Check if this is the first group (In progress is always first)
                   const isFirstGroup = item.status === 'in_progress'

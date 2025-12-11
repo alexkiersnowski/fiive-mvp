@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef } from 'react'
-import type { RequestStatus } from './requestGrouping'
 
 /**
  * Hook that provides stable Set references for collapse state

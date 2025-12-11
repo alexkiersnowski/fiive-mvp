@@ -11,6 +11,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Fiive – Client Management Software for Agencies",
   description: "Client management and client portal software for agencies to manage clients, projects, requests, and collaboration in one place.",
+  viewport: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no",
   openGraph: {
     title: "Fiive – Client Management Software for Agencies",
     description: "Client management and client portal software for agencies to manage clients, projects, requests, and collaboration in one place.",

@@ -97,7 +97,7 @@ export function TaskRow({
   onContactClick,
   openActionsDropdown,
   setOpenActionsDropdown,
-  baseRoute,
+  baseRoute: _baseRoute,
   isDragging = false,
   onDragStart,
   canDrag = false,

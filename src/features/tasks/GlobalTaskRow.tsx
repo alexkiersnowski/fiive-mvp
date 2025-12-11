@@ -68,8 +68,8 @@ interface GlobalTaskRowProps {
 export function GlobalTaskRow({
   task,
   isAgency,
-  clientEditableMembers,
-  comboboxOptions,
+  clientEditableMembers: _clientEditableMembers,
+  comboboxOptions: _comboboxOptions,
   membersByConnection,
   statusInlineRefs,
   onStatusChange,
@@ -81,7 +81,7 @@ export function GlobalTaskRow({
   onContactClick,
   openActionsDropdown,
   setOpenActionsDropdown,
-  baseRoute
+  baseRoute: _baseRoute
 }: GlobalTaskRowProps) {
   // Get combobox options for this task's connection
   const getComboboxOptionsForTask = (connectionId: string) => {

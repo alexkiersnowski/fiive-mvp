@@ -28,7 +28,7 @@ export function ClientGroupHeader({
   isExpanded, 
   onToggle, 
   isAgency,
-  isFirstClient = false 
+  isFirstClient: _isFirstClient = false 
 }: ClientGroupHeaderProps) {
   // For agency view: display client_id, client name, client logo (from connection)
   // For client view: display agency_id, agency name, agency logo (from connection)

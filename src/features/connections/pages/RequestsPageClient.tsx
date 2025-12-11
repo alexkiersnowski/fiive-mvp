@@ -973,13 +973,6 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     projectName?: string | null
     assigneeUserId: string | null
   }) => {
-    const now = new Date()
-    const today = (() => {
-      const day = now.getDate()
-      const month = now.toLocaleDateString('en-US', { month: 'short' })
-      const year = now.getFullYear()
-      return `${day} ${month} ${year}`
-    })()
 
     const optimisticRow: Request = {
       id: payload.tempId,

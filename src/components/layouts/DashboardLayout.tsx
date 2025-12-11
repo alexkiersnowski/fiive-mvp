@@ -110,6 +110,8 @@ export default function DashboardLayout({ data, context, children, initialIsColl
     }
   }
   
+  // Desktop-only layout: Designed for screens ≥1024px
+  // Screens smaller than 1024px will show horizontal scrollbars
   return (
     <div 
       className="h-screen" 
@@ -118,7 +120,8 @@ export default function DashboardLayout({ data, context, children, initialIsColl
         display: 'grid',
         gridTemplateRows: showPastDueBanner ? 'auto auto 1fr' : 'auto 1fr',
         gridTemplateColumns: `${sidebarWidth} 1fr`,
-        transition: isSameVariant ? `grid-template-columns ${isCollapsed ? '0.15s' : '0.1s'} ease-in-out` : 'none'
+        transition: isSameVariant ? `grid-template-columns ${isCollapsed ? '0.15s' : '0.1s'} ease-in-out` : 'none',
+        minWidth: '1024px'
       }}
     >
       {showPastDueBanner && (

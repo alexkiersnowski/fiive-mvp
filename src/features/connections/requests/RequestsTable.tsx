@@ -7,7 +7,6 @@ import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
-import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
@@ -236,7 +235,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
 
   // Status handler with loading guard and pending update tracking
-  const handleStatusChange = async (requestId: string, newStatus: string): Promise<void> => {
+  const handleStatusChange = useCallback(async (requestId: string, newStatus: string): Promise<void> => {
     const validStatuses = ['new', 'in_review', 'accepted', 'canceled', 'closed'] as const
     if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
@@ -310,7 +309,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         pendingStatusUpdatesRef.current.delete(requestId)
       }
     }
-  }
+  }, [onRequestUpdate, requests])
 
   // Profile Card handler
   const handleContactClick = (contact: {
@@ -341,7 +340,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   
   // Check if user can drag a request (same permissions as editing status)
   // Only agencies can drag requests (clients cannot edit request status)
-  const canDragRequest = useCallback((request: Request) => {
+  const canDragRequest = useCallback((_request: Request) => {
     if (isDisconnected) return false
     return isAgency
   }, [isDisconnected, isAgency])
@@ -443,7 +442,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         })
       }
     }
-  }, [draggedRequestId, requests])
+  }, [draggedRequestId])
   
   // Handle mouse up (drop or cancel)
   const handleMouseUp = useCallback(() => {
@@ -802,13 +801,13 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               virtualItems={virtualItems}
               rowVirtualizer={rowVirtualizer}
               emptyState={isEmptyState ? emptyState : undefined}
-              getItemKey={(item, index) => {
+              getItemKey={(item) => {
                 if (item.type === 'group') {
                   return `group-${item.status}`
                 }
                 return `request-${item.request.id}`
               }}
-              renderItem={(item, index) => {
+              renderItem={(item) => {
                 if (item.type === 'group') {
                   // Check if this is the first group (new is always first)
                   const isFirstGroup = item.status === 'new'

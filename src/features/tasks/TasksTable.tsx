@@ -6,7 +6,6 @@ import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
-import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
@@ -481,7 +480,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     parentRef
   })
   
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
   const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
 
 
@@ -721,7 +719,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                   </div>
                 </div>
               ) : undefined}
-              getItemKey={(item, index) => {
+              getItemKey={(item) => {
                 if (item.type === 'status-group') {
                   return `status-${item.status}`
                 }

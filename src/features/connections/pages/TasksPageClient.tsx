@@ -634,7 +634,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, refreshFirstPage, prependUnique, removeById])
+  }, [connectionId, debouncedSearchQuery, assignedToMe, refreshFirstPage, prependUnique, removeById, sortTasksWithMode])
 
   // Load more tasks function (uses prefetched data if available)
   const loadMore = useCallback(async () => {

@@ -172,7 +172,6 @@ export function TasksContent({
   useEffect(() => {
     const currentSearchParam = searchParams.get('search') || '';
     const currentAssignedParam = searchParams.get('assigned') === 'me';
-    const hasActiveSearch = debouncedSearchValue.trim().length > 0;
     
     // For clients with assignedToMe, we need clientTeamMemberIds to be available before fetching
     if (assignedToMe && context.variant === 'client' && clientTeamMemberIds.length === 0) {

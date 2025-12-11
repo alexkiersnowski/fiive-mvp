@@ -15,14 +15,7 @@ interface TaskGroupHeaderProps {
   isDraggingActive?: boolean
 }
 
-const statusLabels: Record<TaskStatus, string> = {
-  in_progress: 'In progress',
-  to_do: 'To do',
-  on_hold: 'On hold',
-  done: 'Done'
-}
-
-export function TaskGroupHeader({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup = false, isDraggingActive = false }: TaskGroupHeaderProps) {
+export function TaskGroupHeader({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup: _isFirstGroup = false, isDraggingActive = false }: TaskGroupHeaderProps) {
   return (
     <div
       className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full ${

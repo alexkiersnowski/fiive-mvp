@@ -55,7 +55,7 @@ interface RequestsTableProps {
   allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, allowedConnectionIds = null }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, allowedConnectionIds: _allowedConnectionIds = null }: RequestsTableProps) {
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   const [searchQuery, setSearchQuery] = useState('')
@@ -359,7 +359,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     parentRef
   })
   
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
   const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
 
   return (
@@ -603,7 +602,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   </div>
                 </div>
               ) : undefined}
-              getItemKey={(item, index) => {
+              getItemKey={(item) => {
                 if (item.type === 'status-group') {
                   return `status-${item.status}`
                 }

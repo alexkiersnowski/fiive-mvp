@@ -1,6 +1,5 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
-import { escapeForILike } from '@/lib/utils';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ClientsSnapshot, Client, ClientsPaginationOptions } from './types';
 

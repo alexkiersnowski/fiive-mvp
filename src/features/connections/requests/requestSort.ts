@@ -2,14 +2,6 @@ import type { Request } from '../server'
 
 export type RequestStatus = 'new' | 'in_review' | 'accepted' | 'closed' | 'canceled'
 
-const STATUS_PRIORITY: Record<RequestStatus, number> = {
-  new: 0,
-  in_review: 1,
-  accepted: 2,
-  closed: 3,
-  canceled: 4
-}
-
 const parseDate = (value?: string | null): number | null => {
   if (!value) return null
   const timestamp = Date.parse(value)

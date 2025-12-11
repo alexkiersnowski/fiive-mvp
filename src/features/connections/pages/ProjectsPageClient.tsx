@@ -78,7 +78,6 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const parentRef = useRef<HTMLDivElement>(null)
   // Buffer initial empty render with skeleton when search/assigned filter changes
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
