@@ -223,7 +223,7 @@ const SidebarComponent = memo(function SidebarComponent({
               Early access
             </Badge>
             <AlertDescription className="text-xs-regular px-1.5 mt-1" style={{ color: 'var(--color-base-text-secondary)' }}>
-              {isClientView ? "Your feedback influences what we build next" : "You're exploring Fiive. Be one of the first 100."}
+              {isClientView ? "Your feedback influences what we build next" : "You're exploring Fiive. Secure your place as one of the first 100 Founding Members."}
             </AlertDescription>
             {isClientView ? (
               <Button
@@ -274,7 +274,7 @@ const SidebarComponent = memo(function SidebarComponent({
               style={{ marginLeft: '-4px' }}
               onClick={() => window.location.href = 'mailto:support@fiive.co'}
             >
-              <span className="mr-1">Share feedback</span>
+              <span className="mr-1">Share your ideas</span>
               <ArrowRight size={16} weight="regular" />
             </Button>
           </>

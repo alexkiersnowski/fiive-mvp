@@ -41,7 +41,7 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
     getClientsSnapshot(context, {
       search: resolvedSearchParams.search || '',
       limit: 50,
-      sort: resolvedSearchParams.sort || 'newest-first'
+      sort: resolvedSearchParams.sort || 'created'
     }),
     // Run paywall checks in parallel (only for free agencies)
     billingStatus === 'free'
@@ -103,7 +103,7 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
       snapshot={snapshot} 
       context={context}
       initialSearchValue={resolvedSearchParams.search || ''}
-      initialSortValue={resolvedSearchParams.sort || 'newest-first'}
+      initialSortValue={resolvedSearchParams.sort || 'created'}
       canAddNewClient={canAddNewClient}
       canConnectToClient={canConnectToClient}
     />

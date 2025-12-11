@@ -532,7 +532,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       
       // Default to neutral badge styling (like "Design" in request table)
       return (
-        <Badge variant="neutral" className="text-xs !flex-shrink min-w-0 max-w-full">
+        <Badge variant="neutral" className="text-xs min-w-0 max-w-full">
           <span className="truncate">{displayLabel}</span>
         </Badge>
       )
@@ -560,12 +560,14 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
               if (!props.nonInteractive) setIsHovered(false)
             }}
           >
+            <div className="min-w-0 flex-1 flex items-center">
             {renderBadge()}
+            </div>
             {props.clearable && tempValue && isPopoverOpen && (
               <XCircle 
                 size={16} 
                 weight="fill" 
-                className="cursor-pointer transition-colors duration-75"
+                className="cursor-pointer transition-colors duration-75 flex-shrink-0"
                 style={{ 
                   color: 'var(--color-interactive-neutral-default)',
                 }}

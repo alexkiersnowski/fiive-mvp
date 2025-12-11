@@ -34,7 +34,7 @@ export function ClientsHeader({
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
 
   const currentSortLabel = useMemo(
-    () => sortOptions.find((option) => option.value === sortValue)?.buttonLabel || 'Newest first',
+    () => sortOptions.find((option) => option.value === sortValue)?.buttonLabel || 'Created',
     [sortOptions, sortValue],
   )
 
@@ -57,7 +57,7 @@ export function ClientsHeader({
 
       <div className="flex items-center justify-between">
         <SearchInput
-          placeholder="Search clients…"
+          placeholder="Search clients by name…"
           count={totalCount}
           countLabel={totalCount === 1 ? 'client' : 'clients'}
           value={searchValue}

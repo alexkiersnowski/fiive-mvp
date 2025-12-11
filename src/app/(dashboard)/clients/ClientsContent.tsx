@@ -42,7 +42,7 @@ export function ClientsContent({
   snapshot, 
   context, 
   initialSearchValue = '', 
-  initialSortValue = 'newest-first',
+  initialSortValue = 'created',
   canAddNewClient = true,
   canConnectToClient = true
 }: ClientsContentProps) {
@@ -59,7 +59,7 @@ export function ClientsContent({
   const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
-  const [sortValue, setSortValue] = useState(initialSortValue || 'newest-first');
+  const [sortValue, setSortValue] = useState(initialSortValue || 'created');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
   const [, startTransition] = useTransition();
@@ -114,25 +114,52 @@ export function ClientsContent({
 
     return clientsToFilter.filter(client => {
       const name = (client.name || '').toLowerCase();
-      const status = (client.status || '').toLowerCase();
-      const engagementStatus = (client.badge || '').toLowerCase();
-      const healthStatus = (client.health || '').toLowerCase();
-      const contractEnd = (client.contractEnd || '').toLowerCase();
-      const accountManagerName = (client.accountManager.name || '').toLowerCase();
-
-      // Check if all search terms match any field
-      return searchTerms.every(term => 
-        name.includes(term) ||
-        status.includes(term) ||
-        engagementStatus.includes(term) ||
-        healthStatus.includes(term) ||
-        contractEnd.includes(term) ||
-        accountManagerName.includes(term)
-      );
+      // Check if all search terms match client name
+      return searchTerms.every(term => name.includes(term));
     });
   }
+
+  // Client-side sorting function
+  // Used when unfilteredTotalCount <= 100 for instant sort without network calls
+  function sortClientsLocally(
+    clientsToSort: Client[],
+    sortOption: string
+  ): Client[] {
+    const sorted = [...clientsToSort];
+    
+    switch (sortOption) {
+      case 'created':
+        return sorted.sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA; // Descending (newest first)
+        });
+      case 'alphabetical':
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      case 'contract-end-soonest':
+        return sorted.sort((a, b) => {
+          // Both have NULL contract end - sort by name A-Z
+          if (!a.contractEnd && !b.contractEnd) {
+            return a.name.localeCompare(b.name);
+          }
+          // NULLS LAST
+          if (!a.contractEnd) return 1;
+          if (!b.contractEnd) return -1;
+          // Parse date string (format: "1 Jan 2024" - en-GB format)
+          const dateA = new Date(a.contractEnd).getTime();
+          const dateB = new Date(b.contractEnd).getTime();
+          // Handle invalid dates
+          if (isNaN(dateA) && isNaN(dateB)) return a.name.localeCompare(b.name);
+          if (isNaN(dateA)) return 1; // Invalid dates last
+          if (isNaN(dateB)) return -1; // Invalid dates last
+          return dateA - dateB; // Ascending (soonest first)
+        });
+      default:
+        return sorted;
+    }
+  }
   
-  // Determine if we should use client-side filtering (≤100 clients) or server-side search (>100 clients)
+  // Determine if we should use client-side filtering/sorting (≤100 clients) or server-side (>100 clients)
   const useClientSideFiltering = unfilteredTotalCount <= 100;
 
   // Sync local state with server snapshot when props change
@@ -164,17 +191,20 @@ export function ClientsContent({
     return () => clearTimeout(timer);
   }, [searchValue, useClientSideFiltering]);
 
-  // Trigger server fetch when debounced search or sort changes (only for server-side search)
+  // Trigger server fetch when debounced search or sort changes
+  // For >100 clients: ALWAYS use server-side (both search and sort)
+  // For ≤100 clients: use client-side (no server fetch needed)
   useEffect(() => {
-    // Skip server fetch if using client-side filtering
+    const currentSearchParam = searchParams.get('search') || '';
+    const currentSortParam = searchParams.get('sort') || 'created';
+    
+    // If using client-side filtering/sorting, skip server fetch
     if (useClientSideFiltering) {
       setIsFetchingServerResults(false);
       return;
     }
     
-    const currentSearchParam = searchParams.get('search') || '';
-    const currentSortParam = searchParams.get('sort') || 'newest-first';
-    
+    // For >100 clients: trigger server fetch when search or sort changes
     if (debouncedSearchValue !== currentSearchParam || sortValue !== currentSortParam) {
       setIsFetchingServerResults(true);
       const params = new URLSearchParams(searchParams.toString());
@@ -188,12 +218,12 @@ export function ClientsContent({
     }
   }, [debouncedSearchValue, sortValue, router, searchParams, useClientSideFiltering]);
   
-  // Display: Apply client-side filtering if enabled, otherwise use server results directly
+  // Display: Apply client-side filtering and sorting if enabled, otherwise use server results directly
   const displayedClients = useClientSideFiltering
-    ? filterClientsLocally(clients, searchValue)
+    ? sortClientsLocally(filterClientsLocally(clients, searchValue), sortValue)
     : clients;
   const displayedTotal = useClientSideFiltering
-    ? filterClientsLocally(clients, searchValue).length
+    ? displayedClients.length
     : totalCount;
 
 
@@ -236,11 +266,9 @@ export function ClientsContent({
 
   // Sort options
   const sortOptions = [
-    { value: 'newest-first', label: 'Newest first', buttonLabel: 'Newest first' },
+    { value: 'created', label: 'Created', buttonLabel: 'Created' },
     { value: 'alphabetical', label: 'Client (A–Z)', buttonLabel: 'Client (A–Z)' },
-    { value: 'reverse-alphabetical', label: 'Client (Z–A)', buttonLabel: 'Client (Z–A)' },
-    { value: 'contract-end-soonest', label: 'Contract end (soonest first)', buttonLabel: 'Contract end' },
-    { value: 'status-critical-first', label: 'Health (critical first)', buttonLabel: 'Health' }
+    { value: 'contract-end-soonest', label: 'Contract end (soonest first)', buttonLabel: 'Contract end' }
   ];
 
   const loadMore = useCallback(async () => {

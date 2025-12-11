@@ -13,6 +13,7 @@ import { EngagementBadge } from '@/components/ui/engagement-badge';
 import { HealthBadge } from '@/components/ui/health-badge';
 import { ProfileCard } from '@/components/ui/profile-card';
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { deleteClient } from './actions';
 import { resendInviteEmail, cancelInvitation } from '@/features/connections/actions';
@@ -648,7 +649,46 @@ export function ClientsTable({
         >
           {(isBootstrapping || (isSearching && displayedClients.length === 0 && searchValue.trim().length > 0)) ? (
             <div className="px-5 py-2">
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+              <div className="space-y-0">
+                {/* Client Row Skeletons - 20 rows */}
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((clientIndex) => (
+                  <div
+                    key={clientIndex}
+                    className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '40px 25% 18.75% 18.75% 18.75% 18.75% 44px',
+                    }}
+                  >
+                    {/* Connection status */}
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-4 h-4 rounded" />
+                    </div>
+                    {/* Client */}
+                    <div className="px-3 flex items-center gap-3">
+                      <Skeleton className="w-5 h-5 rounded-full" />
+                      <Skeleton className="w-32 h-4 rounded" />
+                    </div>
+                    {/* Account manager */}
+                    <div className="px-3">
+                      <Skeleton className="w-24 h-4 rounded" />
+                    </div>
+                    {/* Status */}
+                    <div className="px-3">
+                      <Skeleton className="w-20 h-4 rounded" />
+                    </div>
+                    {/* Contract end */}
+                    <div className="px-3">
+                      <Skeleton className="w-24 h-4 rounded" />
+                    </div>
+                    {/* Health */}
+                    <div className="px-3">
+                      <Skeleton className="w-20 h-4 rounded" />
+                    </div>
+                    {/* Actions */}
+                    <div></div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
           <VirtualTableBody

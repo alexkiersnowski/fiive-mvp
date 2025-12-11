@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
+import { escapeForILike } from '@/lib/utils';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { ClientsSnapshot, Client, ClientsPaginationOptions } from './types';
 
@@ -16,7 +17,7 @@ export const getClientsSnapshot = cache(async (
   context: EnhancedModeContext,
   options: ClientsPaginationOptions = {}
 ): Promise<ClientsSnapshot> => {
-  const { search = '', cursor, limit = 50, sort = 'newest-first' } = options;
+  const { search = '', cursor, limit = 50, sort = 'created' } = options;
   
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {
@@ -56,10 +57,10 @@ export const getClientsSnapshot = cache(async (
   
   const totalCount = unfilteredTotalCount ?? 0;
   
-  // Determine if we should use client-side filtering (≤50 items) or server-side search (>50 items)
-  // For MVP: when ≤50, fetch all and let client-side handle filtering
-  // When >50, use server-side search with pagination
-  const useClientSideFiltering = totalCount <= 50 && !search.trim();
+  // Determine if we should use client-side filtering (≤100 items) or server-side search (>100 items)
+  // For MVP: when ≤100, fetch all and let client-side handle filtering
+  // When >100, use server-side search with pagination
+  const useClientSideFiltering = totalCount <= 100 && !search.trim();
   
   // Build base query with joins including profiles for account manager search
   let query = supabase
@@ -92,24 +93,16 @@ export const getClientsSnapshot = cache(async (
   
   // Apply sorting at database level
   switch (sort) {
-    case 'newest-first':
+    case 'created':
       query = query.order('created_at', { ascending: false });
       break;
     case 'alphabetical':
       query = query.order('organizations(name)', { ascending: true });
       break;
-    case 'reverse-alphabetical':
-      query = query.order('organizations(name)', { ascending: false });
-      break;
     case 'contract-end-soonest':
-      // Sort by contract_end_on ascending (NULLS LAST)
-      query = query.order('contract_end_on', { ascending: true, nullsFirst: false });
-      break;
-    case 'status-critical-first':
-      // Sort by health_status priority, then by name
-      // We'll need to handle this with a custom order or post-process
-      // For now, order by health_status then name
-      query = query.order('health_status', { ascending: true }).order('organizations(name)', { ascending: true });
+      // Sort by contract_end_on ascending (NULLS LAST), then by client name A-Z for NULLs
+      query = query.order('contract_end_on', { ascending: true, nullsFirst: false })
+                   .order('organizations(name)', { ascending: true });
       break;
     default:
       query = query.order('created_at', { ascending: false });
@@ -167,36 +160,16 @@ export const getClientsSnapshot = cache(async (
   let filteredConnections = connectionsArray;
   
   if (!useClientSideFiltering && search.trim()) {
-    const searchLower = search.trim().toLowerCase();
+    const trimmedQuery = search.trim();
+    const searchLower = trimmedQuery.toLowerCase();
     const searchTerms = searchLower.split(' ').filter(t => t.length > 0);
     
     filteredConnections = connectionsArray.filter(conn => {
       const org = conn.organizations as { name?: string } | null;
       const orgName = (org?.name || '').toLowerCase();
-      const connectionStatus = (conn.connection_status || '').toLowerCase();
-      const engagementStatus = (conn.engagement_status || '').toLowerCase();
-      const healthStatus = (conn.health_status || '').toLowerCase();
-      const contractEnd = conn.contract_end_on 
-        ? new Date(conn.contract_end_on).toLocaleDateString('en-GB', { 
-            day: 'numeric', month: 'short', year: 'numeric' 
-          }).toLowerCase()
-        : '';
       
-      // Get account manager name from joined profile
-      const profile = conn.profiles as { first_name?: string; last_name?: string } | null;
-      const accountManagerName = profile
-        ? `${(profile.first_name || '').toLowerCase()} ${(profile.last_name || '').toLowerCase()}`.trim()
-        : '';
-      
-      // Check if all search terms match any field
-      return searchTerms.every(term => 
-        orgName.includes(term) ||
-        connectionStatus.includes(term) ||
-        engagementStatus.includes(term) ||
-        healthStatus.includes(term) ||
-        contractEnd.includes(term) ||
-        accountManagerName.includes(term)
-      );
+      // Check if all search terms match client name
+      return searchTerms.every(term => orgName.includes(term));
     });
   }
   
@@ -278,28 +251,8 @@ export const getClientsSnapshot = cache(async (
     };
   });
   
-  // Apply post-processing for complex sorts that require client-side logic
-  let sortedClients = allClients;
-  if (sort === 'status-critical-first') {
-    const healthPriority = {
-      'critical': 0,
-      'at-risk': 1,
-      'healthy': 2,
-      'unassigned': 3,
-      'n/a': 4
-    };
-    
-    sortedClients = [...allClients].sort((a, b) => {
-      const priorityA = healthPriority[a.health as keyof typeof healthPriority] ?? 999;
-      const priorityB = healthPriority[b.health as keyof typeof healthPriority] ?? 999;
-      
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
-      }
-      
-      return a.name.localeCompare(b.name);
-    });
-  }
+  // Clients are already sorted by database query, no post-processing needed
+  const sortedClients = allClients;
 
   // Apply pagination:
   // - Client-side filtering: return all clients (no pagination)
