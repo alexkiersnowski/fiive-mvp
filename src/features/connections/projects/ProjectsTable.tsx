@@ -338,43 +338,22 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
   // When projects exist but search returns no results, VirtualTableBody will show "no results"
   const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
 
-  // Empty state component matching ClientsTable design
+  // Empty state component matching VirtualTableBody "No results" style
   const emptyState = isEmptyState ? (
     <TableRow 
       className="hover:bg-transparent"
-      style={{ 
-        backgroundColor: 'var(--color-base-surface-page-background)', 
-        borderBottomColor: 'var(--color-neutral-5)',
-        height: '100%'
+      style={{
+        backgroundColor: 'var(--color-base-surface-page-background)',
       }}
     >
-      <TableCell 
-        colSpan={isAgency ? 8 : 8} 
-        className="text-left" 
-        style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px' }}
+      <td 
+        colSpan={8} 
+        className="text-center py-8"
       >
-        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-          <div className="flex flex-col items-start gap-2">
-            <h2 className="display-8-medium">Your best work starts here</h2>
-            <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Projects give your team and client a shared view of work and progress'
-                : 'Projects are created by your agency and give you a shared view of work and progress'}
-            </span>
-          </div>
-          {onNewProject && isAgency && !isDisconnected && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-              onClick={onNewProject}
-            >
-              <Plus size={16} weight="regular" />
-              New project
-            </Button>
-          )}
-        </div>
-      </TableCell>
+        <span className="text-sm-regular text-[var(--color-base-text-tertiary)]">
+          No projects
+        </span>
+      </td>
     </TableRow>
   ) : null
 
@@ -477,7 +456,6 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
       </div>
 
       {/* Table Header - Sticky */}
-      {(unfilteredTotalCount > 0 || searchQuery.trim().length > 0) && (
       <div className="sticky top-[112px] z-10 bg-[var(--color-base-surface-page-background)] px-5">
         <Table className="table-fixed w-full border-collapse">
           <TableHeader>
@@ -507,7 +485,6 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
           </TableHeader>
         </Table>
       </div>
-      )}
 
       {/* Table Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
