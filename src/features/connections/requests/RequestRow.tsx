@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
 import type { Request } from '../server'
 import { DragHandleIcon } from '../tasks/DragHandleIcon'
+import { formatRequestDate } from '../formatters'
 
 interface RequestRowProps {
   request: Request
@@ -291,7 +292,12 @@ export function RequestRow({
 
       {/* Created */}
       <div className="min-w-0 truncate py-0 px-3">
-        <span className="text-sm-regular">{request.createdAt}</span>
+        <span className="text-sm-regular">
+          {/* Format ISO timestamps (from optimistic entries), display formatted dates as-is (from server) */}
+          {request.createdAt.includes('T') || request.createdAt.includes('Z') 
+            ? formatRequestDate(request.createdAt) 
+            : request.createdAt}
+        </span>
       </div>
 
       {/* Actions */}

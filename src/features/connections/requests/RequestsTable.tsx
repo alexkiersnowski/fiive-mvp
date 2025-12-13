@@ -12,7 +12,7 @@ import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
-import { groupRequestsByStatus, type RequestStatus } from './requestSort'
+import { groupRequestsByStatus, sortRequestsForDisplay, type RequestStatus } from './requestSort'
 import type { Request } from '../server'
 import { useVirtualTable, VirtualListBody } from '@/components/virtual-table'
 import { useConnection } from '../ConnectionContext'
@@ -86,7 +86,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     | { type: 'request'; request: Request }
   
   const flattenedItems = useMemo<FlattenedItem[]>(() => {
-    const grouped = groupRequestsByStatus(requests)
+    // Ensure requests are sorted before grouping (safeguard)
+    const sortedRequests = sortRequestsForDisplay(requests)
+    const grouped = groupRequestsByStatus(sortedRequests)
     // Order: new, in_review, accepted, closed, canceled
     const statusOrder: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
     const items: FlattenedItem[] = []

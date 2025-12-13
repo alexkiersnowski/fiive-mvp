@@ -15,6 +15,8 @@ import { convertRequestToTask } from '../tasks/actions'
 import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
 import type { VirtualItem } from '@tanstack/react-virtual';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import { formatRequestDate } from '../formatters';
+import { sortRequestsForDisplay } from '../requests/requestSort';
 
 interface RequestsPageClientProps {
   connectionId: string
@@ -162,7 +164,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       if (!isMountedRef.current) return
       // Large state update - use transition for non-urgent render
       startTransition(() => {
-        setRequests(result.requests)
+        // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
+        setRequests(sortRequestsForDisplay(result.requests))
         setTotalCount(result.totalCount)
         setHasMore(result.requests.length === PAGE_SIZE)
         setCurrentOffset(PAGE_SIZE)
@@ -181,7 +184,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const prependUnique = useCallback((request: Request) => {
     setRequests(prev => {
       if (prev.some(r => r.id === request.id)) return prev
-      return [request, ...prev]
+      // Sort after prepending to maintain correct order
+      return sortRequestsForDisplay([request, ...prev])
     })
   }, [])
 
@@ -213,7 +217,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   }, [])
 
   // Helper to merge arrays by id while preserving order and uniqueness
-  function mergeUniqueById<T extends { id: string }>(base: T[], incoming: T[]): T[] {
+  // After merging, sorts requests to maintain correct order (status ASC, created_at DESC, id DESC)
+  function mergeUniqueById(base: Request[], incoming: Request[]): Request[] {
     const seen = new Set(base.map(i => i.id))
     const merged = [...base]
     for (const item of incoming) {
@@ -222,7 +227,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         merged.push(item)
       }
     }
-    return merged
+    // Sort merged array to maintain correct order (status ASC, created_at DESC, id DESC)
+    return sortRequestsForDisplay(merged)
   }
 
   // Debounce search query (150ms delay for faster responsiveness)
@@ -266,7 +272,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             createdByUserId: context.variant === 'client' ? context.user?.id : undefined
           })
           if (!isMountedRef.current) return
-          setRequests(result.requests)
+          // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
+          setRequests(sortRequestsForDisplay(result.requests))
           setTotalCount(result.totalCount)
           setHasMore(result.requests.length === PAGE_SIZE)
           setCurrentOffset(PAGE_SIZE)
@@ -327,7 +334,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         if (isMountedRef.current) {
           // Large state update - use transition for non-urgent render
           startTransition(() => {
-            setRequests(result.requests)
+            // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
+            setRequests(sortRequestsForDisplay(result.requests))
             setTotalCount(result.totalCount)
             const newHasMore = result.requests.length === PAGE_SIZE
             setHasMore(newHasMore)
@@ -563,12 +571,13 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
                   // Request exists in current list - update it
                   const next = [...prev]
                   next[existingIndex] = req
-                  return next
+                  // Sort after update to maintain correct order
+                  return sortRequestsForDisplay(next)
                 } else {
                   // Request not in current list - might need to be added (e.g., status changed)
                   // Check if it should be visible based on current view
-                  // For now, add it if it's not already there (will be sorted correctly)
-                  return [...prev, req]
+                  // Sort after adding to maintain correct order
+                  return sortRequestsForDisplay([...prev, req])
                 }
               })
             }
@@ -814,13 +823,15 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     const originalRequest = requests.find(r => r.id === requestId)
     
     // Update requests list optimistically
-    setRequests(prevRequests =>
-      prevRequests.map(req =>
+    setRequests(prevRequests => {
+      const updated = prevRequests.map(req =>
         req.id === requestId
           ? { ...req, ...updates }
           : req
       )
-    )
+      // Sort after update to maintain correct order (status may have changed)
+      return sortRequestsForDisplay(updated)
+    })
 
     // Also update selectedRequest if it's the current one
     setSelectedRequest(prev => 
@@ -998,13 +1009,14 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         name: snapshot.partner.name,
         logoUrl: snapshot.partner.logo,
       },
-    // Use ISO string for proper sorting (will be formatted by server response)
-    // This ensures the optimistic request appears at the top when sorted by created_at DESC
+    // Store ISO timestamp for proper sorting (will be formatted for display in RequestRow)
+    // The sorting function uses Date.parse() which works reliably with ISO strings
     createdAt: now.toISOString(),
     createdByOrgId: context.organization.id,
     }
 
-    setRequests(prev => [optimisticRow, ...prev])
+    // Sort after prepending to maintain correct order
+    setRequests(prev => sortRequestsForDisplay([optimisticRow, ...prev]))
     setTotalCount(c => c + 1)
     setUnfilteredTotalCount(c => c + 1)
     
@@ -1021,14 +1033,24 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       // Replace temp row if present; otherwise prepend and increment count
       setRequests(prev => {
         const hadTemp = tempId ? prev.some(r => r.id === tempId) : false
+        const optimisticEntry = tempId ? prev.find(r => r.id === tempId) : null
+        
+        // If replacing optimistic entry, preserve its ISO timestamp for proper sorting
+        // Server returns formatted date which doesn't include time, causing sorting issues
+        const finalReq = optimisticEntry && optimisticEntry.createdAt.includes('T') 
+          ? { ...req, createdAt: optimisticEntry.createdAt }
+          : req
+        
         const without = prev.filter(r => r.id !== tempId && r.id !== req.id)
-        const next = [req, ...without]
+        const next = [finalReq, ...without]
+        // Sort after replacing/adding to maintain correct order
         if (hadTemp) {
           // keep count the same
-          return next
+          return sortRequestsForDisplay(next)
         }
         // If no temp, we will increment count below
-        return next
+        // Sort after replacing/adding to maintain correct order
+        return sortRequestsForDisplay(next)
       })
       // If no temp was present, bump the count; if temp existed, count already included
       if (tempId) {
@@ -1174,7 +1196,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
                 searchQuery: debouncedSearchQuery || undefined
               })
               if (!isMountedRef.current) return
-              setRequests(result.requests)
+              // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
+              setRequests(sortRequestsForDisplay(result.requests))
               setTotalCount(result.totalCount)
               setHasMore(result.requests.length === PAGE_SIZE)
               setCurrentOffset(PAGE_SIZE)

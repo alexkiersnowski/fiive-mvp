@@ -375,7 +375,7 @@ export const getRequestsPreview = cache(async (
         agencyOrg.logoUrl,
         'Unknown Agency'
       ) : undefined,
-      createdAt: formatters.formatRequestDate(request.created_at),
+      createdAt: request.created_at || '',
       createdByOrgId: request.created_by_org_id,
       createdByOrgType: formatters.getOrgType(request.created_by_org_id, orgTypeMap)
     } as Request;

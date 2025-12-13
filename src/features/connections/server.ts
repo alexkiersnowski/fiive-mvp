@@ -945,7 +945,7 @@ export const getRequestsForConnection = cache(async (
         agencyOrg?.logo_url,
         'Unknown Agency'
       ),
-      createdAt: formatters.formatRequestDate(request.created_at),
+      createdAt: request.created_at || '',
       createdByOrgId: request.created_by_org_id,
       createdByOrgType: formatters.getOrgType(request.created_by_org_id, orgTypeMap)
     };
@@ -1881,7 +1881,7 @@ export const getRequestById = cache(async (
       agencyOrg?.logo_url,
       'Unknown Agency'
     ),
-    createdAt: formatters.formatRequestDate(request.created_at),
+    createdAt: request.created_at || '',
     createdByOrgId: request.created_by_org_id,
     createdByOrgType: orgType
   };
@@ -2096,7 +2096,7 @@ export const getRequestsByIds = cache(async (
         agencyOrg?.logo_url,
         'Unknown Agency'
       ),
-      createdAt: formatters.formatRequestDate(request.created_at),
+      createdAt: request.created_at || '',
       createdByOrgId: request.created_by_org_id,
       createdByOrgType: orgType
     };
