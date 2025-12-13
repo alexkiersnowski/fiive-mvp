@@ -57,9 +57,44 @@ export function groupRequestsByStatusAndClient(requests: Request[], isAgency: bo
   // Sort requests within each client group by created_at (newest first)
   // Parse createdAt string to timestamp for comparison
   const parseDate = (value?: string | null): number | null => {
-    if (!value) return null
+    if (!value || value.trim() === '') return null
+    
+    // Handle PostgreSQL timestamp format: "2025-12-13 17:46:27.934347+00"
+    // This format uses a space instead of 'T' and may have timezone offset
+    if (value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+      // Convert PostgreSQL format to ISO format for parsing
+      // Replace space with 'T' and ensure timezone is handled
+      const isoFormat = value.replace(' ', 'T')
+      const timestamp = Date.parse(isoFormat)
+      return Number.isNaN(timestamp) ? null : timestamp
+    }
+    
+    // If it's an ISO timestamp (contains 'T' or ends with 'Z'), parse directly
+    if (value.includes('T') || value.includes('Z')) {
+      const timestamp = Date.parse(value)
+      return Number.isNaN(timestamp) ? null : timestamp
+    }
+    
+    // If it's a formatted date like "13 Dec 2025" or "Dec 13, 2025", try to parse it
     const timestamp = Date.parse(value)
-    return Number.isNaN(timestamp) ? null : timestamp
+    if (Number.isNaN(timestamp)) {
+      // Try parsing as a more explicit format
+      // Format might be "DD MMM YYYY" like "13 Dec 2025" or "MMM DD, YYYY" like "Dec 13, 2025"
+      const parts = value.trim().split(/[\s,]+/)
+      if (parts.length === 3) {
+        const [part1, part2, part3] = parts
+        // Try both formats: "MMM DD, YYYY" and "DD MMM YYYY"
+        const dateStr1 = `${part1} ${part2}, ${part3}` // "Dec 13, 2025"
+        const dateStr2 = `${part2} ${part1}, ${part3}` // "13 Dec, 2025" (less common)
+        const altTimestamp1 = Date.parse(dateStr1)
+        const altTimestamp2 = Date.parse(dateStr2)
+        if (!Number.isNaN(altTimestamp1)) return altTimestamp1
+        if (!Number.isNaN(altTimestamp2)) return altTimestamp2
+      }
+      return null
+    }
+    
+    return timestamp
   }
 
   for (const status of Object.keys(grouped) as RequestStatus[]) {

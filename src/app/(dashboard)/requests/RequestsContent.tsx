@@ -321,7 +321,8 @@ export function RequestsContent({
     const existingRequest = requests.find(r => r.connectionId === selectedConnectionId);
     
     // Create optimistic request
-    const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    // Use ISO timestamp for proper sorting (will be formatted for display in RequestRow)
+    const now = new Date();
     
     // Determine client and agency based on variant
     // Agency view: selectedConnection is a client, current org is agency
@@ -374,7 +375,7 @@ export function RequestsContent({
       assignee: null,
       client,
       agency,
-      createdAt: today,
+      createdAt: now.toISOString(), // Use ISO timestamp for proper sorting (newest first)
       createdByOrgId: context.organization.id,
       createdByOrgType: context.variant,
     };
