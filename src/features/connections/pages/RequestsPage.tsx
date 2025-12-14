@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui/card';
-import { getRequestsForConnection, getAgencyMembersForConnection, getProjectOptionsForConnection, getCommentsForRequests } from '../server';
+import { getRequestsForConnection, getRequestsCountsForConnection, getAgencyMembersForConnection, getProjectOptionsForConnection, getCommentsForRequests } from '../server';
 import RequestsPageClient from './RequestsPageClient';
 import { PAGE_SIZE } from '../constants';
 
@@ -9,8 +9,11 @@ interface RequestsPageProps {
 
 // Server component that fetches data from Supabase
 export async function RequestsPage({ connectionId }: RequestsPageProps) {
-  const [requestsData, agencyMembers, projects] = await Promise.all([
-    getRequestsForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
+  // Fetch ALL requests upfront for connection tables (no pagination)
+  // No pagination needed - connection tables are small enough to load everything
+  const [requestsData, statusCounts, agencyMembers, projects] = await Promise.all([
+    getRequestsForConnection(connectionId, { limit: 10000, offset: 0 }), // High safety limit (10k max, way more than any connection needs)
+    getRequestsCountsForConnection(connectionId),
     getAgencyMembersForConnection(connectionId),
     getProjectOptionsForConnection(connectionId)
   ]);
@@ -30,6 +33,7 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
         initialRequests={requestsData.requests} 
         initialTotalCount={requestsData.totalCount}
         initialNewCount={requestsData.newCount}
+        initialStatusCounts={statusCounts}
         agencyMembers={agencyMembers}
         projects={projects}
         initialComments={initialComments}

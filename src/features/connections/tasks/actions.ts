@@ -258,14 +258,8 @@ export async function updateTaskAssignee(taskId: string, assigneeUserId: string 
     throw new Error('Failed to update task assignee');
   }
 
-  // Revalidate affected pages
-  if (connectionId) {
-    revalidatePath('/home')
-    revalidatePath('/tasks')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
+  // Real-time subscription handles UI updates - no revalidation needed
+  
   return data;
 }
 
@@ -340,15 +334,8 @@ export async function updateTaskStatus(
     throw new Error('Failed to update task status');
   }
 
-  // Revalidate affected pages
-  if (currentTask?.connection_id) {
-    const connectionId = currentTask.connection_id
-    revalidatePath('/home')
-    revalidatePath('/tasks')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
+  // Real-time subscription handles UI updates - no revalidation needed
+  
   return data;
 }
 
@@ -408,15 +395,8 @@ export async function updateTaskTitle(taskId: string, title: string) {
     throw new Error('Failed to update task title');
   }
 
-  // Revalidate affected pages
-  if (taskInfo?.connection_id) {
-    const connectionId = taskInfo.connection_id
-    revalidatePath('/home')
-    revalidatePath('/tasks')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
+  // Real-time subscription handles UI updates - no revalidation needed
+  
   return data;
 }
 
@@ -476,15 +456,8 @@ export async function updateTaskDescription(taskId: string, description: string)
     throw new Error('Failed to update task description');
   }
 
-  // Revalidate affected pages
-  if (taskInfo?.connection_id) {
-    const connectionId = taskInfo.connection_id
-    revalidatePath('/home')
-    revalidatePath('/tasks')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
+  // Real-time subscription handles UI updates - no revalidation needed
+  
   return data;
 }
 
@@ -544,15 +517,8 @@ export async function updateTaskProject(taskId: string, projectId: string | null
     throw new Error('Failed to update task project');
   }
 
-  // Revalidate affected pages
-  if (taskInfo?.connection_id) {
-    const connectionId = taskInfo.connection_id
-    revalidatePath('/home')
-    revalidatePath('/tasks')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
+  // Real-time subscription handles UI updates - no revalidation needed
+  
   return data;
 }
 
@@ -612,15 +578,8 @@ export async function updateTaskDueDate(taskId: string, dueDate: string | null) 
     throw new Error('Failed to update task due date');
   }
 
-  // Revalidate affected pages
-  if (taskInfo?.connection_id) {
-    const connectionId = taskInfo.connection_id
-    revalidatePath('/home')
-    revalidatePath('/tasks')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
+  // Real-time subscription handles UI updates - no revalidation needed
+  
   return data;
 }
 
@@ -680,13 +639,8 @@ export async function updateTaskClientVisible(taskId: string, clientVisible: boo
     throw new Error('Failed to update client visibility');
   }
 
-  // Revalidate affected pages (visibility doesn't affect lists, only connection pages)
-  if (taskInfo?.connection_id) {
-    const connectionId = taskInfo.connection_id
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
+  // Real-time subscription handles UI updates - no revalidation needed
+  
   return data;
 }
 
@@ -898,21 +852,8 @@ export async function deleteTask(taskId: string) {
     throw new Error(errorMessage);
   }
 
-  // Fetch connection_id for revalidation
-  const { data: taskData } = await supabase
-    .from('tasks')
-    .select('connection_id')
-    .eq('id', taskId)
-    .single()
+  // Real-time subscription handles UI updates (via UPDATE with deleted_at) - no revalidation needed
   
-  if (taskData?.connection_id) {
-    const connectionId = taskData.connection_id
-    revalidatePath('/home')
-    revalidatePath('/tasks')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
-
   return data;
 }
 

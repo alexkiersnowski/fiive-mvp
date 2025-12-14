@@ -50,9 +50,31 @@ export const groupTasksByStatus = (tasks: Task[]): Record<TaskStatus, Task[]> =>
     done: []
   }
 
+  // Debug logging for status grouping
+  if (process.env.NODE_ENV !== 'production') {
+    const statusCounts = tasks.reduce((acc, task) => {
+      acc[task.status] = (acc[task.status] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    console.log('[groupTasksByStatus] Grouping tasks', {
+      totalTasks: tasks.length,
+      statusCounts,
+      taskStatuses: tasks.map(t => ({ id: t.id, status: t.status }))
+    })
+  }
+
   // Group tasks by status
   for (const task of tasks) {
-    groups[task.status].push(task)
+    const status = task.status
+    if (!groups[status]) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[groupTasksByStatus] Unknown status:', status, 'for task:', task.id)
+      }
+      // Fallback: treat unknown status as 'to_do'
+      groups['to_do'].push(task)
+    } else {
+      groups[status].push(task)
+    }
   }
 
   // Sort tasks within each group by created_at DESC (newest first)
@@ -67,6 +89,15 @@ export const groupTasksByStatus = (tasks: Task[]): Record<TaskStatus, Task[]> =>
       if (aCreated !== null && bCreated === null) return -1
       if (aCreated === null && bCreated !== null) return 1
       return 0
+    })
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[groupTasksByStatus] Grouped result', {
+      in_progress: groups.in_progress.length,
+      to_do: groups.to_do.length,
+      on_hold: groups.on_hold.length,
+      done: groups.done.length
     })
   }
 

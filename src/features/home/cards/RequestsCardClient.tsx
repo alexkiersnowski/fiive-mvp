@@ -27,6 +27,7 @@ import type { Comment } from "@/features/connections/server";
 import { dispatchRequestStatusChanged, dispatchRequestDeleted } from "./stats/NewRequestsCard";
 import { dispatchRequestInReviewStatusChanged, dispatchRequestInReviewDeleted } from "./stats/RequestsInReviewCard";
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
+import { formatRequestDateFullMonth } from '@/features/connections/formatters';
 
 interface RequestsCardClientProps extends StatsCardProps {
   requests: Request[];
@@ -578,7 +579,7 @@ export default function RequestsCardClient({
                       className="text-sm-regular"
                       style={{ color: "var(--color-base-text-primary)" }}
                     >
-                      {request.createdAt}
+                      {formatRequestDateFullMonth(request.createdAt)}
                     </span>
                   </TableCell>
                 </TableRow>

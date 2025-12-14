@@ -2,7 +2,7 @@ import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { escapeForILike } from '@/lib/utils';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
-import type { TasksSnapshot, Task, TasksPaginationOptions } from './types';
+import type { TasksSnapshot, Task, TasksPaginationOptions, SearchResults, SearchClientResult } from './types';
 import * as formatters from '../connections/formatters';
 
 type _TaskRow = {
@@ -3124,5 +3124,613 @@ export const getGlobalAssignedTasksCount = cache(async (
   }
 
   return count || 0;
+});
+
+/**
+ * Internal helper function to fetch connection IDs for the current organization
+ * Shared between task functions to avoid redundant queries
+ */
+async function getConnectionIdsForOrg(
+  context: EnhancedModeContext,
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<string[]> {
+  // Get all connection IDs that belong to this organization
+  // Agency: connections where agency_id = orgId
+  // Client: connections where client_id = orgId
+  // Exclude disconnected connections (frozen/read-only)
+  const connectionQuery = context.variant === 'agency'
+    ? supabase
+        .from('connections')
+        .select('id')
+        .eq('agency_id', context.orgId)
+        .neq('connection_status', 'disconnected')
+    : supabase
+        .from('connections')
+        .select('id')
+        .eq('client_id', context.orgId)
+        .neq('connection_status', 'disconnected');
+
+  const { data: connections, error: connectionQueryError } = await connectionQuery;
+
+  if (connectionQueryError || !connections) {
+    console.error('Error fetching connections:', connectionQueryError);
+    return [];
+  }
+
+  return connections.map(c => c.id);
+}
+
+/**
+ * Transform task rows to Task[] format
+ * Similar to transformRequestsToRequestFormat but for tasks
+ */
+async function transformTasksToTaskFormat(
+  tasksData: Array<{
+    id: string;
+    connection_id: string;
+    project_id: string | null;
+    title: string;
+    description: string | null;
+    status: string;
+    due_date: string | null;
+    assignee_user_id: string | null;
+    client_visible: boolean | null;
+    created_by_user_id: string;
+    created_at: string;
+    updated_at: string | null;
+    completed_at: string | null;
+    source_request_id?: string | null;
+  }>,
+  context: EnhancedModeContext,
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<Task[]> {
+  const uniqueConnectionIds = [...new Set(tasksData.map(t => t.connection_id))];
+  const userIds = new Set<string>();
+  tasksData.forEach(task => {
+    if (task.created_by_user_id) userIds.add(task.created_by_user_id);
+    if (task.assignee_user_id) userIds.add(task.assignee_user_id);
+  });
+
+  const userIdArray = Array.from(userIds);
+  const [profilesResult, connectionsResult, membershipsResult, orgsResult] = await Promise.all([
+    userIdArray.length > 0
+      ? supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email, avatar_url, job_title')
+          .in('id', userIdArray)
+      : Promise.resolve({ data: null, error: null }),
+    supabase
+      .from('connections')
+      .select('id, client_id, agency_id')
+      .in('id', uniqueConnectionIds),
+    userIdArray.length > 0
+      ? supabase
+          .from('memberships')
+          .select(`
+            user_id,
+            org_id,
+            organizations!inner(
+              id,
+              name,
+              logo_url
+            )
+          `)
+          .in('user_id', userIdArray)
+      : Promise.resolve({ data: null, error: null }),
+    (async () => {
+      const connectionsData = await supabase
+        .from('connections')
+        .select('client_id, agency_id')
+        .in('id', uniqueConnectionIds);
+
+      if (connectionsData.error || !connectionsData.data) {
+        return { data: null, error: connectionsData.error };
+      }
+
+      const uniqueOrgIds = new Set<string>();
+      connectionsData.data.forEach(conn => {
+        if (conn.client_id) uniqueOrgIds.add(conn.client_id);
+        if (conn.agency_id) uniqueOrgIds.add(conn.agency_id);
+      });
+
+      const orgIdsArray = Array.from(uniqueOrgIds);
+      if (orgIdsArray.length === 0) {
+        return { data: null, error: null };
+      }
+
+      return await supabase
+        .from('organizations')
+        .select('id, name, logo_url, type')
+        .in('id', orgIdsArray);
+    })()
+  ]);
+
+  const { data: profilesData, error: profilesError } = profilesResult;
+  const { data: connectionsData, error: connectionsError } = connectionsResult;
+  const { data: membershipsData, error: membershipsError } = membershipsResult;
+  const { data: orgsData, error: orgsError } = orgsResult;
+
+  const profilesMap: Record<string, { first_name: string; last_name: string; email: string; avatar_url?: string; job_title?: string }> = {};
+  if (!profilesError && profilesData) {
+    profilesData.forEach(profile => {
+      profilesMap[profile.id] = profile;
+    });
+  }
+
+  if (connectionsError) {
+    console.error('Error fetching connections:', connectionsError);
+    return [];
+  }
+
+  const connectionsMap = (connectionsData || []).reduce((acc, conn) => {
+    acc[conn.id] = { clientId: conn.client_id, agencyId: conn.agency_id };
+    return acc;
+  }, {} as Record<string, { clientId: string; agencyId: string }>);
+
+  const orgMap: Record<string, { name: string; logoUrl?: string }> = {};
+  const orgTypeMap: Record<string, 'agency' | 'client'> = {};
+
+  if (orgsError) {
+    console.error('Error fetching organizations:', orgsError);
+  }
+
+  (orgsData || []).forEach(org => {
+    orgMap[org.id] = {
+      name: org.name || 'Unknown',
+      logoUrl: org.logo_url || undefined
+    };
+    if (org.type === 'agency' || org.type === 'client') {
+      orgTypeMap[org.id] = org.type as 'agency' | 'client';
+    }
+  });
+
+  const userOrgMap: Record<string, { orgId: string; orgName: string; orgLogo?: string }> = {};
+  if (!membershipsError && membershipsData) {
+    membershipsData.forEach((membership: { user_id: string; organizations: { id: string; name: string; logo_url: string | null } | Array<{ id: string; name: string; logo_url: string | null }> }) => {
+      const org = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations;
+      if (org) {
+        userOrgMap[membership.user_id] = {
+          orgId: org.id,
+          orgName: org.name,
+          orgLogo: org.logo_url || undefined
+        };
+      }
+    });
+  }
+
+  // Fetch projects for tasks that have project_id
+  const projectIds: string[] = tasksData
+    .map(t => t.project_id)
+    .filter((id): id is string => id !== null);
+  const uniqueProjectIds = [...new Set(projectIds)];
+  const projectsMap: Record<string, { id: string; name: string }> = {};
+  if (uniqueProjectIds.length > 0) {
+    const { data: projectsData } = await supabase
+      .from('projects')
+      .select('id, name')
+      .in('id', uniqueProjectIds)
+      .is('deleted_at', null);
+
+    if (projectsData) {
+      projectsData.forEach(project => {
+        projectsMap[project.id] = project;
+      });
+    }
+  }
+
+  return tasksData
+    .filter(task => {
+      return connectionsMap[task.connection_id] !== undefined;
+    })
+    .map(task => {
+      const connectionInfo = connectionsMap[task.connection_id];
+      if (!connectionInfo) {
+        throw new Error('Connection not found in map');
+      }
+
+      const clientOrg = orgMap[connectionInfo.clientId];
+      const agencyOrg = orgMap[connectionInfo.agencyId];
+
+      const submittedByProfile = task.created_by_user_id ? profilesMap[task.created_by_user_id] || null : null;
+      const assigneeProfile = task.assignee_user_id ? profilesMap[task.assignee_user_id] || null : null;
+
+      const project = task.project_id ? (projectsMap[task.project_id] || null) : null;
+
+      return {
+        id: task.id,
+        connectionId: task.connection_id,
+        title: task.title,
+        description: task.description || '',
+        status: task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done',
+        project: project ? { id: project.id, name: project.name } : null,
+        submittedBy: formatters.buildSubmittedBy(
+          task.created_by_user_id,
+          submittedByProfile,
+          userOrgMap
+        ),
+        assignee: formatters.buildAssignee(task.assignee_user_id, assigneeProfile),
+        client: formatters.buildOrganization(
+          connectionInfo.clientId,
+          clientOrg?.name,
+          clientOrg?.logoUrl,
+          'Unknown Client'
+        ),
+        agency: agencyOrg ? formatters.buildOrganization(
+          connectionInfo.agencyId,
+          agencyOrg.name,
+          agencyOrg.logoUrl,
+          'Unknown Agency'
+        ) : undefined,
+        createdAt: formatters.formatRequestDate(task.created_at),
+        createdAtRaw: task.created_at,
+        updatedAt: task.updated_at ? formatters.formatRequestDate(task.updated_at) : undefined,
+        dueDate: task.due_date ? formatters.formatRequestDate(task.due_date) : undefined,
+        dueDateRaw: task.due_date,
+        completedAt: task.completed_at ? formatters.formatRequestDate(task.completed_at) : undefined,
+        completedAtRaw: task.completed_at,
+        createdByUserId: task.created_by_user_id,
+        createdByOrgId: userOrgMap[task.created_by_user_id]?.orgId,
+        createdByOrgType: formatters.getOrgType(userOrgMap[task.created_by_user_id]?.orgId || null, orgTypeMap),
+        clientVisible: Boolean(task.client_visible),
+        clientVisibilityLocked: false, // Will be calculated if needed
+        sourceRequestId: task.source_request_id ?? null,
+        linkedRequest: null, // Will be populated if needed
+      } as Task;
+    });
+}
+
+/**
+ * Get tasks counts (minimal metadata for accurate header counts)
+ * Returns status counts and client counts without fetching task rows
+ */
+export const getTasksCounts = cache(async (
+  context: EnhancedModeContext,
+  options: { assignedToUserId?: string; assignedToUserIds?: string[] } = {}
+): Promise<{
+  statusCounts: Record<string, number>;
+  clientCounts: Record<string, number>;
+}> => {
+  const { assignedToUserId, assignedToUserIds } = options;
+  const supabase = await createClient();
+  const connectionIds = await getConnectionIdsForOrg(context, supabase);
+
+  if (connectionIds.length === 0) {
+    return {
+      statusCounts: {},
+      clientCounts: {},
+    };
+  }
+
+  const { data, error } = await supabase.rpc('get_tasks_counts', {
+    p_connection_ids: connectionIds,
+    p_assigned_to_user_id: assignedToUserId || null,
+    p_assigned_to_user_ids: assignedToUserIds || null,
+  });
+
+  if (error || !data) {
+    console.error('Error fetching tasks counts:', error);
+    return {
+      statusCounts: {},
+      clientCounts: {},
+    };
+  }
+
+  // Extract client counts based on view type
+  // The RPC returns both 'agency' and 'client' views, we use the appropriate one
+  const clientCountsRaw = data.client_counts || {};
+  const clientCounts = context.variant === 'agency' 
+    ? (clientCountsRaw.agency || {})
+    : (clientCountsRaw.client || {});
+
+  return {
+    statusCounts: data.status_counts || {},
+    clientCounts: clientCounts,
+  };
+});
+
+/**
+ * Get tasks for a specific client organization in a specific status
+ * Used for accordion fetch-on-expand pattern
+ * Returns all tasks for the client (no pagination needed)
+ */
+export const getTasksForClientStatus = cache(async (
+  context: EnhancedModeContext,
+  clientOrgId: string,
+  status: 'to_do' | 'in_progress' | 'on_hold' | 'done',
+  options: { assignedToUserId?: string; assignedToUserIds?: string[] } = {}
+): Promise<Task[]> => {
+  const { assignedToUserId, assignedToUserIds } = options;
+
+  // Validate context before proceeding
+  if (!context || !context.orgId || !context.userId) {
+    console.error('Invalid context provided to getTasksForClientStatus:', { context });
+    return [];
+  }
+
+  const supabase = await createClient();
+  const connectionIds = await getConnectionIdsForOrg(context, supabase);
+
+  if (connectionIds.length === 0) {
+    return [];
+  }
+
+  // Call RPC function to fetch tasks for this client in this status
+  const { data: tasksData, error: tasksError } = await supabase.rpc(
+    'get_tasks_for_client_status',
+    {
+      p_connection_ids: connectionIds,
+      p_client_org_id: clientOrgId,
+      p_status: status,
+      p_assigned_to_user_id: assignedToUserId || null,
+      p_assigned_to_user_ids: assignedToUserIds || null,
+      p_view_type: context.variant,
+    }
+  );
+
+  if (tasksError) {
+    console.error('Error fetching tasks for client status:', tasksError);
+    return [];
+  }
+
+  if (!tasksData || tasksData.length === 0) {
+    return [];
+  }
+
+  // Transform raw task rows to Task[] format
+  const tasks = await transformTasksToTaskFormat(tasksData, context, supabase);
+
+  return tasks;
+});
+
+/**
+ * Search clients with their tasks pre-loaded (server-side search mode)
+ * Returns clients matching search text with all their tasks as atomic data
+ * Used for fast, flicker-free search results
+ */
+export const searchClientsWithTasks = cache(async (
+  context: EnhancedModeContext,
+  searchText: string,
+  options?: {
+    statusFilter?: ('to_do' | 'in_progress' | 'on_hold' | 'done')[];
+    assignedToUserId?: string;
+    assignedToUserIds?: string[];
+  }
+): Promise<SearchResults> => {
+  // Validate context
+  if (!context || !context.orgId || !context.userId) {
+    console.error('Invalid context provided to searchClientsWithTasks:', { context });
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  const supabase = await createClient();
+  const connectionIds = await getConnectionIdsForOrg(context, supabase);
+
+  if (connectionIds.length === 0) {
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  const { statusFilter, assignedToUserId, assignedToUserIds } = options || {};
+
+  // Call RPC function
+  const { data: searchResultsData, error: searchError } = await supabase.rpc(
+    'search_clients_with_tasks',
+    {
+      p_search_text: searchText.trim(),
+      p_connection_ids: connectionIds,
+      p_view_type: context.variant,
+      p_status_filter: statusFilter || null,
+      p_assigned_to_user_id: assignedToUserId || null,
+      p_assigned_to_user_ids: assignedToUserIds || null,
+    }
+  );
+
+  if (searchError) {
+    console.error('Error searching clients with tasks:', searchError);
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  if (!searchResultsData || searchResultsData.length === 0) {
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  // Transform results: convert JSONB tasks arrays to Task[] objects
+  const clients: SearchClientResult[] = await Promise.all(
+    searchResultsData.map(async (clientData: {
+      client_id: string;
+      client_name: string;
+      client_logo_url: string | null;
+      tasks: Array<{
+        id: string;
+        connection_id: string;
+        project_id: string | null;
+        title: string;
+        description: string | null;
+        status: string;
+        due_date: string | null;
+        assignee_user_id: string | null;
+        client_visible: boolean | null;
+        created_by_user_id: string;
+        created_at: string;
+        updated_at: string | null;
+        completed_at: string | null;
+        source_request_id?: string | null;
+      }>;
+    }) => {
+      // Transform tasks JSONB array to Task[] format
+      const tasksData = clientData.tasks || [];
+      
+      if (tasksData.length === 0) {
+        return {
+          client_id: clientData.client_id,
+          client_name: clientData.client_name,
+          client_logo_url: clientData.client_logo_url || undefined,
+          tasks: [],
+        };
+      }
+
+      // Transform tasks using existing transformation logic
+      const transformedTasks = await transformTasksToTaskFormat(
+        tasksData.map(task => ({
+          ...task,
+          // Ensure created_at is a string (it already is from JSONB, but be explicit)
+          created_at: task.created_at,
+        })),
+        context,
+        supabase
+      );
+
+      return {
+        client_id: clientData.client_id,
+        client_name: clientData.client_name,
+        client_logo_url: clientData.client_logo_url || undefined,
+        tasks: transformedTasks,
+      };
+    })
+  );
+
+  return {
+    clients,
+    totalClients: clients.length,
+  };
+});
+
+/**
+ * Get all tasks assigned to a user, grouped by client (assigned filter mode)
+ * Returns clients with their assigned tasks pre-loaded as atomic data
+ * Used for fast, flicker-free assigned filter results
+ */
+export const getAssignedTasksByClient = cache(async (
+  context: EnhancedModeContext,
+  options?: {
+    statusFilter?: ('to_do' | 'in_progress' | 'on_hold' | 'done')[];
+  }
+): Promise<SearchResults> => {
+  // Validate context
+  if (!context || !context.orgId || !context.userId) {
+    console.error('Invalid context provided to getAssignedTasksByClient:', { context });
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  const supabase = await createClient();
+  const connectionIds = await getConnectionIdsForOrg(context, supabase);
+
+  if (connectionIds.length === 0) {
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  const { statusFilter } = options || {};
+
+  // Call search_clients_with_tasks with empty search text to match all clients
+  // Filter by assignee_user_id for agency view, assigned_to_user_ids for client view
+  const { data: filterResultsData, error: filterError } = await supabase.rpc(
+    'search_clients_with_tasks',
+    {
+      p_search_text: '', // Empty string matches all organization names
+      p_connection_ids: connectionIds,
+      p_view_type: context.variant,
+      p_status_filter: statusFilter || null,
+      p_assigned_to_user_id: context.variant === 'agency' ? context.userId : null,
+      p_assigned_to_user_ids: context.variant === 'client' ? (await (async () => {
+        // Get all client org user IDs for client view
+        const { data: memberships } = await supabase
+          .from('memberships')
+          .select('user_id')
+          .eq('org_id', context.orgId);
+        return memberships?.map(m => m.user_id) || [];
+      })()) : null,
+    }
+  );
+
+  if (filterError) {
+    console.error('Error fetching assigned tasks by client:', filterError);
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  if (!filterResultsData || filterResultsData.length === 0) {
+    return {
+      clients: [],
+      totalClients: 0,
+    };
+  }
+
+  // Transform results: convert JSONB tasks arrays to Task[] objects
+  const clients: SearchClientResult[] = await Promise.all(
+    filterResultsData.map(async (clientData: {
+      client_id: string;
+      client_name: string;
+      client_logo_url: string | null;
+      tasks: Array<{
+        id: string;
+        connection_id: string;
+        project_id: string | null;
+        title: string;
+        description: string | null;
+        status: string;
+        due_date: string | null;
+        assignee_user_id: string | null;
+        client_visible: boolean | null;
+        created_by_user_id: string;
+        created_at: string;
+        updated_at: string | null;
+        completed_at: string | null;
+        source_request_id?: string | null;
+      }>;
+    }) => {
+      // Transform tasks JSONB array to Task[] format
+      const tasksData = clientData.tasks || [];
+      
+      if (tasksData.length === 0) {
+        return {
+          client_id: clientData.client_id,
+          client_name: clientData.client_name,
+          client_logo_url: clientData.client_logo_url || undefined,
+          tasks: [],
+        };
+      }
+
+      // Transform tasks using existing transformation logic
+      const transformedTasks = await transformTasksToTaskFormat(
+        tasksData.map(task => ({
+          ...task,
+          created_at: task.created_at,
+        })),
+        context,
+        supabase
+      );
+
+      return {
+        client_id: clientData.client_id,
+        client_name: clientData.client_name,
+        client_logo_url: clientData.client_logo_url || undefined,
+        tasks: transformedTasks,
+      };
+    })
+  );
+
+  return {
+    clients,
+    totalClients: clients.length,
+  };
 });
 

@@ -6,22 +6,17 @@ import type { TaskStatus } from './taskGrouping'
 
 interface StatusGroupHeaderProps {
   status: TaskStatus
-  statusCount: number // From server metadata (ALL connections) - NEVER derive from rendered data
-  loadedClientCount?: number
-  isExpanded: boolean
+  statusCount: number | string // From metadata fetch
+  isCollapsed: boolean
   onToggle: () => void
-  isAgency: boolean
-  isFirstGroup?: boolean
 }
 
-export function StatusGroupHeader({ status, statusCount, loadedClientCount, isExpanded, onToggle, isAgency, isFirstGroup: _isFirstGroup = false }: StatusGroupHeaderProps) {
+export function StatusGroupHeader({ status, statusCount, isCollapsed, onToggle }: StatusGroupHeaderProps) {
   return (
     <div
-      className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]`}
+      className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]"
       style={{
-        gridTemplateColumns: isAgency 
-          ? '44px 4fr 3fr 3fr 3fr 3fr 44px 44px'
-          : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+        gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
         height: '44px',
         minHeight: '44px',
         maxHeight: '44px',
@@ -36,7 +31,7 @@ export function StatusGroupHeader({ status, statusCount, loadedClientCount, isEx
           weight="fill"
           style={{
             color: 'var(--color-base-text-tertiary)',
-            transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
             transition: 'transform 0.2s ease'
           }}
         />
@@ -51,12 +46,7 @@ export function StatusGroupHeader({ status, statusCount, loadedClientCount, isEx
           className="flex-shrink-0"
         />
         <span className="text-xs-regular text-[var(--color-base-text-tertiary)]">
-          {statusCount} {statusCount === 1 ? 'task' : 'tasks'}
-          {loadedClientCount !== undefined && loadedClientCount > 0 && (
-            <span className="ml-1 text-[var(--color-base-text-tertiary)] opacity-70">
-              (from {loadedClientCount} {loadedClientCount === 1 ? 'client' : 'clients'})
-            </span>
-          )}
+          {statusCount} {typeof statusCount === 'number' && statusCount === 1 ? 'task' : 'tasks'}
         </span>
       </div>
       
@@ -65,7 +55,6 @@ export function StatusGroupHeader({ status, statusCount, loadedClientCount, isEx
       <div className="px-3"></div>
       <div className="px-3"></div>
       <div className="px-3"></div>
-      {isAgency && <div></div>}
       <div></div>
     </div>
   )

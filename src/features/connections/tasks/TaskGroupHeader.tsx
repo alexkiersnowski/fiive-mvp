@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from 'react'
 import { CaretDown } from '@phosphor-icons/react'
 import { TaskBadge } from '@/components/ui/task-badge'
 import type { TaskStatus } from '../server'
@@ -15,7 +16,7 @@ interface TaskGroupHeaderProps {
   isDraggingActive?: boolean
 }
 
-export function TaskGroupHeader({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup: _isFirstGroup = false, isDraggingActive = false }: TaskGroupHeaderProps) {
+function TaskGroupHeaderComponent({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup: _isFirstGroup = false, isDraggingActive = false }: TaskGroupHeaderProps) {
   return (
     <div
       className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full ${
@@ -73,4 +74,7 @@ export function TaskGroupHeader({ status, count, isExpanded, onToggle, isAgency,
     </div>
   )
 }
+
+// Memoize TaskGroupHeader to prevent unnecessary re-renders
+export const TaskGroupHeader = memo(TaskGroupHeaderComponent)
 

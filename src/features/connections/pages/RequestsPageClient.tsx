@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, useTransition } from 'react'
+import { useState, useEffect, useRef, useCallback, useTransition, Component, type ReactNode, useMemo } from 'react'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext';
 import RequestsTable from '../requests/RequestsTable';
@@ -18,11 +18,55 @@ import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { formatRequestDate } from '../formatters';
 import { sortRequestsForDisplay } from '../requests/requestSort';
 
+// Error boundary for RequestsPageClient to catch runtime errors
+class RequestsPageErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // Log error for debugging
+    console.error('[RequestsPageClient] Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center p-8" style={{ minHeight: '400px' }}>
+          <p className="text-sm-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>
+            Something went wrong loading requests
+          </p>
+          <p className="text-sm-regular mb-4" style={{ color: 'var(--color-base-text-secondary)' }}>
+            {this.state.error?.message || 'An unexpected error occurred'}
+          </p>
+          <details className="text-xs" style={{ color: 'var(--color-base-text-tertiary)', maxWidth: '600px' }}>
+            <summary className="cursor-pointer mb-2">Error details</summary>
+            <pre className="overflow-auto p-2 bg-[var(--color-neutral-3)] rounded">
+              {this.state.error?.stack}
+            </pre>
+          </details>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 interface RequestsPageClientProps {
   connectionId: string
   initialRequests: Request[]
   initialTotalCount: number
   initialNewCount: number
+  initialStatusCounts?: Record<string, number> // Server-side status counts to prevent flicker
   agencyMembers: Array<{
     id: string
     firstName: string
@@ -75,28 +119,63 @@ type ModalRequest = {
 }
 
 // Client component wrapper that handles all client-side interactivity
-export default function RequestsPageClient({ connectionId, initialRequests, initialTotalCount, initialNewCount, agencyMembers, projects, initialComments = {} }: RequestsPageClientProps) {
+function RequestsPageClientContent({ connectionId, initialRequests, initialTotalCount, initialNewCount, initialStatusCounts, agencyMembers, projects, initialComments = {} }: RequestsPageClientProps) {
+  // Defensive guards for critical props
+  if (!connectionId) {
+    console.error('[RequestsPageClient] Missing connectionId prop');
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+          Missing connection ID
+        </p>
+      </div>
+    );
+  }
+
+  if (!agencyMembers || !Array.isArray(agencyMembers)) {
+    console.error('[RequestsPageClient] Missing or invalid agencyMembers prop');
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+          Missing agency members data
+        </p>
+      </div>
+    );
+  }
+
+  if (!projects || !Array.isArray(projects)) {
+    console.error('[RequestsPageClient] Missing or invalid projects prop');
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+          Missing projects data
+        </p>
+      </div>
+    );
+  }
+
   const { snapshot, context, setIsEmpty, setNewRequestsCount } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
-  // MVP: read assigned filter synchronously from URL before first fetch
-  const initiallyAssigned = (() => {
-    try { return searchParams.get('assigned') === 'me' } catch { return false }
-  })()
   
   // Get user avatar and organization from context
   const userAvatar = context.user?.avatarUrl || '';
   const userInitials = context.user?.firstName?.[0] + context.user?.lastName?.[0] || 'U';
   const currentOrgId = context.organization.id;
 
-  // Local state for requests (for optimistic updates)
-  const [requests, setRequests] = useState<Request[]>(initiallyAssigned ? [] : initialRequests)
+  // Store unfiltered data (all requests fetched upfront)
+  const [allRequests, setAllRequests] = useState<Request[]>(initialRequests)
   // Optimistic new requests disabled (relying on real-time updates)
   
+  // Status counts from server (prevents flicker)
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>(() => {
+    // Initialize with server counts if available, otherwise empty (will be computed from requests)
+    return initialStatusCounts || {}
+  })
+  
   // Total count state (filtered)
-  const [totalCount, setTotalCount] = useState<number>(initiallyAssigned ? 0 : initialTotalCount)
+  const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
   
   // Unfiltered total count state (total requests for connection regardless of filters)
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState<number>(initialTotalCount)
@@ -110,14 +189,14 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
   const previousDebouncedSearchRef = useRef<string>('')
-  const [assignedToMe, setAssignedToMe] = useState<boolean>(initiallyAssigned)
+  const [assignedToMe, setAssignedToMe] = useState<boolean>(false)
   
-  // Pagination state
-  const [hasMore, setHasMore] = useState(initiallyAssigned ? true : initialRequests.length === PAGE_SIZE)
-  const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
+  // Pagination state (disabled - we fetch all data upfront)
+  const [hasMore, setHasMore] = useState(false) // No pagination - all data fetched upfront
+  const [currentOffset, setCurrentOffset] = useState(0) // Not used, but kept for compatibility
   const parentRef = useRef<HTMLDivElement>(null)
-  // Buffer initial empty render with skeleton when assigned=me or when search/assigned filter changes
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
+  // Buffer initial empty render with skeleton (no longer needed for filters, but kept for compatibility)
+  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
@@ -131,11 +210,34 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const [prefetchedOffset, setPrefetchedOffset] = useState<number | null>(null)
   const [isPrefetching, setIsPrefetching] = useState(false)
   
-  // Track in-flight requests to prevent duplicates and enable cancellation
-  const inFlightRequests = useRef<Set<number>>(new Set())
-  
-  // Track prefetch timeouts for cleanup
-  const prefetchTimeouts = useRef<Map<number, NodeJS.Timeout>>(new Map())
+  // fetchOnce gate: Single gate for all fetch operations to prevent duplicates
+  // Uses Promise-based deduplication (server actions don't support AbortController cancellation)
+  const inFlight = useRef(new Map<string, Promise<any>>())
+
+  const fetchOnce = useCallback((key: string, fn: () => Promise<any>) => {
+    const existing = inFlight.current.get(key)
+    if (existing) {
+      if (isDev()) {
+        console.log('[fetchOnce] Request already in flight for key:', key)
+      }
+      return existing
+    }
+    
+    const p = fn().finally(() => {
+      inFlight.current.delete(key)
+    })
+    inFlight.current.set(key, p)
+    return p
+  }, [])
+
+  // Helper to create request key from parameters
+  // Key format: connectionId + tab + status? + query + offset + filters
+  // Must uniquely represent the dataset slice to prevent "stuck data" bugs
+  const getRequestKey = useCallback((intent: string, offset: number, searchQuery?: string, assignedToMe?: boolean) => {
+    // Include connectionId, intent, offset, searchQuery, and assignedToMe in key
+    // Intent distinguishes: 'refresh', 'search', 'prefetch', 'loadMore'
+    return `requests:${connectionId}:${intent}:${offset}:${searchQuery || ''}:${assignedToMe ? 'assigned' : 'all'}`
+  }, [connectionId])
   
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true)
@@ -144,6 +246,36 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   // Comments map keyed by requestId for instant lookup
   // Initialize with server-fetched comments for instant availability
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments)
+
+  // Client-side filtering: filter allRequests based on searchQuery and assignedToMe
+  const filteredRequests = useMemo(() => {
+    let result = allRequests
+    
+    // Filter by search query (title contains, case-insensitive)
+    if (debouncedSearchQuery.trim().length > 0) {
+      const query = debouncedSearchQuery.trim().toLowerCase()
+      result = result.filter(request => 
+        request.title.toLowerCase().includes(query)
+      )
+    }
+    
+    // Filter by assigned to me
+    if (assignedToMe) {
+      if (context.variant === 'agency') {
+        // Agency: assigned to current user
+        result = result.filter(request => 
+          request.assignee?.id === context.user?.id
+        )
+      } else {
+        // Client: created by current user (requests don't have assignee filtering for clients)
+        result = result.filter(request => 
+          request.submittedBy?.id === context.user?.id
+        )
+      }
+    }
+    
+    return sortRequestsForDisplay(result)
+  }, [allRequests, debouncedSearchQuery, assignedToMe, context.variant, context.user?.id])
   
   // Update isEmpty in context when unfilteredTotalCount changes
   // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
@@ -151,68 +283,75 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
   }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
 
-  // DRY: refresh first page (used by realtime fallback and deletes under search)
+  // DRY: refresh all requests (used by realtime fallback only - no filters)
+  // Fetch ALL requests upfront for connection tables (no pagination, no filters)
   const refreshFirstPage = useCallback(async () => {
-    try {
+    const requestKey = `requests:${connectionId}:refresh:all:no-filters`
+    
+    return fetchOnce(requestKey, async () => {
       const result = await fetchRequestsForConnection(connectionId, {
-        limit: PAGE_SIZE,
-        offset: 0,
-        searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+        limit: 10000, // High safety limit (10k max, way more than any connection needs)
+        offset: 0
+        // No filters - fetch all requests
       })
-      if (!isMountedRef.current) return
+      
+      if (!isMountedRef.current) return result
+      
       // Large state update - use transition for non-urgent render
       startTransition(() => {
         // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
-        setRequests(sortRequestsForDisplay(result.requests))
+        setAllRequests(sortRequestsForDisplay(result.requests))
+        setUnfilteredTotalCount(result.totalCount)
+        // Filtered count will be computed from filteredRequests useMemo
         setTotalCount(result.totalCount)
-        setHasMore(result.requests.length === PAGE_SIZE)
-        setCurrentOffset(PAGE_SIZE)
+        // No pagination - we fetched all data upfront
+        setHasMore(false)
+        setCurrentOffset(0)
         setPrefetchedRequests([])
         setPrefetchedOffset(null)
       })
+      
       if (context.variant === 'agency') {
         setNewRequestsCount(result.newCount ?? 0)
       }
-    } catch (_) {
-      // ignore
-    }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, setNewRequestsCount, startTransition])
+      
+      return result
+    })
+  }, [connectionId, context.variant, setNewRequestsCount, startTransition, fetchOnce])
 
-  // DRY: prepend unique request by id
+  // DRY: prepend unique request by id (updates unfiltered data)
   const prependUnique = useCallback((request: Request) => {
-    setRequests(prev => {
+    setAllRequests(prev => {
       if (prev.some(r => r.id === request.id)) return prev
       // Sort after prepending to maintain correct order
       return sortRequestsForDisplay([request, ...prev])
     })
+    setUnfilteredTotalCount(c => c + 1)
   }, [])
 
-  // DRY: remove by id, return whether something was removed
+  // DRY: remove by id, return whether something was removed (updates unfiltered data)
   const removeById = useCallback((id: string) => {
     let removed = false
-    setRequests(prev => {
+    setAllRequests(prev => {
       const exists = prev.some(r => r.id === id)
       if (!exists) return prev
       removed = true
       return prev.filter(r => r.id !== id)
     })
+    if (removed) {
+      setUnfilteredTotalCount(c => Math.max(0, c - 1))
+    }
     return removed
   }, [])
 
-  // Cleanup on unmount - cancel in-flight requests and timeouts
+  // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true
-    const inFlightRequestsRef = inFlightRequests.current
-    const prefetchTimeoutsRef = prefetchTimeouts.current
     return () => {
       isMountedRef.current = false
-      inFlightRequestsRef.clear()
       isLoadingMore.current = false
-      // Clear all prefetch timeouts
-      prefetchTimeoutsRef.forEach(timeout => clearTimeout(timeout))
-      prefetchTimeoutsRef.clear()
+      // Clear in-flight promises map (they'll complete naturally)
+      inFlight.current.clear()
     }
   }, [])
 
@@ -231,258 +370,28 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     return sortRequestsForDisplay(merged)
   }
 
-  // Debounce search query (150ms delay for faster responsiveness)
+  // Debounce search query (150ms delay - industry standard for real-time client-side search)
+  // Apply debounce only to the input value, not to filtering/rendering logic
   useEffect(() => {
+    // If searchQuery hasn't changed from current debouncedSearchQuery, don't update
+    if (searchQuery === debouncedSearchQuery) return
+    
     const timeoutId = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery)
     }, 150)
 
     return () => clearTimeout(timeoutId)
-  }, [searchQuery])
+  }, [searchQuery]) // Only depend on searchQuery, not debouncedSearchQuery
 
-  // Sync search to URL parameters (matching global tables pattern)
-  useEffect(() => {
-    const currentSearchParam = searchParams.get('search') || ''
-    
-    if (debouncedSearchQuery !== currentSearchParam) {
-      const params = new URLSearchParams(searchParams.toString())
-      if (debouncedSearchQuery.trim()) {
-        params.set('search', debouncedSearchQuery.trim())
-      } else {
-        params.delete('search')
-      }
-      const newUrl = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`
-      router.replace(newUrl, { scroll: false })
-    }
-  }, [debouncedSearchQuery, searchParams, pathname, router])
-
-  // Track if this is the initial mount
-  const isInitialMount = useRef(true)
-
-  // One-time: fetch filtered results immediately on mount if assigned=me
-  useEffect(() => {
-    if (initiallyAssigned) {
-      (async () => {
-        try {
-          const result = await fetchRequestsForConnection(connectionId, {
-            limit: PAGE_SIZE,
-            offset: 0,
-            searchQuery: debouncedSearchQuery || undefined,
-            assignedToUserId: context.variant === 'agency' ? context.user?.id : undefined,
-            createdByUserId: context.variant === 'client' ? context.user?.id : undefined
-          })
-          if (!isMountedRef.current) return
-          // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
-          setRequests(sortRequestsForDisplay(result.requests))
-          setTotalCount(result.totalCount)
-          setHasMore(result.requests.length === PAGE_SIZE)
-          setCurrentOffset(PAGE_SIZE)
-          if (context.variant === 'agency') {
-            setNewRequestsCount(result.newCount ?? 0)
-          }
-        } finally {
-          setIsBootstrapping(false)
-        }
-      })()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Reset pagination and fetch new results when debounced search query or assignedToMe changes
-  useEffect(() => {
-    // Skip on initial mount if there's no search query and not assigned to me (we already have initialRequests)
-    if (isInitialMount.current && !debouncedSearchQuery && !assignedToMe) {
-      isInitialMount.current = false
-      previousDebouncedSearchRef.current = debouncedSearchQuery
-      return
-    }
-    isInitialMount.current = false
-
-    // Set loading state to show skeleton only when:
-    // 1. There's an active search query, OR
-    // 2. We're clearing search (had search before, now don't)
-    // Don't show skeleton on initial page load or tab navigation without search
-    const hadSearchBefore = previousDebouncedSearchRef.current.trim().length > 0
-    const hasSearchNow = debouncedSearchQuery.trim().length > 0
-    const isClearingSearch = hadSearchBefore && !hasSearchNow
-    
-    if (hasSearchNow || isClearingSearch) {
-      setIsSearching(true)
-    }
-    
-    // Update previous search ref for next comparison
-    previousDebouncedSearchRef.current = debouncedSearchQuery
-
-    // Cancel all in-flight requests
-    inFlightRequests.current.clear()
-    isLoadingMore.current = false
-    // Clear all prefetch timeouts
-    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-    prefetchTimeouts.current.clear()
-
-    // Fetch new results with search query
-    const fetchSearchResults = async () => {
-      try {
-        const result = await fetchRequestsForConnection(connectionId, {
-          limit: PAGE_SIZE,
-          offset: 0,
-          searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
-        })
-
-        if (isMountedRef.current) {
-          // Large state update - use transition for non-urgent render
-          startTransition(() => {
-            // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
-            setRequests(sortRequestsForDisplay(result.requests))
-            setTotalCount(result.totalCount)
-            const newHasMore = result.requests.length === PAGE_SIZE
-            setHasMore(newHasMore)
-            setCurrentOffset(PAGE_SIZE)
-            setPrefetchedRequests([])
-            setPrefetchedOffset(null)
-            setIsSearching(false)
-          })
-          if (context.variant === 'agency') {
-            setNewRequestsCount(result.newCount ?? 0)
-          }
-          
-          // Prefetch comments for search results
-          const newIds = result.requests.map(r => r.id)
-          if (newIds.length > 0) {
-            fetchCommentsForRequests(newIds)
-              .then(map => {
-                if (isMountedRef.current) {
-                  setCommentsByRequest(prev => ({ ...prev, ...map }))
-                }
-              })
-              .catch(error => {
-                if (isDev()) {
-                  console.error('Error fetching comments for search results:', error)
-                }
-              })
-          }
-        }
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch search results:', error)
-        }
-        if (isMountedRef.current) {
-          setHasMore(false)
-          setIsSearching(false)
-        }
-      }
-    }
-
-    fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, context.variant, setNewRequestsCount, startTransition])
   
-  // Prefetch next batch of requests with timeout protection
+  // Prefetch next batch of requests (disabled - we fetch all data upfront)
+  // This function is kept for compatibility but should not be called
   const prefetchNext = useCallback(async (offset: number) => {
-    // Prevent duplicate requests
-    if (inFlightRequests.current.has(offset)) {
-      if (isDev()) {
-        console.log('[Prefetch] Request already in flight for offset:', offset)
-      }
-      return
-    }
-    
-    if (isPrefetching) {
-      if (isDev()) {
-        console.log('[Prefetch] Already prefetching, skipping')
-      }
-      return
-    }
-    
-    if (!hasMore) {
-      if (isDev()) {
-        console.log('[Prefetch] Has no more data, skipping')
-      }
-      return
-    }
-    
-    setIsPrefetching(true)
-    inFlightRequests.current.add(offset)
-    
+    // No-op: we fetch all data upfront, no pagination needed
     if (isDev()) {
-      console.log('[Prefetch] Starting prefetch for offset:', offset)
+      console.log('[Prefetch] Prefetch disabled - all data fetched upfront')
     }
-    
-    // Timeout to prevent stale prefetches
-    const timeoutId = setTimeout(() => {
-      // Double-check we still own this request and component is mounted
-      if (isMountedRef.current && inFlightRequests.current.has(offset)) {
-        if (isDev()) {
-          console.log('[Prefetch] Prefetch timeout for offset:', offset)
-        }
-        inFlightRequests.current.delete(offset)
-        prefetchTimeouts.current.delete(offset)
-        // Only update state if component is still mounted
-        if (isMountedRef.current) {
-          setIsPrefetching(false)
-        }
-      }
-    }, PREFETCH_TIMEOUT_MS)
-    
-    // Track timeout for cleanup
-    prefetchTimeouts.current.set(offset, timeoutId)
-    
-    try {
-      const result = await fetchRequestsForConnection(connectionId, { 
-        limit: PAGE_SIZE, 
-        offset,
-        searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
-      })
-      
-      // Clear timeout - only if we still own this request
-      if (inFlightRequests.current.has(offset)) {
-        const existingTimeout = prefetchTimeouts.current.get(offset)
-        if (existingTimeout) {
-          clearTimeout(existingTimeout)
-          prefetchTimeouts.current.delete(offset)
-        }
-        
-        if (isDev()) {
-          console.log('[Prefetch] Prefetch completed', { count: result.requests.length, offset })
-        }
-        
-        // Only update state if component is still mounted and this request is still relevant
-        if (isMountedRef.current && inFlightRequests.current.has(offset)) {
-          // Store prefetched data - don't set hasMore here, let loadMore decide
-          if (result.requests.length > 0) {
-            setPrefetchedRequests(result.requests)
-            setPrefetchedOffset(offset)
-          }
-          // Update total count (it should be the same, but keep it in sync)
-          setTotalCount(result.totalCount)
-          if (context.variant === 'agency') {
-            setNewRequestsCount(result.newCount ?? 0)
-          }
-        }
-      }
-    } catch (error) {
-      // Clear timeout on error
-      const existingTimeout = prefetchTimeouts.current.get(offset)
-      if (existingTimeout) {
-        clearTimeout(existingTimeout)
-        prefetchTimeouts.current.delete(offset)
-      }
-      
-      if (isDev()) {
-        console.error('Failed to prefetch requests:', error)
-      }
-      // Silently fail - don't affect hasMore, let on-demand fetch handle it
-    } finally {
-      // Only update state if component is still mounted
-      if (isMountedRef.current) {
-        setIsPrefetching(false)
-      }
-      inFlightRequests.current.delete(offset)
-    }
-  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, setNewRequestsCount])
+  }, [])
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {
@@ -499,16 +408,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             const req = await fetchRequestById(connectionId, newId)
             if (!req) return
             
-            // Server-side filtering handles search/assignee filters
-            // If filters are active, refresh first page to get filtered results
-            if (debouncedSearchQuery || assignedToMe) {
-              await refreshFirstPage()
-            } else {
-              // No filters - add directly
-              prependUnique(req)
-              setTotalCount(c => c + 1)
-              setUnfilteredTotalCount(c => c + 1)
-            }
+            // Add directly to unfiltered data - filtered view will update automatically
+            prependUnique(req)
           } catch (_) {
             // fallback to full refresh if single-row fetch fails
             await refreshFirstPage()
@@ -522,18 +423,13 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           const updated = (payload?.new as { id: string; deleted_at: string | null } | undefined)
           if (!updated) return
           
-          // Handle soft delete locally
+          // Handle soft delete locally (updates unfiltered data)
           if (updated.deleted_at) {
-            const wasRemoved = removeById(updated.id)
-            if (wasRemoved) {
-              setTotalCount(c => Math.max(0, c - 1))
-              setUnfilteredTotalCount(c => Math.max(0, c - 1))
-            }
+            removeById(updated.id)
             return
           }
           
-          // For non-delete updates, use targeted update instead of refreshing entire first page
-          // This prevents flickering when optimistic updates are in progress
+          // For non-delete updates, use targeted update (updates unfiltered data)
           try {
             const req = await fetchRequestById(connectionId, updated.id)
             if (!req) return
@@ -556,31 +452,21 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
               return prev
             })
             
-            // Targeted update: update request in local state if it exists
-            // Only refresh if filters are active and request might not match current filters
-            const needsFullRefresh = debouncedSearchQuery || assignedToMe
-            
-            if (needsFullRefresh) {
-              // With filters active, request might appear/disappear, so refresh to apply server-side filtering
-              await refreshFirstPage()
-            } else {
-              // No filters - update request in place
-              setRequests(prev => {
-                const existingIndex = prev.findIndex(r => r.id === req.id)
-                if (existingIndex !== -1) {
-                  // Request exists in current list - update it
-                  const next = [...prev]
-                  next[existingIndex] = req
-                  // Sort after update to maintain correct order
-                  return sortRequestsForDisplay(next)
-                } else {
-                  // Request not in current list - might need to be added (e.g., status changed)
-                  // Check if it should be visible based on current view
-                  // Sort after adding to maintain correct order
-                  return sortRequestsForDisplay([...prev, req])
-                }
-              })
-            }
+            // Update request in unfiltered data - filtered view will update automatically
+            setAllRequests(prev => {
+              const existingIndex = prev.findIndex((r: Request) => r.id === req.id)
+              if (existingIndex !== -1) {
+                // Request exists - update it
+                const next = [...prev]
+                next[existingIndex] = req
+                // Sort after update to maintain correct order
+                return sortRequestsForDisplay(next)
+              } else {
+                // Request not in list - add it (e.g., status changed)
+                // Sort after adding to maintain correct order
+                return sortRequestsForDisplay([...prev, req])
+              }
+            })
           } catch (_) {
             // Fallback to full refresh only on error
             await refreshFirstPage()
@@ -592,7 +478,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, refreshFirstPage, prependUnique, removeById])
+  }, [connectionId, refreshFirstPage, prependUnique, removeById])
 
   // Load more requests function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
@@ -625,12 +511,12 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       const nextOffset = prefetchedOffset + PAGE_SIZE
       
       if (isMountedRef.current) {
-        setRequests(prev => mergeUniqueById(prev, prefetchedRequests))
+        setAllRequests(prev => mergeUniqueById(prev, prefetchedRequests))
         setCurrentOffset(nextOffset)
       }
       
       // Fetch comments for the new requests
-      const newIds = prefetchedRequests.map(r => r.id)
+      const newIds = prefetchedRequests.map((r: Request) => r.id)
       if (newIds.length > 0) {
         fetchCommentsForRequests(newIds)
           .then(map => {
@@ -648,13 +534,13 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       // Clear prefetched data
       setPrefetchedRequests([])
       setPrefetchedOffset(null)
-      inFlightRequests.current.delete(prefetchedOffset)
       
       // If we got fewer than PAGE_SIZE, there are no more
       if (prefetchedCount < PAGE_SIZE) {
         setHasMore(false)
       } else {
-        // Immediately prefetch next batch if we still have more
+        // Only prefetch next batch if user is very close to end (< 5 rows)
+        // Prefetch should ONLY happen from loadMore when user scrolls near end
         prefetchNext(nextOffset)
       }
       
@@ -670,70 +556,63 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       return
     }
     
-    // Prevent duplicate fetches
-    if (inFlightRequests.current.has(currentOffset)) {
-      if (isDev()) {
-        console.log('[LoadMore] Request for offset already in flight:', currentOffset)
-      }
-      return
-    }
-    
     isLoadingMore.current = true
-    inFlightRequests.current.add(currentOffset)
     
     // Fallback: fetch on-demand if prefetch didn't complete in time
+    const requestKey = getRequestKey(`loadMore:${currentOffset}`, currentOffset, debouncedSearchQuery, assignedToMe)
+    
     if (isDev()) {
-      console.log('[LoadMore] Fetching on-demand for offset:', currentOffset)
+      console.log('[LoadMore] Fetching on-demand for key:', requestKey)
     }
     
     try {
-      const result = await fetchRequestsForConnection(connectionId, { 
-        limit: PAGE_SIZE, 
-        offset: currentOffset,
-        searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+      const result = await fetchOnce(requestKey, async () => {
+        return await fetchRequestsForConnection(connectionId, { 
+          limit: PAGE_SIZE, 
+          offset: currentOffset,
+          searchQuery: debouncedSearchQuery || undefined,
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+          createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
+        })
       })
       
       // Only update state if component is still mounted
       if (!isMountedRef.current) return
       
       if (result.requests.length === 0) {
-        if (isMountedRef.current) {
-          setHasMore(false)
-        }
+        setHasMore(false)
       } else {
-        if (isMountedRef.current) {
-          setRequests(prev => mergeUniqueById(prev, result.requests))
-          setTotalCount(result.totalCount)
-          const nextOffset = currentOffset + PAGE_SIZE
-          setCurrentOffset(nextOffset)
-          
-          // Fetch comments for the new requests
-          const newIds = result.requests.map(r => r.id)
-          if (newIds.length > 0) {
-            fetchCommentsForRequests(newIds)
-              .then(map => {
-                if (isMountedRef.current) {
-                  setCommentsByRequest(prev => ({ ...prev, ...map }))
-                }
-              })
-              .catch(error => {
-                if (isDev()) {
-                  console.error('Error fetching comments for on-demand requests:', error)
-                }
-              })
-          }
-          
-          // If we got fewer than PAGE_SIZE, there are no more
-          if (result.requests.length < PAGE_SIZE) {
-            setHasMore(false)
-          } else {
-            // Prefetch next batch
-            prefetchNext(nextOffset)
-          }
+        setAllRequests(prev => mergeUniqueById(prev, result.requests))
+        setUnfilteredTotalCount(result.totalCount)
+        const nextOffset = currentOffset + PAGE_SIZE
+        setCurrentOffset(nextOffset)
+        
+        // Fetch comments for the new requests
+        const newIds = result.requests.map((r: Request) => r.id)
+        if (newIds.length > 0) {
+          fetchCommentsForRequests(newIds)
+            .then(map => {
+              if (isMountedRef.current) {
+                setCommentsByRequest(prev => ({ ...prev, ...map }))
+              }
+            })
+            .catch(error => {
+              if (isDev()) {
+                console.error('Error fetching comments for on-demand requests:', error)
+              }
+            })
+        }
+        
+        // If we got fewer than PAGE_SIZE, there are no more
+        if (result.requests.length < PAGE_SIZE) {
+          setHasMore(false)
+        } else {
+          // Only prefetch next batch if user is very close to end (< 5 rows)
+          // Prefetch should ONLY happen from loadMore when user scrolls near end
+          prefetchNext(nextOffset)
         }
       }
+      
       if (context.variant === 'agency' && isMountedRef.current) {
         setNewRequestsCount(result.newCount ?? 0)
       }
@@ -747,34 +626,17 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       }
     } finally {
       isLoadingMore.current = false
-      inFlightRequests.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, setNewRequestsCount])
+  }, [connectionId, hasMore, currentOffset, prefetchedRequests, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, setNewRequestsCount, getRequestKey, fetchOnce])
 
-  // Toggle handler and URL sync for Assigned to me
+  // Toggle handler for Assigned to me (client-side filtering only)
   const handleToggleAssignedToMe = useCallback(() => {
-    const next = !assignedToMe
-    setAssignedToMe(next)
-    // Update URL - the fetch useEffect will handle the actual fetch when assignedToMe state changes
-    const newSearchParams = new URLSearchParams(searchParams.toString())
-    if (next) newSearchParams.set('assigned', 'me')
-    else newSearchParams.delete('assigned')
-    const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
-    router.replace(newUrl, { scroll: false })
-  }, [assignedToMe, searchParams, pathname, router])
+    setAssignedToMe(prev => !prev)
+  }, [])
 
-  // Prefetch next batch when initial requests load or after consuming prefetched data
-  useEffect(() => {
-    // Only prefetch if we have more data, aren't already prefetching, and don't already have prefetched data
-    if (hasMore && !isPrefetching && prefetchedRequests.length === 0 && requests.length > 0) {
-      const offsetToPrefetch = currentOffset
-      if (isDev()) {
-        console.log('[Prefetch] Triggering prefetch for offset:', offsetToPrefetch)
-      }
-      prefetchNext(offsetToPrefetch)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, isPrefetching, prefetchedRequests.length, currentOffset, requests.length])
+  // REMOVED: Automatic prefetch effect
+  // Prefetch should ONLY happen from loadMore() when user scrolls near end
+  // This prevents ~80% of request spam
 
   // Load more handler for virtual scroll
   const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
@@ -785,18 +647,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
 
   // Handle optimistic deletion from query params (when navigating from detail page)
   useEffect(() => {
-    const deletedRequestId = searchParams.get('deleted')
-    if (deletedRequestId) {
-      // Optimistically remove the deleted request
-      setRequests(prev => prev.filter(r => r.id !== deletedRequestId))
-      
-      // Clean up the query param
-      const newSearchParams = new URLSearchParams(searchParams.toString())
-      newSearchParams.delete('deleted')
-      const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
-      router.replace(newUrl, { scroll: false })
-    }
-  }, [searchParams, pathname, router])
+    // Note: This effect is kept for backward compatibility but URL params are no longer synced
+    // If we need to handle deleted param in the future, we can read it from window.location.search
+    // For now, real-time updates handle deletions
+  }, [])
 
   // Local state for modal (like ProfileCard pattern)
   const [selectedRequest, setSelectedRequest] = useState<ModalRequest | null>(null)
@@ -815,15 +669,15 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
   const [isConverting, setIsConverting] = useState(false)
 
   function getRequestById(requestId: string) {
-    return requests.find(r => r.id === requestId)
+    return allRequests.find(r => r.id === requestId)
   }
 
   function handleRequestUpdate(requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; project?: { id: string; name: string } | null }) {
     // Get the original request to compare status changes
-    const originalRequest = requests.find(r => r.id === requestId)
+    const originalRequest = allRequests.find(r => r.id === requestId)
     
-    // Update requests list optimistically
-    setRequests(prevRequests => {
+    // Update unfiltered requests list optimistically
+    setAllRequests(prevRequests => {
       const updated = prevRequests.map(req =>
         req.id === requestId
           ? { ...req, ...updates }
@@ -839,6 +693,22 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         ? { ...prev, ...updates }
         : prev
     )
+    
+    // Optimistically update status counts when status changes
+    if (updates.status && originalRequest && originalRequest.status !== updates.status) {
+      setStatusCounts(prev => {
+        const next = { ...prev }
+        // Decrement old status count
+        const oldStatus = originalRequest.status
+        if (next[oldStatus] !== undefined) {
+          next[oldStatus] = Math.max(0, (next[oldStatus] || 0) - 1)
+        }
+        // Increment new status count
+        const newStatus = updates.status!
+        next[newStatus] = (next[newStatus] || 0) + 1
+        return next
+      })
+    }
     
     // Update badge count for agency view if status changed
     if (context.variant === 'agency' && updates.status && originalRequest) {
@@ -886,10 +756,21 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
 
   function handleTableRequestDeleted(requestId: string) {
     // Get the deleted request to check if it was 'new' status
-    const deletedRequest = requests.find(r => r.id === requestId)
+    const deletedRequest = allRequests.find(r => r.id === requestId)
     
-    // Optimistically remove request from table
-    setRequests(prev => prev.filter(r => r.id !== requestId))
+    // Optimistically remove request from unfiltered table
+    setAllRequests(prev => prev.filter(r => r.id !== requestId))
+    
+    // Optimistically update status counts
+    if (deletedRequest?.status) {
+      setStatusCounts(prev => {
+        const next = { ...prev }
+        if (next[deletedRequest.status] !== undefined) {
+          next[deletedRequest.status] = Math.max(0, (next[deletedRequest.status] || 0) - 1)
+        }
+        return next
+      })
+    }
     
     // Update badge count if deleted request was 'new' status in agency view
     if (context.variant === 'agency' && deletedRequest?.status === 'new') {
@@ -897,8 +778,8 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
     
     // Decrement total count
-    setTotalCount(c => Math.max(0, c - 1))
     setUnfilteredTotalCount(c => Math.max(0, c - 1))
+    // Filtered count will be computed from filteredRequests useMemo
   }
 
   function handleModalClose() {
@@ -1016,9 +897,16 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
     }
 
     // Sort after prepending to maintain correct order
-    setRequests(prev => sortRequestsForDisplay([optimisticRow, ...prev]))
-    setTotalCount(c => c + 1)
+    setAllRequests(prev => sortRequestsForDisplay([optimisticRow, ...prev]))
     setUnfilteredTotalCount(c => c + 1)
+    // Filtered count will be computed from filteredRequests useMemo
+    
+    // Optimistically update status counts (new request always has 'new' status)
+    setStatusCounts(prev => {
+      const next = { ...prev }
+      next['new'] = (next['new'] || 0) + 1
+      return next
+    })
     
     // Optimistically update badge count for agency view
     if (context.variant === 'agency') {
@@ -1031,7 +919,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
       const req = await fetchRequestById(connectionId, requestId)
       if (!req) return
       // Replace temp row if present; otherwise prepend and increment count
-      setRequests(prev => {
+      setAllRequests(prev => {
         const hadTemp = tempId ? prev.some(r => r.id === tempId) : false
         const optimisticEntry = tempId ? prev.find(r => r.id === tempId) : null
         
@@ -1044,21 +932,13 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         const without = prev.filter(r => r.id !== tempId && r.id !== req.id)
         const next = [finalReq, ...without]
         // Sort after replacing/adding to maintain correct order
-        if (hadTemp) {
-          // keep count the same
-          return sortRequestsForDisplay(next)
-        }
-        // If no temp, we will increment count below
-        // Sort after replacing/adding to maintain correct order
         return sortRequestsForDisplay(next)
       })
       // If no temp was present, bump the count; if temp existed, count already included
-      if (tempId) {
-        // no-op for count
-      } else {
-        setTotalCount(c => c + 1)
+      if (!tempId) {
         setUnfilteredTotalCount(c => c + 1)
       }
+      // Filtered count will be computed from filteredRequests useMemo
       
       // Update badge count if request is new and we're in agency view (only if no temp was present)
       if (!tempId && context.variant === 'agency' && req.status === 'new') {
@@ -1082,18 +962,19 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         userInitials={userInitials}
         onRequestClick={handleRowClick}
         onNewRequest={handleNewRequest}
-        requests={requests}
+        requests={filteredRequests}
         agencyMembers={agencyMembers}
         onRequestUpdate={handleRequestUpdate}
         currentOrgId={currentOrgId}
-          onLoadMore={handleLoadMore}
+        // No onLoadMore - we fetch all data upfront for connection tables
+        searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        totalCount={totalCount}
+        totalCount={filteredRequests.length}
         unfilteredTotalCount={unfilteredTotalCount}
           parentRef={parentRef}
         assignedToMe={assignedToMe}
         onToggleAssignedToMe={handleToggleAssignedToMe}
-        isBootstrapping={isBootstrapping || isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)}
+        isBootstrapping={false}
         isAgency={context.variant === 'agency'}
         agencyOrganization={context.variant === 'client' ? {
           id: snapshot.agency.id,
@@ -1131,6 +1012,7 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
             createdByOrgType: request.createdByOrgType,
           })
         }}
+        statusCounts={statusCounts}
       />
       </div>
 
@@ -1173,10 +1055,10 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         }}
         onRequestDeleted={(requestId) => {
           // Get the deleted request to check if it was 'new' status
-          const deletedRequest = requests.find(r => r.id === requestId)
+          const deletedRequest = allRequests.find(r => r.id === requestId)
           
-          // Optimistically remove request from table
-          setRequests(prev => prev.filter(r => r.id !== requestId))
+          // Optimistically remove request from unfiltered table
+          setAllRequests(prev => prev.filter(r => r.id !== requestId))
           
           // Update badge count if deleted request was 'new' status in agency view
           if (context.variant === 'agency' && deletedRequest?.status === 'new') {
@@ -1184,27 +1066,11 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
           }
           
           // Decrement counts
-          setTotalCount(c => Math.max(0, c - 1))
           setUnfilteredTotalCount(c => Math.max(0, c - 1))
+          // Filtered count will be computed from filteredRequests useMemo
           
-          // Safety: reconcile with DB shortly after in case delete fails or is delayed
-          setTimeout(async () => {
-            try {
-              const result = await fetchRequestsForConnection(connectionId, {
-                limit: PAGE_SIZE,
-                offset: 0,
-                searchQuery: debouncedSearchQuery || undefined
-              })
-              if (!isMountedRef.current) return
-              // Sort requests to ensure correct order (status ASC, created_at DESC, id DESC)
-              setRequests(sortRequestsForDisplay(result.requests))
-              setTotalCount(result.totalCount)
-              setHasMore(result.requests.length === PAGE_SIZE)
-              setCurrentOffset(PAGE_SIZE)
-            } catch (_) {
-              // ignore
-            }
-          }, 800)
+          // REMOVED: setTimeout reconciliation hack
+          // Let realtime or next user action refresh, not timers
         }}
         connectionId={connectionId}
         currentOrgId={currentOrgId}
@@ -1248,6 +1114,15 @@ export default function RequestsPageClient({ connectionId, initialRequests, init
         variant={context.variant}
       />
     </>
+  );
+}
+
+// Export wrapped component with error boundary
+export default function RequestsPageClient(props: RequestsPageClientProps) {
+  return (
+    <RequestsPageErrorBoundary>
+      <RequestsPageClientContent {...props} />
+    </RequestsPageErrorBoundary>
   );
 }
 

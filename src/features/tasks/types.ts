@@ -98,3 +98,16 @@ export type TasksPaginationOptions = {
   status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; // Filter by status for status-specific pagination
 };
 
+// Search results types for server-side search mode
+export type SearchClientResult = {
+  client_id: string; // org_id
+  client_name: string;
+  client_logo_url?: string;
+  tasks: Task[]; // Pre-loaded, fully populated Task objects
+}
+
+export type SearchResults = {
+  clients: SearchClientResult[];
+  totalClients: number;
+}
+

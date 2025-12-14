@@ -40,7 +40,8 @@ export function useVirtualTable<_T>({
     count: items.length,
     getScrollElement: () => parentRef?.current || containerRef.current,
     estimateSize: useCallback(() => VIRTUAL_ROW_HEIGHT, []),
-    overscan: VIRTUAL_OVERSCAN,
+    // Reduce overscan for connections tables (many items, less need for extra rows)
+    overscan: items.length > 100 ? 5 : VIRTUAL_OVERSCAN,
   })
 
   // Force virtualizer to recalculate when items length changes
@@ -50,6 +51,9 @@ export function useVirtualTable<_T>({
 
   const virtualItems = rowVirtualizer.getVirtualItems()
   
+  // Track initial mount to prevent auto-loadMore on first render only
+  const isInitialMountRef = useRef(true)
+  
   // Calculate if user is near the end of the list
   const isNearEnd = useMemo(() => {
     if (virtualItems.length === 0) return false
@@ -57,8 +61,14 @@ export function useVirtualTable<_T>({
     return lastItem.index >= items.length - VIRTUAL_LOAD_MORE_THRESHOLD
   }, [virtualItems, items.length])
 
-  // Handle scroll to trigger loadMore
+  // Handle scroll to trigger loadMore (skip on initial mount only)
   useEffect(() => {
+    // Skip on initial mount to prevent auto-loadMore on first render
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false
+      return
+    }
+    
     if (!onLoadMore || !isNearEnd) return
     
     // Debounce to prevent excessive calls

@@ -14,17 +14,18 @@ import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
 import { groupRequestsByStatus, sortRequestsForDisplay, type RequestStatus } from './requestSort'
 import type { Request } from '../server'
-import { useVirtualTable, VirtualListBody } from '@/components/virtual-table'
 import { useConnection } from '../ConnectionContext'
-import type { VirtualItem } from '@tanstack/react-virtual'
-import { RequestGroupHeader } from './RequestGroupHeader'
 import { RequestRow } from './RequestRow'
-import { useStableSet } from '../useStableCollapseState'
+import { StatusSection } from './StatusSection'
+import { useRequestDragDrop } from './useRequestDragDrop'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // Drag ghost offset from cursor (pixels from left edge of row)
 const DRAG_GHOST_OFFSET_X = 200
 const DRAG_GHOST_OFFSET_Y = 22 // Half of row height (44px / 2)
+
+// Status order: new, in_review, accepted, closed, canceled
+const REQUEST_STATUS_ORDER: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -42,7 +43,8 @@ interface RequestsTableProps {
   }>
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: VirtualItem[]) => void
+  onLoadMore?: (virtualRows: any[]) => void
+  searchQuery?: string
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -58,65 +60,33 @@ interface RequestsTableProps {
   }
   onRequestDeleted?: (requestId: string) => void
   onConvertToTask?: (request: Request) => void
+  statusCounts?: Record<string, number> // Server-side status counts to prevent flicker
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, searchQuery = '', onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask, statusCounts: statusCountsProp }: RequestsTableProps) {
   const { snapshot: _snapshot, isDisconnected } = useConnection()
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
-  const [searchQuery, setSearchQuery] = useState('')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   
-  // Track collapsed groups with stable references (default: 'closed' and 'canceled' collapsed, rest expanded)
-  const collapsedGroupsState = useStableSet<RequestStatus>(new Set(['closed', 'canceled']))
+  // Ensure requests are sorted before grouping (safeguard)
+  const sortedRequests = useMemo(() => sortRequestsForDisplay(requests), [requests])
   
-  // Drag & drop state
-  const [draggedRequestId, setDraggedRequestId] = useState<string | null>(null)
-  const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null)
-  const [hoveredGroupStatus, setHoveredGroupStatus] = useState<RequestStatus | null>(null)
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
-  const [hasDragged, setHasDragged] = useState(false)
-  const dragStartRef = useRef<{ requestId: string; startX: number; startY: number } | null>(null)
-  const hoverDetectionThrottleRef = useRef<number | null>(null)
-  
-  // Group requests by status and create flattened array structure
-  type FlattenedItem = 
-    | { type: 'group'; status: RequestStatus; count: number }
-    | { type: 'request'; request: Request }
-  
-  const flattenedItems = useMemo<FlattenedItem[]>(() => {
-    // Ensure requests are sorted before grouping (safeguard)
-    const sortedRequests = sortRequestsForDisplay(requests)
-    const grouped = groupRequestsByStatus(sortedRequests)
-    // Order: new, in_review, accepted, closed, canceled
-    const statusOrder: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
-    const items: FlattenedItem[] = []
-    
-    for (const status of statusOrder) {
-      const groupRequests = grouped[status]
-      // Always show group header, even if 0 requests
-      items.push({ type: 'group', status, count: groupRequests.length })
-      
-      // Add requests if group is not collapsed and has requests
-      if (!collapsedGroupsState.set.has(status) && groupRequests.length > 0) {
-        for (const request of groupRequests) {
-          items.push({ type: 'request', request })
-        }
-      }
+  // Group requests by status (always grouped, even when filtering)
+  const requestsByStatus = useMemo(() => {
+    return groupRequestsByStatus(sortedRequests)
+  }, [sortedRequests])
+
+  // Compute filtered counts per status (for status headers when filtering)
+  const filteredStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const status of REQUEST_STATUS_ORDER) {
+      counts[status] = requestsByStatus[status]?.length || 0
     }
-    
-    return items
-  }, [requests, collapsedGroupsState.set])
-  
-  // Toggle group collapse/expand - prevent during drag - uses stable reference hook
-  const toggleGroup = useCallback((status: RequestStatus) => {
-    // Don't toggle if dragging
-    if (draggedRequestId !== null) {
-      return
-    }
-    collapsedGroupsState.toggle(status)
-  }, [draggedRequestId, collapsedGroupsState])
+    return counts
+  }, [requestsByStatus])
   
   const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
@@ -159,7 +129,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   const currentSortLabel = 'Created'
 
   // Assignee handlers with loading guard
-  const handleAssigneeSelect = async (requestId: string, memberId: string) => {
+  const handleAssigneeSelect = useCallback(async (requestId: string, memberId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -201,9 +171,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         isMutingAssignee.current = false
       }
     }
-  }
+  }, [agencyMembers, onRequestUpdate, requests])
 
-  const handleClearAssignee = async (requestId: string) => {
+  const handleClearAssignee = useCallback(async (requestId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -235,7 +205,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       // Clear loading guard
       isMutingAssignee.current = false
     }
-  }
+  }, [onRequestUpdate, requests])
 
   // Status handler with loading guard and pending update tracking
   const handleStatusChange = useCallback(async (requestId: string, newStatus: string): Promise<void> => {
@@ -247,7 +217,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       return
     }
     
-    const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
+    const typedStatus = newStatus as RequestStatus
     
     // Cancel any existing pending update for this request
     const existingPending = pendingStatusUpdatesRef.current.get(requestId)
@@ -335,11 +305,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   // Navigation handler - prevent click if drag occurred
   const handleRowClick = useCallback((requestId: string) => {
     // Prevent modal opening if drag occurred
-    if (hasDragged) {
-      return
-    }
+    // hasDragged is managed by useRequestDragDrop hook
     onRequestClick?.(requestId)
-  }, [hasDragged, onRequestClick])
+  }, [onRequestClick])
   
   // Check if user can drag a request (same permissions as editing status)
   // Only agencies can drag requests (clients cannot edit request status)
@@ -348,207 +316,33 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     return isAgency
   }, [isDisconnected, isAgency])
   
-  // Handle drag start (mouse down on request row)
-  const handleDragStart = useCallback((requestId: string, e: React.MouseEvent) => {
-    // Only allow drag if user has permission
-    const request = requests.find(r => r.id === requestId)
-    if (!request || !canDragRequest(request)) {
+  // Use drag & drop hook (simplified logic)
+  const {
+    draggedRequestId,
+    dragStartPosition,
+    hoveredGroupStatus,
+    dragOffset,
+    hasDragged,
+    handleDragStart,
+    dragGhostProps
+  } = useRequestDragDrop({
+    onStatusChange: async (requestId, newStatus) => {
+      await handleStatusChange(requestId, newStatus)
+    },
+    onRequestUpdate,
+    requests,
+    containerRef,
+    parentRef,
+    openActionsDropdown
+  })
+
+  // Update handleRowClick to use hasDragged from hook
+  const handleRowClickWithDragCheck = useCallback((requestId: string) => {
+    if (hasDragged) {
       return
     }
-    
-    // Prevent drag if dropdown is open or other interactions are active
-    if (openActionsDropdown !== null) {
-      return
-    }
-    
-    dragStartRef.current = {
-      requestId,
-      startX: e.clientX,
-      startY: e.clientY
-    }
-    setDragStartPosition({ x: e.clientX, y: e.clientY })
-    setHasDragged(false)
-  }, [requests, canDragRequest, openActionsDropdown])
-  
-  // Handle mouse move during drag
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!dragStartRef.current) return
-    
-    const { requestId, startX, startY } = dragStartRef.current
-    const deltaX = Math.abs(e.clientX - startX)
-    const deltaY = Math.abs(e.clientY - startY)
-    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
-    
-    // 10px threshold to start drag
-    if (distance > 10) {
-      if (!draggedRequestId) {
-        setDraggedRequestId(requestId)
-        setHasDragged(true)
-      }
-      
-      // Update drag offset for ghost positioning (always update for smooth ghost movement)
-      setDragOffset({
-        x: e.clientX - startX,
-        y: e.clientY - startY
-      })
-      
-      // Throttle hover detection to prevent jank (check every 50ms instead of every mousemove)
-      if (hoverDetectionThrottleRef.current === null) {
-        hoverDetectionThrottleRef.current = window.requestAnimationFrame(() => {
-          hoverDetectionThrottleRef.current = null
-          
-          // Simple detection: get all elements at cursor, skip ghost, find group
-          const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY)
-          let groupStatus: RequestStatus | null = null
-          
-          for (const element of elementsAtPoint) {
-            const htmlElement = element as HTMLElement
-            
-            // Skip ghost element
-            if (htmlElement.closest('[data-ghost]') || htmlElement.getAttribute('data-ghost') === 'true') {
-              continue
-            }
-            
-            // Traverse up from this element to find group header or request row
-            let currentElement: HTMLElement | null = htmlElement
-            while (currentElement) {
-              // Check for group header first
-              const groupAttr = currentElement.getAttribute('data-group-status')
-              if (groupAttr && ['new', 'in_review', 'accepted', 'closed', 'canceled'].includes(groupAttr)) {
-                groupStatus = groupAttr as RequestStatus
-                break
-              }
-              
-              // Check for request row status
-              const requestAttr = currentElement.getAttribute('data-request-status')
-              if (requestAttr && ['new', 'in_review', 'accepted', 'closed', 'canceled'].includes(requestAttr)) {
-                groupStatus = requestAttr as RequestStatus
-                break
-              }
-              
-              // Stop if we've reached the document body
-              if (currentElement === document.body || currentElement === document.documentElement) {
-                break
-              }
-              
-              currentElement = currentElement.parentElement
-            }
-            
-            // If we found a group, we're done
-            if (groupStatus) {
-              break
-            }
-          }
-          
-          // Set hovered group status
-          setHoveredGroupStatus(groupStatus)
-        })
-      }
-    }
-  }, [draggedRequestId])
-  
-  // Handle mouse up (drop or cancel)
-  const handleMouseUp = useCallback(() => {
-    if (!dragStartRef.current) return
-    
-    const { requestId } = dragStartRef.current
-    
-    // If we were dragging and have a valid drop target
-    if (draggedRequestId === requestId && hoveredGroupStatus) {
-      const draggedRequest = requests.find(r => r.id === requestId)
-      // Only update if status actually changed
-      if (draggedRequest && draggedRequest.status !== hoveredGroupStatus) {
-        // Store original status for error recovery
-        const originalStatus = draggedRequest.status
-        
-        // Call status change with error recovery
-        handleStatusChange(requestId, hoveredGroupStatus).catch(() => {
-          // If status change fails, ensure UI is reverted immediately
-          // onRequestUpdate callback in handleStatusChange should handle this,
-          // but we ensure it happens here as well for drag operations
-          if (onRequestUpdate) {
-            const currentRequest = requests.find(r => r.id === requestId)
-            if (currentRequest && currentRequest.status !== originalStatus) {
-              onRequestUpdate(requestId, { status: originalStatus })
-            }
-          }
-        })
-      }
-    }
-    
-    // Reset drag state
-    dragStartRef.current = null
-    setDraggedRequestId(null)
-    setDragStartPosition(null)
-    setHoveredGroupStatus(null)
-    setDragOffset(null)
-    
-    // Reset hasDragged after a short delay to allow click handler to check it
-    setTimeout(() => {
-      setHasDragged(false)
-    }, 100)
-  }, [draggedRequestId, hoveredGroupStatus, requests, handleStatusChange, onRequestUpdate])
-  
-  // Attach document-level mouse event listeners when dragging
-  useEffect(() => {
-    if (dragStartPosition) {
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
-      // Prevent text selection during drag
-      document.body.style.userSelect = 'none'
-      document.body.style.cursor = 'grabbing'
-      
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-        document.body.style.userSelect = ''
-        document.body.style.cursor = ''
-      }
-    }
-  }, [dragStartPosition, handleMouseMove, handleMouseUp])
-  
-  // Handle mouse leave document (cancel drag)
-  useEffect(() => {
-    const handleMouseLeave = () => {
-      if (dragStartRef.current) {
-        dragStartRef.current = null
-        setDraggedRequestId(null)
-        setDragStartPosition(null)
-        setHoveredGroupStatus(null)
-        setDragOffset(null)
-        setHasDragged(false)
-        // Reset body styles
-        document.body.style.userSelect = ''
-        document.body.style.cursor = ''
-      }
-    }
-    
-    document.addEventListener('mouseleave', handleMouseLeave)
-    return () => {
-      document.removeEventListener('mouseleave', handleMouseLeave)
-    }
-  }, [])
-  
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (dragStartRef.current) {
-        dragStartRef.current = null
-        setDraggedRequestId(null)
-        setDragStartPosition(null)
-        setHoveredGroupStatus(null)
-        setDragOffset(null)
-        setHasDragged(false)
-        document.body.style.userSelect = ''
-        document.body.style.cursor = ''
-      }
-      // Cancel any pending hover detection
-      if (hoverDetectionThrottleRef.current !== null) {
-        cancelAnimationFrame(hoverDetectionThrottleRef.current)
-        hoverDetectionThrottleRef.current = null
-      }
-    }
-  }, [])
+    onRequestClick?.(requestId)
+  }, [hasDragged, onRequestClick])
 
   const handleCopyLink = (requestId: string, connectionId: string) => {
     const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestId}`
@@ -575,18 +369,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     }
   }
 
-  // Virtual scroll setup using shared hook (now works with flattened items)
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
-    items: flattenedItems,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
-  
-  // isNearEnd available for future use (e.g., showing loading indicator)
-
   // Derived from current filter state — prevents flicker during search clear
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe;
+  const hasActiveFilters = (searchQuery?.trim().length ?? 0) > 0 || assignedToMe;
   const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters;
 
   // Empty state component matching ClientsTable design
@@ -620,6 +404,13 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     </div>
   ) : null
 
+  // Scroll to top when search/filter changes
+  useEffect(() => {
+    if (searchQuery || assignedToMe) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [searchQuery, assignedToMe])
+
   return (
     <div className="w-full min-w-0">
       {/* Search section - Sticky */}
@@ -628,26 +419,25 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           <div className="flex items-center gap-3">
             <SearchInput
               placeholder="Search requests by title…"
-              value={searchQuery}
+              value={searchQuery || ''}
               onChange={(value) => {
-                setSearchQuery(value)
                 onSearchChange?.(value)
               }}
               count={requestCount}
               countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
             />
-              <Tooltip delayDuration={250}>
-                <TooltipTrigger asChild>
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs border-0"
-                    style={{
-                      borderRadius: 'var(--radius-1-max, 3px)',
-                      backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                      border: 'none',
-                      cursor: 'default'
-                    }}
-                  >
+            <Tooltip delayDuration={250}>
+              <TooltipTrigger asChild>
+                <Badge 
+                  variant="outline" 
+                  className="text-xs border-0"
+                  style={{
+                    borderRadius: 'var(--radius-1-max, 3px)',
+                    backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                    border: 'none',
+                    cursor: 'default'
+                  }}
+                >
                   {isAgency ? (
                     <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
                   ) : (
@@ -656,14 +446,14 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
                     {isAgency ? 'Client visible' : 'Collaborate'}
                   </span>
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={8}>
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8}>
                 {isAgency 
                   ? 'Visible in client portal'
                   : 'Both you and your agency can manage this'}
-                </TooltipContent>
-              </Tooltip>
+              </TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-3">
             <Tooltip delayDuration={0}>
@@ -688,7 +478,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               <TooltipContent side="bottom" align="center" sideOffset={4}>
                 {isAgency ? 'Assigned to me' : 'Submitted by me'}
               </TooltipContent>
-              </Tooltip>
+            </Tooltip>
             <Button
               variant="outline"
               className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
@@ -738,7 +528,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         <div className="absolute bottom-0 left-5 right-5 border-b border-[var(--color-neutral-4)]" />
       </div>
 
-      {/* List Body - Virtualized Scrollable */}
+      {/* List Body */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="pb-5 px-5">
           {isBootstrapping ? (
@@ -799,89 +589,78 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
               ))}
             </div>
           ) : (
-            <VirtualListBody
-              items={flattenedItems}
-              virtualItems={virtualItems}
-              rowVirtualizer={rowVirtualizer}
-              emptyState={isEmptyState ? emptyState : undefined}
-              getItemKey={(item) => {
-                if (item.type === 'group') {
-                  return `group-${item.status}`
-                }
-                return `request-${item.request.id}`
-              }}
-              renderItem={(item) => {
-                if (item.type === 'group') {
-                  // Check if this is the first group (new is always first)
-                  const isFirstGroup = item.status === 'new'
+            // Always render StatusSection components (grouped by status, even when filtering)
+            isEmptyState ? (
+              emptyState
+            ) : (
+              <>
+                {REQUEST_STATUS_ORDER.map((status: RequestStatus) => {
+                  // Use filtered counts when filtering, otherwise use server counts
+                  const count = hasActiveFilters
+                    ? filteredStatusCounts[status] || 0
+                    : (statusCountsProp?.[status] || requestsByStatus[status]?.length || 0)
+                  
                   return (
-                    <RequestGroupHeader
-                      status={item.status}
-                      count={item.count}
-                      isExpanded={!collapsedGroupsState.set.has(item.status)}
-                      onToggle={() => toggleGroup(item.status)}
+                    <StatusSection
+                      key={status}
+                      status={status}
+                      requests={requestsByStatus[status] || []}
+                      count={count}
+                      // NO isExpanded prop - StatusSection owns this
+                      // NO onToggle prop - StatusSection handles toggle internally
+                      onDrop={(requestId) => handleStatusChange(requestId, status)}
                       isAgency={isAgency}
-                      isDragHovered={hoveredGroupStatus === item.status && draggedRequestId !== null}
-                      isFirstGroup={isFirstGroup}
+                      isDisconnected={isDisconnected}
+                      comboboxOptions={comboboxOptions}
+                      agencyMembers={agencyMembers}
+                      agencyOrganization={agencyOrganization}
+                      statusInlineRefs={statusInlineRefs}
+                      onStatusChange={handleStatusChange}
+                      onAssigneeSelect={handleAssigneeSelect}
+                      onClearAssignee={handleClearAssignee}
+                      onRowClick={handleRowClickWithDragCheck}
+                      onCopyLink={handleCopyLink}
+                      onDeleteRequest={handleDeleteRequest}
+                      onContactClick={handleContactClick}
+                      openActionsDropdown={openActionsDropdown}
+                      setOpenActionsDropdown={setOpenActionsDropdown}
+                      baseRoute={baseRoute}
+                      currentOrgId={currentOrgId}
+                      onConvertToTask={onConvertToTask}
+                      draggedRequestId={draggedRequestId}
+                      onDragStart={handleDragStart}
+                      canDragRequest={canDragRequest}
                       isDraggingActive={draggedRequestId !== null}
+                      hoveredGroupStatus={hoveredGroupStatus}
+                      parentRef={parentRef}
                     />
                   )
-                }
-                const isDragging = draggedRequestId === item.request.id
-                return (
-                  <RequestRow
-                    request={item.request}
-                    isAgency={isAgency}
-                    isDisconnected={isDisconnected}
-                    comboboxOptions={comboboxOptions}
-                    agencyMembers={agencyMembers}
-                    agencyOrganization={agencyOrganization}
-                    statusInlineRefs={statusInlineRefs}
-                    onStatusChange={handleStatusChange}
-                    onAssigneeSelect={handleAssigneeSelect}
-                    onClearAssignee={handleClearAssignee}
-                    onRowClick={handleRowClick}
-                    onCopyLink={handleCopyLink}
-                    onDeleteRequest={handleDeleteRequest}
-                    onContactClick={handleContactClick}
-                    openActionsDropdown={openActionsDropdown}
-                    setOpenActionsDropdown={setOpenActionsDropdown}
-                    baseRoute={baseRoute}
-                    currentOrgId={currentOrgId}
-                    onConvertToTask={onConvertToTask}
-                    isDragging={isDragging}
-                    onDragStart={handleDragStart}
-                    canDrag={canDragRequest(item.request)}
-                    isDraggingActive={draggedRequestId !== null}
-                  />
-                )
-              }}
-            />
+                })}
+              </>
+            )
           )}
         </div>
       </div>
 
       {/* Drag Ghost Preview */}
-      {draggedRequestId && dragStartPosition && dragOffset && (() => {
-        const draggedRequest = requests.find(r => r.id === draggedRequestId)
+      {dragGhostProps.draggedRequestId && dragGhostProps.dragStartPosition && dragGhostProps.dragOffset && (() => {
+        const draggedRequest = requests.find(r => r.id === dragGhostProps.draggedRequestId)
         if (!draggedRequest) return null
-        
-        // Calculate current cursor position
-        const currentX = dragStartPosition.x + dragOffset.x
-        const currentY = dragStartPosition.y + dragOffset.y
         
         return (
           <div
             data-ghost="true"
             style={{
               position: 'fixed',
-              left: currentX - DRAG_GHOST_OFFSET_X,
-              top: currentY - DRAG_GHOST_OFFSET_Y,
+              left: dragGhostProps.dragStartPosition!.x - DRAG_GHOST_OFFSET_X,
+              top: dragGhostProps.dragStartPosition!.y - DRAG_GHOST_OFFSET_Y,
+              transform: `translate(${dragGhostProps.dragOffset!.x}px, ${dragGhostProps.dragOffset!.y}px)`,
+              willChange: 'transform',
               pointerEvents: 'none',
               zIndex: 9999,
               opacity: 0.9,
-              width: containerRef.current?.offsetWidth || 'auto',
-              maxWidth: containerRef.current?.offsetWidth || 'none',
+              width: dragGhostProps.containerWidth || 'auto',
+              maxWidth: dragGhostProps.containerWidth || 'none',
               backgroundColor: 'var(--color-base-surface-page-background)',
               borderRadius: '4px'
             }}

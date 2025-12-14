@@ -124,9 +124,7 @@ export function GlobalTaskRow({
     <div
       className="group grid items-center h-[44px] border-b border-[var(--color-neutral-4)] hover:bg-[var(--color-interactive-surface-hover)] transition-colors duration-75 w-full cursor-pointer"
       style={{
-        gridTemplateColumns: isAgency 
-          ? '44px 4fr 3fr 3fr 3fr 3fr 44px 44px'
-          : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+        gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
         height: '44px',
         minHeight: '44px',
         maxHeight: '44px',
@@ -146,10 +144,8 @@ export function GlobalTaskRow({
 
       {/* Status */}
       <div 
-        className="min-w-0 py-0"
-        style={canEditStatus ? { paddingLeft: '4px', paddingRight: '4px' } : { paddingLeft: '8px', paddingRight: '4px' }}
+        className="min-w-0 py-0 px-3"
         onClick={canEditStatus ? (e) => e.stopPropagation() : undefined}
-        onMouseDown={canEditStatus ? (e) => e.stopPropagation() : undefined}
       >
         {canEditStatus ? (
           <InlineEdit
@@ -282,13 +278,6 @@ export function GlobalTaskRow({
           </Badge>
         )}
       </div>
-
-      {/* Visibility (Agency only) */}
-      {isAgency && (
-        <div className="flex items-center justify-center h-full p-0">
-          {/* Visibility icon would go here if needed */}
-        </div>
-      )}
 
       {/* Actions */}
       <div 

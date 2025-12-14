@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useTransition, useMemo } from 'react'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext';
 import TasksTable from '../tasks/TasksTable';
@@ -29,6 +29,7 @@ interface TasksPageClientProps {
   connectionId: string
   initialTasks: Task[]
   initialTotalCount: number
+  initialStatusCounts?: Record<string, number> // Server-side status counts to prevent flicker
   agencyMembers: MemberSummary[]
   projects: Array<{
     id: string
@@ -38,16 +39,11 @@ interface TasksPageClientProps {
 }
 
 // Client component wrapper that handles all client-side interactivity
-export default function TasksPageClient({ connectionId, initialTasks, initialTotalCount, agencyMembers, projects, initialCommentsByTask }: TasksPageClientProps) {
+export default function TasksPageClient({ connectionId, initialTasks, initialTotalCount, initialStatusCounts, agencyMembers, projects, initialCommentsByTask }: TasksPageClientProps) {
   const { snapshot, context, setIsEmpty } = useConnection();
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
-  // MVP: read assigned filter synchronously from URL before first fetch
-  const initiallyAssigned = (() => {
-    try { return searchParams.get('assigned') === 'me' } catch { return false }
-  })()
   
   // Get user avatar and organization from context
   const userAvatar = context.variant === 'agency'
@@ -84,15 +80,33 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     pinnedTaskIdsRef.current.delete(taskId)
   }, [])
 
-  const [tasks, setTasks] = useState<Task[]>(() => (initiallyAssigned ? [] : mergePinnedTasks(sortTasksWithPinnedFirst(initialTasks))))
+  // Store unfiltered data (all tasks fetched upfront)
+  const [allTasks, setAllTasks] = useState<Task[]>(() => {
+    const initial = mergePinnedTasks(sortTasksWithPinnedFirst(initialTasks))
+    if (isDev()) {
+      const inProgressCount = initial.filter(t => t.status === 'in_progress').length
+      console.log('[TasksPageClient] Initial allTasks state', {
+        totalTasks: initial.length,
+        inProgressCount,
+        statuses: initial.map(t => t.status)
+      })
+    }
+    return initial
+  })
 
   const sortTasksWithMode = useCallback((items: Task[]): Task[] => (
     mergePinnedTasks(sortTasksWithPinnedFirst(items))
   ), [mergePinnedTasks])
   // Optimistic new tasks disabled (relying on real-time updates)
   
+  // Status counts from server (prevents flicker)
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>(() => {
+    // Initialize with server counts if available, otherwise empty (will be computed from tasks)
+    return initialStatusCounts || {}
+  })
+  
   // Total count state (filtered)
-  const [totalCount, setTotalCount] = useState<number>(initiallyAssigned ? 0 : initialTotalCount)
+  const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
   
   // Unfiltered total count state (total tasks for connection regardless of filters)
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState<number>(initialTotalCount)
@@ -101,14 +115,14 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
   const previousDebouncedSearchRef = useRef<string>('')
-  const [assignedToMe, setAssignedToMe] = useState<boolean>(initiallyAssigned)
+  const [assignedToMe, setAssignedToMe] = useState<boolean>(false)
   
-  // Pagination state
-  const [hasMore, setHasMore] = useState(initiallyAssigned ? true : initialTasks.length === PAGE_SIZE)
-  const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
+  // Pagination state (disabled - we fetch all data upfront)
+  const [hasMore, setHasMore] = useState(false) // No pagination - all data fetched upfront
+  const [currentOffset, setCurrentOffset] = useState(0) // Not used, but kept for compatibility
   const parentRef = useRef<HTMLDivElement>(null)
-  // Buffer initial empty render with skeleton when assigned=me or when search/assigned filter changes
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(initiallyAssigned)
+  // Buffer initial empty render with skeleton (no longer needed for filters, but kept for compatibility)
+  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
@@ -122,11 +136,35 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   const [prefetchedOffset, setPrefetchedOffset] = useState<number | null>(null)
   const [isPrefetching, setIsPrefetching] = useState(false)
   
-  // Track in-flight tasks to prevent duplicates and enable cancellation
-  const inFlightTasks = useRef<Set<number>>(new Set())
-  
-  // Track prefetch timeouts for cleanup
-  const prefetchTimeouts = useRef<Map<number, NodeJS.Timeout>>(new Map())
+  // fetchOnce gate: Single gate for all fetch operations to prevent duplicates
+  // Uses Promise-based deduplication (server actions don't support AbortController cancellation)
+  const inFlight = useRef(new Map<string, Promise<any>>())
+
+  const fetchOnce = useCallback((key: string, fn: () => Promise<any>) => {
+    const existing = inFlight.current.get(key)
+    if (existing) {
+      if (isDev()) {
+        console.log('[fetchOnce] Request already in flight for key:', key)
+      }
+      return existing
+    }
+    
+    const p = fn().finally(() => {
+      inFlight.current.delete(key)
+    })
+    inFlight.current.set(key, p)
+    return p
+  }, [])
+
+  // Helper to create request key from parameters
+  // Key format: connectionId + tab + status? + query + offset + filters
+  // Must uniquely represent the dataset slice to prevent "stuck data" bugs
+  // Never reuse a key across different lifecycle intents (refresh vs search vs filter change)
+  const getRequestKey = useCallback((intent: string, offset: number, searchQuery?: string, assignedToMe?: boolean) => {
+    // Include connectionId, intent, offset, searchQuery, and assignedToMe in key
+    // Intent distinguishes: 'refresh', 'search', 'prefetch', 'loadMore'
+    return `tasks:${connectionId}:${intent}:${offset}:${searchQuery || ''}:${assignedToMe ? 'assigned' : 'all'}`
+  }, [connectionId])
   
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true)
@@ -163,9 +201,41 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return Array.from(ids)
   }, [context.variant, sortedMembers, context.user?.id])
 
-  useEffect(() => {
-    setTasks(prev => sortTasksWithMode(prev))
-  }, [sortTasksWithMode])
+  // Client-side filtering: filter allTasks based on searchQuery and assignedToMe
+  const filteredTasks = useMemo(() => {
+    let result = allTasks
+    
+    // Filter by search query (title contains, case-insensitive)
+    if (debouncedSearchQuery.trim().length > 0) {
+      const query = debouncedSearchQuery.trim().toLowerCase()
+      result = result.filter(task => 
+        task.title.toLowerCase().includes(query)
+      )
+    }
+    
+    // Filter by assigned to me
+    if (assignedToMe) {
+      if (context.variant === 'agency') {
+        // Agency: assigned to current user
+        result = result.filter(task => 
+          task.assignee?.id === context.user?.id
+        )
+      } else {
+        // Client: assigned to any client team member OR created by current user
+        result = result.filter(task => 
+          (task.assignee?.id && clientTeamMemberIds.includes(task.assignee.id)) ||
+          task.submittedBy?.id === context.user?.id
+        )
+      }
+    }
+    
+    return sortTasksWithMode(result)
+  }, [allTasks, debouncedSearchQuery, assignedToMe, context.variant, context.user?.id, clientTeamMemberIds, sortTasksWithMode])
+
+  // REMOVED: Unnecessary useEffect that re-sorts tasks on mount
+  // Tasks are already sorted in initial state: useState(() => mergePinnedTasks(sortTasksWithPinnedFirst(initialTasks)))
+  // This useEffect was causing task rows to not render initially, then all render at once
+  // Re-sorting only happens when tasks actually change via other useEffects (refreshFirstPage, loadMore, etc.)
   
   // Update isEmpty in context when unfilteredTotalCount changes
   // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
@@ -173,34 +243,72 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
   }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
   
-  // DRY: refresh first page (used by realtime fallback and deletes under search)
-  const refreshFirstPage = useCallback(async () => {
-    try {
+  // Throttle realtime refresh calls to prevent POST storms
+  const lastRealtimeRefreshRef = useRef<number>(0)
+  const REALTIME_REFRESH_THROTTLE_MS = 1000 // 1 second throttle
+  
+  // DRY: refresh all tasks (used by realtime fallback only - no filters)
+  // Fetch ALL tasks upfront for connection tables (no pagination, no filters)
+  const refreshFirstPage = useCallback(async (fromRealtime = false) => {
+    // Throttle realtime-triggered refreshes
+    if (fromRealtime) {
+      const now = Date.now()
+      const timeSinceLastRefresh = now - lastRealtimeRefreshRef.current
+      if (timeSinceLastRefresh < REALTIME_REFRESH_THROTTLE_MS) {
+        if (isDev()) {
+          console.log('[TasksPageClient] Throttling realtime refresh', { timeSinceLastRefresh, throttle: REALTIME_REFRESH_THROTTLE_MS })
+        }
+        return Promise.resolve()
+      }
+      lastRealtimeRefreshRef.current = now
+    }
+    
+    const requestKey = `tasks:${connectionId}:refresh:all:no-filters`
+    
+    if (isDev()) {
+      console.log('[TasksPageClient] refreshFirstPage called', { requestKey, fromRealtime })
+    }
+    
+    return fetchOnce(requestKey, async () => {
       const result = await fetchTasksForConnection(connectionId, {
-        limit: PAGE_SIZE,
-        offset: 0,
-        searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
+        limit: 10000, // High safety limit
+        offset: 0
+        // No filters - fetch all tasks
       })
-      if (!isMountedRef.current) return
+      
+      if (!isMountedRef.current) return result
+      
+      // Debug logging for in_progress tasks
+      if (isDev()) {
+        const inProgressCount = result.tasks.filter(t => t.status === 'in_progress').length
+        console.log('[TasksPageClient] refreshFirstPage completed', {
+          totalTasks: result.tasks.length,
+          inProgressCount,
+          statuses: result.tasks.map(t => t.status),
+          requestKey
+        })
+      }
+      
       // Large state update - use transition for non-urgent render
       startTransition(() => {
-        setTasks(sortTasksWithMode(result.tasks))
+        const sortedTasks = sortTasksWithMode(result.tasks)
+        setAllTasks(sortedTasks)
+        setUnfilteredTotalCount(result.totalCount)
+        // Filtered count will be computed from filteredTasks useMemo
         setTotalCount(result.totalCount)
-        setHasMore(result.tasks.length === PAGE_SIZE)
-        setCurrentOffset(PAGE_SIZE)
+        setHasMore(false) // No pagination
+        setCurrentOffset(0)
         setPrefetchedTasks([])
         setPrefetchedOffset(null)
       })
-    } catch (_) {
-      // ignore
-    }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, startTransition, sortTasksWithMode, clientTeamMemberIds])
+      
+      return result
+    })
+  }, [connectionId, startTransition, sortTasksWithMode, fetchOnce])
 
-  // DRY: prepend unique task by id
+  // DRY: prepend unique task by id (updates unfiltered data)
   const prependUnique = useCallback((task: Task) => {
-    setTasks(prev => {
+    setAllTasks(prev => {
       const existingIndex = prev.findIndex(r => r.id === task.id)
       if (existingIndex !== -1) {
         const next = [...prev]
@@ -210,32 +318,32 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       }
       return sortTasksWithMode([...prev, task])
     })
+    setUnfilteredTotalCount(c => c + 1)
   }, [sortTasksWithMode])
 
-  // DRY: remove by id, return whether something was removed
+  // DRY: remove by id, return whether something was removed (updates unfiltered data)
   const removeById = useCallback((id: string) => {
     let removed = false
-    setTasks(prev => {
+    setAllTasks(prev => {
       const exists = prev.some(r => r.id === id)
       if (!exists) return prev
       removed = true
       return prev.filter(r => r.id !== id)
     })
+    if (removed) {
+      setUnfilteredTotalCount(c => Math.max(0, c - 1))
+    }
     return removed
   }, [])
 
-  // Cleanup on unmount - cancel in-flight tasks and timeouts
+  // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true
-    const inFlightTasksRef = inFlightTasks.current
-    const prefetchTimeoutsRef = prefetchTimeouts.current
     return () => {
       isMountedRef.current = false
-      inFlightTasksRef.clear()
       isLoadingMore.current = false
-      // Clear all prefetch timeouts
-      prefetchTimeoutsRef.forEach(timeout => clearTimeout(timeout))
-      prefetchTimeoutsRef.clear()
+      // Clear in-flight promises map (they'll complete naturally)
+      inFlight.current.clear()
     }
   }, [])
 
@@ -281,247 +389,28 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return sortTasksWithMode(merged)
   }, [sortTasksWithMode])
 
-  // Debounce search query (150ms delay for faster responsiveness)
+  // Debounce search query (150ms delay - industry standard for real-time client-side search)
+  // Apply debounce only to the input value, not to filtering/rendering logic
   useEffect(() => {
+    // If searchQuery hasn't changed from current debouncedSearchQuery, don't update
+    if (searchQuery === debouncedSearchQuery) return
+    
     const timeoutId = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery)
     }, 150)
 
     return () => clearTimeout(timeoutId)
-  }, [searchQuery])
+  }, [searchQuery]) // Only depend on searchQuery, not debouncedSearchQuery
 
-  // Sync search to URL parameters (matching global tables pattern)
-  useEffect(() => {
-    const currentSearchParam = searchParams.get('search') || ''
-    
-    if (debouncedSearchQuery !== currentSearchParam) {
-      const params = new URLSearchParams(searchParams.toString())
-      if (debouncedSearchQuery.trim()) {
-        params.set('search', debouncedSearchQuery.trim())
-      } else {
-        params.delete('search')
-      }
-      const newUrl = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`
-      router.replace(newUrl, { scroll: false })
-    }
-  }, [debouncedSearchQuery, searchParams, pathname, router])
-
-  // Track if this is the initial mount
-  const isInitialMount = useRef(true)
-
-  // One-time: fetch filtered results immediately on mount if assigned=me
-  useEffect(() => {
-    if (initiallyAssigned) {
-      (async () => {
-        try {
-          const result = await fetchTasksForConnection(connectionId, {
-            limit: PAGE_SIZE,
-            offset: 0,
-            searchQuery: debouncedSearchQuery || undefined,
-            assignedToUserId: context.variant === 'agency' ? context.user?.id : undefined,
-            assignedToUserIds: context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
-          })
-          if (!isMountedRef.current) return
-          setTasks(sortTasksWithMode(result.tasks))
-          setTotalCount(result.totalCount)
-          setHasMore(result.tasks.length === PAGE_SIZE)
-          setCurrentOffset(PAGE_SIZE)
-        } finally {
-          setIsBootstrapping(false)
-        }
-      })()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Reset pagination and fetch new results when debounced search query or assignedToMe changes
-  useEffect(() => {
-    // Skip on initial mount if there's no search query and not assigned to me (we already have initialTasks)
-    if (isInitialMount.current && !debouncedSearchQuery && !assignedToMe) {
-      isInitialMount.current = false
-      previousDebouncedSearchRef.current = debouncedSearchQuery
-      return
-    }
-    isInitialMount.current = false
-
-    // Set loading state to show skeleton only when:
-    // 1. There's an active search query, OR
-    // 2. We're clearing search (had search before, now don't)
-    // Don't show skeleton on initial page load or tab navigation without search
-    const hadSearchBefore = previousDebouncedSearchRef.current.trim().length > 0
-    const hasSearchNow = debouncedSearchQuery.trim().length > 0
-    const isClearingSearch = hadSearchBefore && !hasSearchNow
-    
-    if (hasSearchNow || isClearingSearch) {
-      setIsSearching(true)
-    }
-    
-    // Update previous search ref for next comparison
-    previousDebouncedSearchRef.current = debouncedSearchQuery
-
-    // Cancel all in-flight tasks
-    inFlightTasks.current.clear()
-    isLoadingMore.current = false
-    // Clear all prefetch timeouts
-    prefetchTimeouts.current.forEach(timeout => clearTimeout(timeout))
-    prefetchTimeouts.current.clear()
-
-    // Fetch new results with search query
-    const fetchSearchResults = async () => {
-      try {
-        const result = await fetchTasksForConnection(connectionId, {
-          limit: PAGE_SIZE,
-          offset: 0,
-          searchQuery: debouncedSearchQuery || undefined,
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
-        })
-
-        if (isMountedRef.current) {
-          // Large state update - use transition for non-urgent render
-          startTransition(() => {
-            setTasks(sortTasksWithMode(result.tasks))
-            setTotalCount(result.totalCount)
-            const newHasMore = result.tasks.length === PAGE_SIZE
-            setHasMore(newHasMore)
-            setCurrentOffset(PAGE_SIZE)
-            setPrefetchedTasks([])
-            setPrefetchedOffset(null)
-            setIsSearching(false)
-          })
-          
-          // Prefetch comments for search results
-          const newIds = result.tasks.map(r => r.id)
-          if (newIds.length > 0) {
-            fetchCommentsForTasks(newIds)
-              .then(map => {
-                if (isMountedRef.current) {
-                  setCommentsByTask(prev => ({ ...prev, ...map }))
-                }
-              })
-              .catch(error => {
-                if (isDev()) {
-                  console.error('Error fetching comments for search results:', error)
-                }
-              })
-          }
-        }
-      } catch (error) {
-        if (isDev()) {
-          console.error('Failed to fetch search results:', error)
-        }
-        if (isMountedRef.current) {
-          setHasMore(false)
-          setIsSearching(false)
-        }
-      }
-    }
-
-    fetchSearchResults()
-  }, [debouncedSearchQuery, connectionId, assignedToMe, context.user?.id, context.variant, sortTasksWithMode, startTransition, clientTeamMemberIds])
   
-  // Prefetch next batch of tasks with timeout protection
+  // Prefetch next batch of tasks (disabled - we fetch all data upfront)
+  // This function is kept for compatibility but should not be called
   const prefetchNext = useCallback(async (offset: number) => {
-    // Prevent duplicate tasks
-    if (inFlightTasks.current.has(offset)) {
-      if (isDev()) {
-        console.log('[Prefetch] Task already in flight for offset:', offset)
-      }
-      return
-    }
-    
-    if (isPrefetching) {
-      if (isDev()) {
-        console.log('[Prefetch] Already prefetching, skipping')
-      }
-      return
-    }
-    
-    if (!hasMore) {
-      if (isDev()) {
-        console.log('[Prefetch] Has no more data, skipping')
-      }
-      return
-    }
-    
-    setIsPrefetching(true)
-    inFlightTasks.current.add(offset)
-    
+    // No-op: we fetch all data upfront, no pagination needed
     if (isDev()) {
-      console.log('[Prefetch] Starting prefetch for offset:', offset)
+      console.log('[Prefetch] Prefetch disabled - all data fetched upfront')
     }
-    
-    // Timeout to prevent stale prefetches
-    const timeoutId = setTimeout(() => {
-      // Double-check we still own this task and component is mounted
-      if (isMountedRef.current && inFlightTasks.current.has(offset)) {
-        if (isDev()) {
-          console.log('[Prefetch] Prefetch timeout for offset:', offset)
-        }
-        inFlightTasks.current.delete(offset)
-        prefetchTimeouts.current.delete(offset)
-        // Only update state if component is still mounted
-        if (isMountedRef.current) {
-          setIsPrefetching(false)
-        }
-      }
-    }, PREFETCH_TIMEOUT_MS)
-    
-    // Track timeout for cleanup
-    prefetchTimeouts.current.set(offset, timeoutId)
-    
-    try {
-      const result = await fetchTasksForConnection(connectionId, { 
-        limit: PAGE_SIZE, 
-        offset,
-        searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
-      })
-      
-      // Clear timeout - only if we still own this task
-      if (inFlightTasks.current.has(offset)) {
-        const existingTimeout = prefetchTimeouts.current.get(offset)
-        if (existingTimeout) {
-          clearTimeout(existingTimeout)
-          prefetchTimeouts.current.delete(offset)
-        }
-        
-        if (isDev()) {
-          console.log('[Prefetch] Prefetch completed', { count: result.tasks.length, offset })
-        }
-        
-        // Only update state if component is still mounted and this task is still relevant
-        if (isMountedRef.current && inFlightTasks.current.has(offset)) {
-          // Store prefetched data - don't set hasMore here, let loadMore decide
-          if (result.tasks.length > 0) {
-            setPrefetchedTasks(sortTasksWithMode(result.tasks))
-            setPrefetchedOffset(offset)
-          }
-          // Update total count (it should be the same, but keep it in sync)
-          setTotalCount(result.totalCount)
-        }
-      }
-    } catch (error) {
-      // Clear timeout on error
-      const existingTimeout = prefetchTimeouts.current.get(offset)
-      if (existingTimeout) {
-        clearTimeout(existingTimeout)
-        prefetchTimeouts.current.delete(offset)
-      }
-      
-      if (isDev()) {
-        console.error('Failed to prefetch tasks:', error)
-      }
-      // Silently fail - don't affect hasMore, let on-demand fetch handle it
-    } finally {
-      // Only update state if component is still mounted
-      if (isMountedRef.current) {
-        setIsPrefetching(false)
-      }
-      inFlightTasks.current.delete(offset)
-    }
-  }, [connectionId, hasMore, isPrefetching, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, sortTasksWithMode, clientTeamMemberIds])
+  }, [])
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {
@@ -538,19 +427,11 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             const task = await fetchTaskById(connectionId, newId)
             if (!task) return
             
-            // Server-side filtering handles search/assignee filters
-            // If filters are active, refresh first page to get filtered results
-            if (debouncedSearchQuery || assignedToMe) {
-              await refreshFirstPage()
-            } else {
-              // No filters - add directly
-              prependUnique(task)
-              setTotalCount(c => c + 1)
-              setUnfilteredTotalCount(c => c + 1)
-            }
+            // Add directly to unfiltered data - filtered view will update automatically
+            prependUnique(task)
           } catch (_) {
             // fallback to full refresh if single-row fetch fails
-            await refreshFirstPage()
+            await refreshFirstPage(true) // Pass true to indicate this is from realtime
           }
         }
       )
@@ -561,17 +442,13 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           const updated = (payload?.new as { id: string; deleted_at: string | null } | undefined)
           if (!updated) return
           
-          // Handle soft delete locally
+          // Handle soft delete locally (updates unfiltered data)
           if (updated.deleted_at) {
-            const wasRemoved = removeById(updated.id)
-            if (wasRemoved) {
-              setTotalCount(c => Math.max(0, c - 1))
-              setUnfilteredTotalCount(c => Math.max(0, c - 1))
-            }
+            removeById(updated.id)
             return
           }
           
-          // For non-delete updates, use targeted update instead of refreshing entire first page
+          // For non-delete updates, use targeted update (updates unfiltered data)
           try {
             const task = await fetchTaskById(connectionId, updated.id)
             if (!task) return
@@ -598,34 +475,28 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
               return prev
             })
             
-            // Targeted update: update task in local state if it exists
-            // Only refresh if filters are active and task might not match current filters
-            const needsFullRefresh = debouncedSearchQuery || assignedToMe
-            
-            if (needsFullRefresh) {
-              // With filters active, task might appear/disappear, so refresh to apply server-side filtering
-              await refreshFirstPage()
-            } else {
-              // No filters - update task in place
-              setTasks(prev => {
-                const existingIndex = prev.findIndex(t => t.id === task.id)
-                if (existingIndex !== -1) {
-                  // Task exists in current list - update it
-                  const next = [...prev]
-                  const existingPinned = Boolean(next[existingIndex]?.isPinned)
-                  next[existingIndex] = existingPinned ? { ...task, isPinned: true } : task
-                  return sortTasksWithMode(next)
-                } else {
-                  // Task not in current list - might need to be added (e.g., status changed)
-                  // Check if it should be visible based on current view
-                  // For now, add it if it's not already there (will be sorted correctly)
-                  return sortTasksWithMode([...prev, task])
-                }
-              })
-            }
+            // Update task in unfiltered data - filtered view will update automatically
+            setAllTasks(prev => {
+              const existingIndex = prev.findIndex(t => t.id === task.id)
+              if (existingIndex !== -1) {
+                // Task exists - update it
+                const existingTask = prev[existingIndex]
+                const existingPinned = Boolean(existingTask?.isPinned)
+                
+                // Update the task
+                const next = [...prev]
+                next[existingIndex] = existingPinned ? { ...task, isPinned: true } : task
+                
+                // Re-sort to ensure task appears in correct group
+                return sortTasksWithMode(next)
+              } else {
+                // Task not in list - add it (e.g., status changed)
+                return sortTasksWithMode([...prev, task])
+              }
+            })
           } catch (_) {
-            // Fallback to full refresh only on error
-            await refreshFirstPage()
+            // Fallback to full refresh only on error (from realtime UPDATE)
+            await refreshFirstPage(true) // Pass true to indicate this is from realtime
           }
         }
       )
@@ -634,7 +505,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [connectionId, debouncedSearchQuery, assignedToMe, refreshFirstPage, prependUnique, removeById, sortTasksWithMode])
+  }, [connectionId, refreshFirstPage, prependUnique, removeById, sortTasksWithMode])
 
   // Load more tasks function (uses prefetched data if available)
   const loadMore = useCallback(async () => {
@@ -667,7 +538,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       const nextOffset = prefetchedOffset + PAGE_SIZE
       
       if (isMountedRef.current) {
-        setTasks(prev => mergeUniqueTasks(prev, prefetchedTasks))
+        setAllTasks(prev => mergeUniqueTasks(prev, prefetchedTasks))
         setCurrentOffset(nextOffset)
       }
       
@@ -690,13 +561,13 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       // Clear prefetched data
       setPrefetchedTasks([])
       setPrefetchedOffset(null)
-      inFlightTasks.current.delete(prefetchedOffset)
       
       // If we got fewer than PAGE_SIZE, there are no more
       if (prefetchedCount < PAGE_SIZE) {
         setHasMore(false)
       } else {
-        // Immediately prefetch next batch if we still have more
+        // Only prefetch next batch if user is very close to end (< 5 rows)
+        // Prefetch should ONLY happen from loadMore when user scrolls near end
         prefetchNext(nextOffset)
       }
       
@@ -712,68 +583,67 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       return
     }
     
-    // Prevent duplicate fetches
-    if (inFlightTasks.current.has(currentOffset)) {
-      if (isDev()) {
-        console.log('[LoadMore] Task for offset already in flight:', currentOffset)
-      }
-      return
-    }
-    
     isLoadingMore.current = true
-    inFlightTasks.current.add(currentOffset)
     
     // Fallback: fetch on-demand if prefetch didn't complete in time
+    // Use comprehensive queryKey pattern (same as search effect) to ensure correct deduplication
+    const loadMoreAssignedKey = assignedToMe
+      ? (context.variant === 'agency'
+          ? `u:${context.user?.id ?? 'none'}`
+          : `ids:${clientTeamMemberIds.join(',')}`)
+      : 'none'
+    const loadMoreQueryKey = `q:${debouncedSearchQuery || ''}|a:${loadMoreAssignedKey}|v:${context.variant}`
+    const requestKey = `tasks:${connectionId}:loadMore:${currentOffset}:${loadMoreQueryKey}`
+    
     if (isDev()) {
-      console.log('[LoadMore] Fetching on-demand for offset:', currentOffset)
+      console.log('[LoadMore] Fetching on-demand for key:', requestKey)
     }
     
     try {
-      const result = await fetchTasksForConnection(connectionId, { 
-        limit: PAGE_SIZE, 
-        offset: currentOffset,
-        searchQuery: debouncedSearchQuery || undefined,
-        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
+      const result = await fetchOnce(requestKey, async () => {
+        return await fetchTasksForConnection(connectionId, { 
+          limit: PAGE_SIZE, 
+          offset: currentOffset,
+          searchQuery: debouncedSearchQuery || undefined,
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
+        })
       })
       
       // Only update state if component is still mounted
       if (!isMountedRef.current) return
       
       if (result.tasks.length === 0) {
-        if (isMountedRef.current) {
-          setHasMore(false)
-        }
+        setHasMore(false)
       } else {
-        if (isMountedRef.current) {
-          setTasks(prev => mergeUniqueTasks(prev, result.tasks))
-          setTotalCount(result.totalCount)
-          const nextOffset = currentOffset + PAGE_SIZE
-          setCurrentOffset(nextOffset)
-          
-          // Fetch comments for the new tasks
-          const newIds = result.tasks.map(r => r.id)
-          if (newIds.length > 0) {
-            fetchCommentsForTasks(newIds)
-              .then(map => {
-                if (isMountedRef.current) {
-                  setCommentsByTask(prev => ({ ...prev, ...map }))
-                }
-              })
-              .catch(error => {
-                if (isDev()) {
-                  console.error('Error fetching comments for on-demand tasks:', error)
-                }
-              })
-          }
-          
-          // If we got fewer than PAGE_SIZE, there are no more
-          if (result.tasks.length < PAGE_SIZE) {
-            setHasMore(false)
-          } else {
-            // Prefetch next batch
-            prefetchNext(nextOffset)
-          }
+        setAllTasks(prev => mergeUniqueTasks(prev, result.tasks))
+        setUnfilteredTotalCount(result.totalCount)
+        const nextOffset = currentOffset + PAGE_SIZE
+        setCurrentOffset(nextOffset)
+        
+        // Fetch comments for the new tasks
+        const newIds = result.tasks.map((r: Task) => r.id)
+        if (newIds.length > 0) {
+          fetchCommentsForTasks(newIds)
+            .then(map => {
+              if (isMountedRef.current) {
+                setCommentsByTask(prev => ({ ...prev, ...map }))
+              }
+            })
+            .catch(error => {
+              if (isDev()) {
+                console.error('Error fetching comments for on-demand tasks:', error)
+              }
+            })
+        }
+        
+        // If we got fewer than PAGE_SIZE, there are no more
+        if (result.tasks.length < PAGE_SIZE) {
+          setHasMore(false)
+        } else {
+          // Only prefetch next batch if user is very close to end (< 5 rows)
+          // Prefetch should ONLY happen from loadMore when user scrolls near end
+          prefetchNext(nextOffset)
         }
       }
     } catch (error) {
@@ -786,34 +656,17 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       }
     } finally {
       isLoadingMore.current = false
-      inFlightTasks.current.delete(currentOffset)
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, clientTeamMemberIds, mergeUniqueTasks])
+  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, clientTeamMemberIds, mergeUniqueTasks, getRequestKey, fetchOnce])
 
-  // Toggle handler and URL sync for Assigned to me
+  // Toggle handler for Assigned to me (client-side filtering only)
   const handleToggleAssignedToMe = useCallback(() => {
-    const next = !assignedToMe
-    setAssignedToMe(next)
-    // Update URL - the fetch useEffect will handle the actual fetch when assignedToMe state changes
-    const newSearchParams = new URLSearchParams(searchParams.toString())
-    if (next) newSearchParams.set('assigned', 'me')
-    else newSearchParams.delete('assigned')
-    const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
-    router.replace(newUrl, { scroll: false })
-  }, [assignedToMe, searchParams, pathname, router])
+    setAssignedToMe(prev => !prev)
+  }, [])
 
-  // Prefetch next batch when initial tasks load or after consuming prefetched data
-  useEffect(() => {
-    // Only prefetch if we have more data, aren't already prefetching, and don't already have prefetched data
-    if (hasMore && !isPrefetching && prefetchedTasks.length === 0 && tasks.length > 0) {
-      const offsetToPrefetch = currentOffset
-      if (isDev()) {
-        console.log('[Prefetch] Triggering prefetch for offset:', offsetToPrefetch)
-      }
-      prefetchNext(offsetToPrefetch)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, isPrefetching, prefetchedTasks.length, currentOffset, tasks.length])
+  // REMOVED: Automatic prefetch effect
+  // Prefetch should ONLY happen from loadMore() when user scrolls near end
+  // This prevents ~80% of request spam
 
   // Load more handler for virtual scroll
   const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
@@ -824,18 +677,10 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
 
   // Handle optimistic deletion from query params (when navigating from detail page)
   useEffect(() => {
-    const deletedTaskId = searchParams.get('deleted')
-    if (deletedTaskId) {
-      // Optimistically remove the deleted task
-      setTasks(prev => prev.filter(r => r.id !== deletedTaskId))
-      
-      // Clean up the query param
-      const newSearchParams = new URLSearchParams(searchParams.toString())
-      newSearchParams.delete('deleted')
-      const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`
-      router.replace(newUrl, { scroll: false })
-    }
-  }, [searchParams, pathname, router])
+    // Note: This effect is kept for backward compatibility but URL params are no longer synced
+    // If we need to handle deleted param in the future, we can read it from window.location.search
+    // For now, real-time updates handle deletions
+  }, [])
 
   // Local state for modal (like ProfileCard pattern)
   const [selectedTask, setSelectedTask] = useState<{
@@ -900,19 +745,19 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   const isClosingModalRef = useRef(false)
 
   function getTaskById(taskId: string) {
-    return tasks.find(r => r.id === taskId)
+    return allTasks.find(r => r.id === taskId)
   }
 
   function handleTaskUpdate(taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) {
     // Get the original task to compare status changes
-    const _originalTask = tasks.find(r => r.id === taskId)
+    const originalTask = allTasks.find(r => r.id === taskId)
 
     const sanitizedUpdates = Object.fromEntries(
       Object.entries(updates).filter(([, value]) => value !== undefined)
     ) as typeof updates
     
-    // Update tasks list optimistically
-    setTasks(prevTasks =>
+    // Update unfiltered tasks list optimistically
+    setAllTasks(prevTasks =>
       sortTasksWithMode(
       prevTasks.map(task =>
         task.id === taskId
@@ -928,6 +773,22 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         ? { ...prev, ...sanitizedUpdates }
         : prev
     )
+    
+    // Optimistically update status counts when status changes
+    if (updates.status && originalTask && originalTask.status !== updates.status) {
+      setStatusCounts(prev => {
+        const next = { ...prev }
+        // Decrement old status count
+        const oldStatus = originalTask.status
+        if (next[oldStatus] !== undefined) {
+          next[oldStatus] = Math.max(0, (next[oldStatus] || 0) - 1)
+        }
+        // Increment new status count
+        const newStatus = updates.status!
+        next[newStatus] = (next[newStatus] || 0) + 1
+        return next
+      })
+    }
     
     // Update badge count for agency view if status changed
     // TODO: Add newTasksCount support to ConnectionContext when needed
@@ -986,10 +847,21 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
 
   function handleTableTaskDeleted(taskId: string) {
     // Get the deleted task to check if it was 'new' status
-    const _deletedTask = tasks.find(r => r.id === taskId)
+    const deletedTask = allTasks.find(r => r.id === taskId)
     
-    // Optimistically remove task from table
-    setTasks(prev => prev.filter(r => r.id !== taskId))
+    // Optimistically remove task from unfiltered table
+    setAllTasks(prev => prev.filter(r => r.id !== taskId))
+    
+    // Optimistically update status counts
+    if (deletedTask?.status) {
+      setStatusCounts(prev => {
+        const next = { ...prev }
+        if (next[deletedTask.status] !== undefined) {
+          next[deletedTask.status] = Math.max(0, (next[deletedTask.status] || 0) - 1)
+        }
+        return next
+      })
+    }
     
     // Update badge count if deleted task was 'new' status in agency view
     // TODO: Add newTasksCount support to ConnectionContext when needed
@@ -998,8 +870,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     // }
     
     // Decrement total count
-    setTotalCount(c => Math.max(0, c - 1))
     setUnfilteredTotalCount(c => Math.max(0, c - 1))
+    // Filtered count will be computed from filteredTasks useMemo
   }
 
   function handleModalClose() {
@@ -1105,9 +977,16 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       clientVisibilityLocked: isClientAssignee,
     }
 
-    setTasks(prev => sortTasksWithMode([optimisticRow, ...prev]))
-    setTotalCount(c => c + 1)
+    setAllTasks(prev => sortTasksWithMode([optimisticRow, ...prev]))
     setUnfilteredTotalCount(c => c + 1)
+    // Filtered count will be computed from filteredTasks useMemo
+    
+    // Optimistically update status counts (new task always has 'to_do' status)
+    setStatusCounts(prev => {
+      const next = { ...prev }
+      next['to_do'] = (next['to_do'] || 0) + 1
+      return next
+    })
     
     // Optimistically update badge count for agency view
     // TODO: Add newTasksCount support to ConnectionContext when needed
@@ -1126,7 +1005,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       const task = await fetchTaskById(targetConnectionId, taskId)
       if (!task) return
       // Replace temp row if present; otherwise prepend and increment count
-      setTasks(prev => {
+      setAllTasks(prev => {
         const _hadTemp = tempId ? prev.some(r => r.id === tempId) : false
         const without = prev.filter(r => r.id !== tempId && r.id !== task.id)
         const pinnedSource = tempId ? pinnedTaskIdsRef.current.has(tempId) : pinnedTaskIdsRef.current.has(task.id)
@@ -1141,12 +1020,10 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         return next
       })
       // If no temp was present, bump the count; if temp existed, count already included
-      if (tempId) {
-        // no-op for count
-      } else {
-        setTotalCount(c => c + 1)
+      if (!tempId) {
         setUnfilteredTotalCount(c => c + 1)
       }
+      // Filtered count will be computed from filteredTasks useMemo
       
       // Update badge count if task is new and we're in agency view (only if no temp was present)
       // TODO: Add newTasksCount support to ConnectionContext when needed
@@ -1175,18 +1052,19 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         userInitials={userInitials}
         onTaskClick={handleRowClick}
         onNewTask={handleNewTask}
-        tasks={tasks}
+        tasks={filteredTasks}
         agencyMembers={sortedMembers}
         onTaskUpdate={handleTaskUpdate}
         currentOrgId={currentOrgId}
           onLoadMore={handleLoadMore}
+        searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        totalCount={totalCount}
+        totalCount={filteredTasks.length}
         unfilteredTotalCount={unfilteredTotalCount}
           parentRef={parentRef}
         assignedToMe={assignedToMe}
         onToggleAssignedToMe={handleToggleAssignedToMe}
-        isBootstrapping={isBootstrapping || isSearching || (searchQuery !== debouncedSearchQuery && searchQuery.trim().length > 0)}
+        isBootstrapping={false}
         isAgency={context.variant === 'agency'}
         agencyOrganization={context.variant === 'client' ? {
           id: snapshot.agency.id,
@@ -1194,6 +1072,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           logoUrl: snapshot.agency.logo || undefined
         } : undefined}
         onTaskDeleted={handleTableTaskDeleted}
+        statusCounts={statusCounts}
       />
       </div>
 
@@ -1219,10 +1098,10 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         }}
         onTaskDeleted={(taskId) => {
           // Get the deleted task to check if it was 'new' status
-          const _deletedTask = tasks.find(r => r.id === taskId)
+          const _deletedTask = allTasks.find(r => r.id === taskId)
           
-          // Optimistically remove task from table
-          setTasks(prev => prev.filter(r => r.id !== taskId))
+          // Optimistically remove task from unfiltered table
+          setAllTasks(prev => prev.filter(r => r.id !== taskId))
           
           // Update badge count if deleted task was 'new' status in agency view
           // TODO: Add newTasksCount support to ConnectionContext when needed
@@ -1231,26 +1110,11 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           // }
           
           // Decrement counts
-          setTotalCount(c => Math.max(0, c - 1))
           setUnfilteredTotalCount(c => Math.max(0, c - 1))
+          // Filtered count will be computed from filteredTasks useMemo
           
-          // Safety: reconcile with DB shortly after in case delete fails or is delayed
-          setTimeout(async () => {
-            try {
-              const result = await fetchTasksForConnection(connectionId, {
-                limit: PAGE_SIZE,
-                offset: 0,
-                searchQuery: debouncedSearchQuery || undefined
-              })
-              if (!isMountedRef.current) return
-              setTasks(sortTasksWithMode(result.tasks))
-              setTotalCount(result.totalCount)
-              setHasMore(result.tasks.length === PAGE_SIZE)
-              setCurrentOffset(PAGE_SIZE)
-            } catch (_) {
-              // ignore
-            }
-          }, 800)
+          // REMOVED: setTimeout reconciliation hack
+          // Let realtime or next user action refresh, not timers
         }}
         connectionId={connectionId}
         currentOrgId={currentOrgId}

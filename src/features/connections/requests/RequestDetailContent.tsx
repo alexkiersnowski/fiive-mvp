@@ -21,6 +21,7 @@ import { updateRequestTitle, updateRequestDescription, updateRequestStatus, upda
 import { ConvertToTaskModal, type ConvertToTaskModalProps, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
 import { convertRequestToTask } from '../tasks/actions'
 import { toast } from 'sonner'
+import { formatRequestDateFullMonth } from '../formatters'
 
 interface Comment {
   id: string
@@ -1197,7 +1198,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">Created</p>
             </div>
             <div className="w-3/5 min-w-0">
-              <p className="text-sm-regular text-primary truncate ml-1">{createdAt || 'N/A'}</p>
+              <p className="text-sm-regular text-primary truncate ml-1">{createdAt ? formatRequestDateFullMonth(createdAt) : 'N/A'}</p>
             </div>
           </div>
 

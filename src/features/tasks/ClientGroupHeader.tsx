@@ -10,11 +10,10 @@ interface ClientGroupHeaderProps {
   agencyId?: string
   agencyName?: string
   agencyLogoUrl?: string
-  count: number
-  isExpanded: boolean
+  count: number | string
+  isCollapsed: boolean
   onToggle: () => void
   isAgency: boolean
-  isFirstClient?: boolean
 }
 
 export function ClientGroupHeader({ 
@@ -25,31 +24,26 @@ export function ClientGroupHeader({
   agencyName,
   agencyLogoUrl,
   count, 
-  isExpanded, 
+  isCollapsed, 
   onToggle, 
-  isAgency,
-  isFirstClient: _isFirstClient = false 
+  isAgency
 }: ClientGroupHeaderProps) {
   // For agency view: display client_id, client name, client logo (from connection)
   // For client view: display agency_id, agency name, agency logo (from connection)
   const displayName = isAgency ? (clientName || 'Unknown') : (agencyName || 'Unknown')
   const displayLogoUrl = isAgency ? clientLogoUrl : agencyLogoUrl
-  // groupId is client_id for agency view, agency_id for client view
-  const displayId = isAgency ? clientId : (agencyId || clientId)
 
   return (
     <div
-      className={`border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]`}
+      className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]"
       style={{
-        gridTemplateColumns: isAgency 
-          ? '44px 4fr 3fr 3fr 3fr 3fr 44px 44px'
-          : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+        gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
         height: '44px',
         minHeight: '44px',
         maxHeight: '44px',
       }}
       onClick={onToggle}
-      data-client-group-id={displayId}
+      data-client-group-id={clientId}
     >
       {/* Expand/Collapse Icon - 44px cell */}
       <div className="flex items-center justify-center h-full">
@@ -58,7 +52,7 @@ export function ClientGroupHeader({
           weight="fill"
           style={{
             color: 'var(--color-base-text-tertiary)',
-            transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
             transition: 'transform 0.2s ease'
           }}
         />
@@ -79,7 +73,7 @@ export function ClientGroupHeader({
           {displayName}
         </span>
         <span className="text-xs-regular text-[var(--color-base-text-tertiary)]">
-          {count} {count === 1 ? 'task' : 'tasks'}
+          {count} {typeof count === 'number' && count === 1 ? 'task' : 'tasks'}
         </span>
       </div>
       
@@ -88,7 +82,6 @@ export function ClientGroupHeader({
       <div className="px-3"></div>
       <div className="px-3"></div>
       <div className="px-3"></div>
-      {isAgency && <div></div>}
       <div></div>
     </div>
   )

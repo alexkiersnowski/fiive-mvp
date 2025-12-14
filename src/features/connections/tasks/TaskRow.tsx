@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from 'react'
+import { useRef, useState, memo } from 'react'
 import { Button } from '@/components/ui/button'
 import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
@@ -79,7 +79,7 @@ interface TaskRowProps {
   isDraggingActive?: boolean
 }
 
-export function TaskRow({
+function TaskRowComponent({
   task,
   isAgency,
   isDisconnected,
@@ -397,4 +397,7 @@ export function TaskRow({
     </div>
   )
 }
+
+// Memoize TaskRow to prevent unnecessary re-renders during drag operations
+export const TaskRow = memo(TaskRowComponent)
 

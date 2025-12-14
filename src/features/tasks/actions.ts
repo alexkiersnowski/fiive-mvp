@@ -1,9 +1,9 @@
 'use server'
 
-import { getTasksSnapshot, getTaskByIdGlobal, searchTasksGlobal as searchTasksGlobalServer, getTasksSnapshotForStatus } from './server';
+import { getTasksSnapshot, getTaskByIdGlobal, searchTasksGlobal as searchTasksGlobalServer, getTasksSnapshotForStatus, getTasksCounts, getTasksForClientStatus, searchClientsWithTasks, getAssignedTasksByClient } from './server';
 import { getCommentsForTask } from '@/features/connections/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
-import type { TasksSnapshot, TasksPaginationOptions } from './types';
+import type { TasksSnapshot, TasksPaginationOptions, SearchResults } from './types';
 import type { TaskStatus } from './taskGrouping';
 
 /**
@@ -81,5 +81,64 @@ export async function fetchMoreTasksForStatus(
   options: TasksPaginationOptions & { status: TaskStatus }
 ): Promise<TasksSnapshot> {
   return await getTasksSnapshotForStatus(context, options.status, options);
+}
+
+/**
+ * Get tasks counts (minimal metadata for accurate header counts)
+ * Returns status counts and client counts without fetching task rows
+ */
+export async function fetchTasksCounts(
+  context: EnhancedModeContext,
+  options: { assignedToUserId?: string; assignedToUserIds?: string[] } = {}
+): Promise<{
+  statusCounts: Record<string, number>;
+  clientCounts: Record<string, number>;
+}> {
+  return await getTasksCounts(context, options);
+}
+
+/**
+ * Get tasks for a specific client organization in a specific status
+ * Used for accordion fetch-on-expand pattern
+ * Returns all tasks for the client (no pagination needed)
+ */
+export async function fetchTasksForClientStatus(
+  context: EnhancedModeContext,
+  clientOrgId: string,
+  status: 'to_do' | 'in_progress' | 'on_hold' | 'done',
+  options: { assignedToUserId?: string; assignedToUserIds?: string[] } = {}
+) {
+  return await getTasksForClientStatus(context, clientOrgId, status, options);
+}
+
+/**
+ * Search clients with their tasks pre-loaded (server-side search mode)
+ * Returns clients matching search text with all their tasks as atomic data
+ * Used for fast, flicker-free search results
+ */
+export async function searchClientsWithTasksAction(
+  context: EnhancedModeContext,
+  searchText: string,
+  options?: {
+    statusFilter?: ('to_do' | 'in_progress' | 'on_hold' | 'done')[];
+    assignedToUserId?: string;
+    assignedToUserIds?: string[];
+  }
+): Promise<SearchResults> {
+  return await searchClientsWithTasks(context, searchText, options);
+}
+
+/**
+ * Get all tasks assigned to a user, grouped by client (assigned filter mode)
+ * Returns clients with their assigned tasks pre-loaded as atomic data
+ * Used for fast, flicker-free assigned filter results
+ */
+export async function fetchAssignedTasksByClient(
+  context: EnhancedModeContext,
+  options?: {
+    statusFilter?: ('to_do' | 'in_progress' | 'on_hold' | 'done')[];
+  }
+): Promise<SearchResults> {
+  return await getAssignedTasksByClient(context, options);
 }
 

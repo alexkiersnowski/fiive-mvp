@@ -79,8 +79,15 @@ export function RequestsContent({
   }, [isLoadingClientStatus]);
 
   // Minimal metadata for accurate counts
-  const [statusCounts, setStatusCounts] = useState<Map<string, number>>(new Map());
-  const [clientCounts, setClientCounts] = useState<Map<string, number>>(new Map());
+  // Initialize from server-fetched snapshot to prevent flicker
+  const [statusCounts, setStatusCounts] = useState<Map<string, number>>(() => {
+    const counts = (snapshot as any).statusCounts || {};
+    return new Map(Object.entries(counts));
+  });
+  const [clientCounts, setClientCounts] = useState<Map<string, number>>(() => {
+    const counts = (snapshot as any).clientCounts || {};
+    return new Map(Object.entries(counts));
+  });
   
   // Ref to track count refresh timeout for debouncing
   const countRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -152,8 +159,22 @@ export function RequestsContent({
   // Paywall modal state
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
 
-  // Fetch counts metadata once on mount (for accurate header counts)
+  // Track if we've initialized counts from server snapshot
+  const hasInitializedCountsRef = useRef(false);
+  
+  // Refresh counts when assignedToMe changes
+  // This ensures counts update when filter is toggled, but doesn't cause flicker on initial load
   useEffect(() => {
+    // On initial mount, if we have counts from snapshot, skip fetch
+    if (!hasInitializedCountsRef.current) {
+      hasInitializedCountsRef.current = true;
+      // If we already have counts from snapshot, don't fetch again
+      if (statusCounts.size > 0 || clientCounts.size > 0) {
+        return;
+      }
+    }
+    
+    // Fetch counts when assignedToMe filter changes
     fetchRequestsCounts(context, {
       assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
       createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,

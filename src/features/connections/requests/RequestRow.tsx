@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from 'react'
+import { useRef, useState, memo } from 'react'
 import { Button } from '@/components/ui/button'
 import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
@@ -67,7 +67,7 @@ interface RequestRowProps {
   isDraggingActive?: boolean
 }
 
-export function RequestRow({
+function RequestRowComponent({
   request,
   isAgency,
   isDisconnected,
@@ -366,4 +366,7 @@ export function RequestRow({
     </div>
   )
 }
+
+// Memoize RequestRow to prevent unnecessary re-renders during drag operations
+export const RequestRow = memo(RequestRowComponent)
 

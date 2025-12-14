@@ -132,12 +132,7 @@ export async function updateRequestAssignee(requestId: string, assigneeUserId: s
     console.log('Request assignee updated successfully:', data);
   }
   
-  // Revalidate affected pages
-  const connectionId = data.connection_id
-  revalidatePath('/home')
-  revalidatePath('/requests')
-  revalidatePath(`/clients/${connectionId}/overview`)
-  revalidatePath(`/agencies/${connectionId}/overview`)
+  // Real-time subscription handles UI updates - no revalidation needed
   
   return data;
 }
@@ -207,12 +202,7 @@ export async function updateRequestStatus(
     console.log('Request status updated successfully:', data);
   }
   
-  // Revalidate affected pages
-  const connectionId = data.connection_id
-  revalidatePath('/home')
-  revalidatePath('/requests')
-  revalidatePath(`/clients/${connectionId}/overview`)
-  revalidatePath(`/agencies/${connectionId}/overview`)
+  // Real-time subscription handles UI updates - no revalidation needed
   
   return data;
 }
@@ -279,12 +269,7 @@ export async function updateRequestTitle(requestId: string, title: string) {
     console.log('Request title updated successfully:', data);
   }
   
-  // Revalidate affected pages
-  const connectionId = data.connection_id
-  revalidatePath('/home')
-  revalidatePath('/requests')
-  revalidatePath(`/clients/${connectionId}/overview`)
-  revalidatePath(`/agencies/${connectionId}/overview`)
+  // Real-time subscription handles UI updates - no revalidation needed
   
   return data;
 }
@@ -351,12 +336,7 @@ export async function updateRequestDescription(requestId: string, description: s
     console.log('Request description updated successfully:', data);
   }
   
-  // Revalidate affected pages
-  const connectionId = data.connection_id
-  revalidatePath('/home')
-  revalidatePath('/requests')
-  revalidatePath(`/clients/${connectionId}/overview`)
-  revalidatePath(`/agencies/${connectionId}/overview`)
+  // Real-time subscription handles UI updates - no revalidation needed
   
   return data;
 }
@@ -423,12 +403,7 @@ export async function updateRequestProject(requestId: string, projectId: string 
     console.log('Request project updated successfully:', data);
   }
   
-  // Revalidate affected pages
-  const connectionId = data.connection_id
-  revalidatePath('/home')
-  revalidatePath('/requests')
-  revalidatePath(`/clients/${connectionId}/overview`)
-  revalidatePath(`/agencies/${connectionId}/overview`)
+  // Real-time subscription handles UI updates - no revalidation needed
   
   return data;
 }
@@ -667,20 +642,7 @@ export async function deleteRequest(requestId: string) {
     console.log('Request deleted successfully:', data);
   }
   
-  // Fetch connection_id for revalidation
-  const { data: requestData } = await supabase
-    .from('requests')
-    .select('connection_id')
-    .eq('id', requestId)
-    .single()
-  
-  if (requestData?.connection_id) {
-    const connectionId = requestData.connection_id
-    revalidatePath('/home')
-    revalidatePath('/requests')
-    revalidatePath(`/clients/${connectionId}/overview`)
-    revalidatePath(`/agencies/${connectionId}/overview`)
-  }
+  // Real-time subscription handles UI updates (via UPDATE with deleted_at) - no revalidation needed
   
   return data;
 }

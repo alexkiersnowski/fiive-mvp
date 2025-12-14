@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -16,8 +16,7 @@ import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, Link
 import { toast } from 'sonner'
 import { updateProjectAssignee, updateProjectStatus, deleteProject } from './actions'
 import type { Project } from '../server'
-import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
-import type { VirtualItem } from '@tanstack/react-virtual'
+import { VirtualizedProjectList } from './VirtualizedProjectList'
 import { useConnection } from '../ConnectionContext'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -37,13 +36,12 @@ interface ProjectsTableProps {
   }>
   onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: Project['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: VirtualItem[]) => void
+  searchQuery?: string
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
   parentRef?: React.RefObject<HTMLDivElement | null>
   isBootstrapping?: boolean
-  isSearching?: boolean
   isAgency?: boolean
   agencyOrganization?: {
     id: string
@@ -51,24 +49,17 @@ interface ProjectsTableProps {
     logoUrl?: string
   }
   onProjectDeleted?: (projectId: string) => void
-  initialSortValue?: string
+  sortValue?: string
   onSortChange?: (sortValue: string) => void
 }
 
-export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitials: _userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId: _currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization: _agencyOrganization, onProjectDeleted, initialSortValue = 'project_asc', onSortChange }: ProjectsTableProps) {
+export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitials: _userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId: _currentOrgId, searchQuery = '', onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isAgency = false, agencyOrganization: _agencyOrganization, onProjectDeleted, sortValue = 'project_asc', onSortChange }: ProjectsTableProps) {
   const { isDisconnected } = useConnection()
   const pathname = usePathname()
-  const _router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
-  const [searchQuery, setSearchQuery] = useState('')
-  const [sortValue, setSortValue] = useState(initialSortValue)
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
-  
-  // Update sortValue when initialSortValue prop changes
-  useEffect(() => {
-    setSortValue(initialSortValue)
-  }, [initialSortValue])
+  const containerRef = useRef<HTMLDivElement>(null)
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{projectId: string; projectName: string} | null>(null)
@@ -123,9 +114,8 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
   )
 
   const handleSortChange = (newSortValue: string) => {
-    setSortValue(newSortValue)
     setIsSortDropdownOpen(false)
-    // Call parent callback to trigger data refetch with new sort
+    // Call parent callback to update sort state
     onSortChange?.(newSortValue)
   }
 
@@ -324,19 +314,9 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
     }
   }
 
-  // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
-    items: projects,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
-  
-  // isNearEnd available for future use (e.g., showing loading indicator)
-
   // Empty state logic: ONLY show empty state when no projects exist at all
-  // When projects exist but search returns no results, VirtualTableBody will show "no results"
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+  const hasActiveFilters = (searchQuery?.trim().length ?? 0) > 0
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters
 
   // Empty state component matching VirtualTableBody "No results" style
   const emptyState = isEmptyState ? (
@@ -365,9 +345,8 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
           <div className="flex items-center gap-3">
             <SearchInput
               placeholder="Search projects by name…"
-              value={searchQuery}
+              value={searchQuery || ''}
               onChange={(value) => {
-                setSearchQuery(value)
                 onSearchChange?.(value)
               }}
               count={projectCount}
@@ -489,8 +468,7 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
       {/* Table Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="px-5 pb-5">
-          {/* During initial bootstrap or when searching, suppress empty-state flash with skeleton block */}
-          {(isBootstrapping || (isSearching && projects.length === 0 && searchQuery.trim().length > 0)) ? (
+          {isBootstrapping ? (
             <div className="space-y-0">
               {/* Project Row Skeletons - 20 rows */}
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((projectIndex) => (
@@ -531,45 +509,69 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
               ))}
             </div>
           ) : (
-            <VirtualTableBody
-            items={projects}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-            onRowClick={(project) => handleRowClick(project.id)}
-            emptyState={isEmptyState ? emptyState : undefined}
-            renderRow={(project) => (
-              <>
-                <TableCell className="w-[25%] py-0 truncate">
-                  {project.title}
-                </TableCell>
+            isEmptyState ? (
+              <Table className="table-fixed w-full border-collapse" noWrapper>
+                <TableBody>
+                  <TableRow 
+                    className="hover:bg-transparent"
+                    style={{
+                      backgroundColor: 'var(--color-base-surface-page-background)',
+                    }}
+                  >
+                    <TableCell 
+                      colSpan={7} 
+                      className="text-center py-8"
+                    >
+                      <span className="text-sm-regular text-[var(--color-base-text-tertiary)]">
+                        No projects
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            ) : (
+              <Table className="table-fixed w-full border-collapse" noWrapper>
+                <TableBody>
+                  <VirtualizedProjectList
+                    projects={projects}
+                    parentRef={parentRef}
+                    renderRow={(project, index) => (
+                      <TableRow
+                        key={project.id}
+                        className="hover:bg-[var(--color-interactive-surface-hover)] transition-colors duration-75 cursor-pointer"
+                        onClick={() => handleRowClick(project.id)}
+                      >
+                    <TableCell className="w-[25%] py-0 truncate">
+                      {project.title}
+                    </TableCell>
 
-                {isDisconnected || !isAgency ? (
-                  <TableCell 
-                    className="w-[15%] py-0"
-                  >
-                    <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
-                  </TableCell>
-                ) : (
-                  <TableCell 
-                    className="w-[15%] py-0" 
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <InlineEdit
-                      type="badge"
-                      value={project.status}
-                      options={[
-                        { value: 'planned', label: 'Planned' },
-                        { value: 'active', label: 'Active' },
-                        { value: 'on_hold', label: 'On hold' },
-                        { value: 'completed', label: 'Completed' },
-                        { value: 'canceled', label: 'Canceled' },
-                      ]}
-                      onSave={(newStatus) => handleStatusChange(project.id, newStatus)}
-                      badgeComponent="project"
-                      className="truncate h-6 rounded-[8px]"
-                    />
-                  </TableCell>
-                )}
+                    {isDisconnected || !isAgency ? (
+                      <TableCell 
+                        className="w-[15%] py-0"
+                      >
+                        <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
+                      </TableCell>
+                    ) : (
+                      <TableCell 
+                        className="w-[15%] py-0" 
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <InlineEdit
+                          type="badge"
+                          value={project.status}
+                          options={[
+                            { value: 'planned', label: 'Planned' },
+                            { value: 'active', label: 'Active' },
+                            { value: 'on_hold', label: 'On hold' },
+                            { value: 'completed', label: 'Completed' },
+                            { value: 'canceled', label: 'Canceled' },
+                          ]}
+                          onSave={(newStatus) => handleStatusChange(project.id, newStatus)}
+                          badgeComponent="project"
+                          className="truncate h-6 rounded-[8px]"
+                        />
+                      </TableCell>
+                    )}
 
                     <TableCell className="w-[15%] py-0 truncate">
                       <span 
@@ -589,69 +591,72 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
                       </span>
                     </TableCell>
 
-                <TableCell className="w-[15%] py-0 truncate">
-                  {project.requestsCount}
-                </TableCell>
+                    <TableCell className="w-[15%] py-0 truncate">
+                      {project.requestsCount}
+                    </TableCell>
 
-                <TableCell className="w-[15%] py-0 truncate">
-                  {project.tasksCount}
-                </TableCell>
+                    <TableCell className="w-[15%] py-0 truncate">
+                      {project.tasksCount}
+                    </TableCell>
 
-                <TableCell 
-                  className="w-[44px] p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={openActionsDropdown === project.id} onOpenChange={(open) => setOpenActionsDropdown(open ? project.id : null)}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            openActionsDropdown === project.id
-                              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
-                              : 'hover:bg-[var(--color-interactive-surface-hover)]'
-                          }`}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleRowClick(project.id)
-                        }}>
-                          <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          View details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleCopyLink(project.id, project.connectionId)
-                        }}>
-                          <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Copy link
-                        </DropdownMenuItem>
-                        {!isDisconnected && isAgency && (
-                          <>
-                        <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                        <DropdownMenuItem 
-                          onClick={() => {
-                            handleDeleteProject(project.id)
-                            setOpenActionsDropdown(null)
-                          }}
-                          style={{ color: 'var(--color-red-11)' }}
-                        >
-                          <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                          Delete project
-                        </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </>
-            )}
-          />
+                    <TableCell 
+                      className="w-[44px] p-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-center h-full">
+                        <DropdownMenu modal={false} open={openActionsDropdown === project.id} onOpenChange={(open) => setOpenActionsDropdown(open ? project.id : null)}>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
+                                openActionsDropdown === project.id
+                                  ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
+                                  : 'hover:bg-[var(--color-interactive-surface-hover)]'
+                              }`}
+                            >
+                              <DotsThree size={16} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-[200px]">
+                            <DropdownMenuItem onClick={() => {
+                              setOpenActionsDropdown(null)
+                              handleRowClick(project.id)
+                            }}>
+                              <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                              View details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              setOpenActionsDropdown(null)
+                              handleCopyLink(project.id, project.connectionId)
+                            }}>
+                              <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                              Copy link
+                            </DropdownMenuItem>
+                            {!isDisconnected && isAgency && (
+                              <>
+                            <div className="border-t border-[var(--color-neutral-6)] my-1" />
+                            <DropdownMenuItem 
+                              onClick={() => {
+                                handleDeleteProject(project.id)
+                                setOpenActionsDropdown(null)
+                              }}
+                              style={{ color: 'var(--color-red-11)' }}
+                            >
+                              <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
+                              Delete project
+                            </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                      </TableRow>
+                    )}
+                  />
+                </TableBody>
+              </Table>
+            )
           )}
         </div>
       </div>

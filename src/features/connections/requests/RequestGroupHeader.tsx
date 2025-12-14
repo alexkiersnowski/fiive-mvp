@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from 'react'
 import { CaretDown } from '@phosphor-icons/react'
 import { RequestBadge } from '@/components/ui/request-badge'
 import type { RequestStatus } from './requestSort'
@@ -15,7 +16,7 @@ interface RequestGroupHeaderProps {
   isDraggingActive?: boolean
 }
 
-export function RequestGroupHeader({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup: _isFirstGroup = false, isDraggingActive = false }: RequestGroupHeaderProps) {
+function RequestGroupHeaderComponent({ status, count, isExpanded, onToggle, isAgency, isDragHovered = false, isFirstGroup: _isFirstGroup = false, isDraggingActive = false }: RequestGroupHeaderProps) {
   return (
     <div
       className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full ${
@@ -73,4 +74,7 @@ export function RequestGroupHeader({ status, count, isExpanded, onToggle, isAgen
     </div>
   )
 }
+
+// Memoize RequestGroupHeader to prevent unnecessary re-renders
+export const RequestGroupHeader = memo(RequestGroupHeaderComponent)
 

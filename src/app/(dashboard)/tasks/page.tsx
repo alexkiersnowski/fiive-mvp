@@ -1,7 +1,8 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
-import { getTasksSnapshot, getTasksSnapshotForStatus, getAgencyMembersForActiveOrg, getClientMembersForActiveOrg, getConnectionsForGlobalView, getMembersForAllConnections } from '@/features/tasks/server';
+import { getAgencyMembersForActiveOrg, getClientMembersForActiveOrg, getConnectionsForGlobalView, getMembersForAllConnections, getTasksCounts, searchClientsWithTasks } from '@/features/tasks/server';
+import { createClient } from '@/lib/supabase/server';
 import { getCommentsForTasks } from '@/features/connections/server';
 import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { TasksContent } from './TasksContent';
@@ -34,32 +35,196 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
   const snapshotStartTime = performance.now();
   
-  // Only fetch initial data for 'to_do' status (first expanded status)
-  // Other statuses will be fetched on-demand when expanded
   const hasActiveSearch = (resolvedSearchParams.search || '').trim().length > 0;
   
-  const [snapshot, allowedConnectionIds] = await Promise.all([
+  // For accordion mode: fetch counts and metadata only (no tasks)
+  // For search mode: fetch tasks via searchClientsWithTasks
+  const supabase = await createClient();
+  
+  const [
+    snapshot,
+    allowedConnectionIds,
+    countsData
+  ] = await Promise.all([
     hasActiveSearch
-      ? // Search mode: use global snapshot
-        getTasksSnapshot(context, {
-          search: resolvedSearchParams.search || '',
-          limit: 20,
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        })
-      : // Normal mode: fetch only 'to_do' status
-        getTasksSnapshotForStatus(context, 'to_do', {
-          search: '',
-          offset: 0,
-          limit: 20,
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-        }),
-    allowedConnectionIdsPromise
+      ? // Search mode: use searchClientsWithTasks (returns SearchResults)
+        (async () => {
+          const searchResults = await searchClientsWithTasks(context, resolvedSearchParams.search || '', {
+            assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+            assignedToUserIds: assignedToMe && context.variant === 'client' ? (() => {
+              // Get client team member IDs for filtering
+              // This will be done in TasksContent, but we need to handle it here for initial search
+              // For now, return empty array - TasksContent will handle it properly
+              return undefined;
+            })() : undefined,
+          });
+          
+          // Convert SearchResults to TasksSnapshot format for compatibility
+          const allTasks = searchResults.clients.flatMap(client => client.tasks);
+          const uniqueConnectionIds = [...new Set(allTasks.map(t => t.connectionId))];
+          
+          // Fetch all connections metadata
+          const allConnectionsMetadataQuery = context.variant === 'agency'
+            ? supabase
+                .from('connections')
+                .select(`
+                  id,
+                  client_id,
+                  organizations!connections_client_id_fkey (
+                    id,
+                    name,
+                    logo_url
+                  )
+                `)
+                .eq('agency_id', context.orgId)
+                .neq('connection_status', 'disconnected')
+            : supabase
+                .from('connections')
+                .select(`
+                  id,
+                  agency_id,
+                  organizations!connections_agency_id_fkey (
+                    id,
+                    name,
+                    logo_url
+                  )
+                `)
+                .eq('client_id', context.orgId)
+                .neq('connection_status', 'disconnected');
+          
+          const { data: allConnectionsMetadataData } = await allConnectionsMetadataQuery;
+          
+          const allConnectionsMetadata = new Map<string, { name: string; logoUrl?: string }>();
+          if (allConnectionsMetadataData) {
+            for (const conn of allConnectionsMetadataData as Array<{
+              id: string;
+              client_id?: string;
+              agency_id?: string;
+              organizations: { id: string; name: string | null; logo_url: string | null } | Array<{ id: string; name: string | null; logo_url: string | null }>;
+            }>) {
+              const orgId = context.variant === 'agency'
+                ? (conn as { client_id: string; organizations: { id: string; name: string | null; logo_url: string | null } | Array<{ id: string; name: string | null; logo_url: string | null }> }).client_id
+                : (conn as { agency_id: string; organizations: { id: string; name: string | null; logo_url: string | null } | Array<{ id: string; name: string | null; logo_url: string | null }> }).agency_id;
+              
+              const org = Array.isArray(conn.organizations) ? conn.organizations[0] : conn.organizations;
+              if (org && orgId) {
+                if (!allConnectionsMetadata.has(orgId)) {
+                  allConnectionsMetadata.set(orgId, {
+                    name: org.name || 'Unknown',
+                    logoUrl: org.logo_url || undefined
+                  });
+                }
+              }
+            }
+          }
+          
+          return {
+            tasks: allTasks,
+            total: allTasks.length,
+            unfilteredTotalCount: allTasks.length,
+            cursor: null,
+            hasNextPage: false,
+            loadedConnectionIds: [],
+            allConnectionsMetadata,
+            statusCounts: {
+              to_do: allTasks.filter(t => t.status === 'to_do').length,
+              in_progress: allTasks.filter(t => t.status === 'in_progress').length,
+              on_hold: allTasks.filter(t => t.status === 'on_hold').length,
+              done: allTasks.filter(t => t.status === 'done').length,
+            },
+            totalClientCount: searchResults.totalClients,
+          } as any;
+        })()
+      : // Accordion mode: create empty snapshot with metadata
+        (async () => {
+          // Fetch all connections metadata for client headers
+          const allConnectionsMetadataQuery = context.variant === 'agency'
+            ? supabase
+                .from('connections')
+                .select(`
+                  id,
+                  client_id,
+                  organizations!connections_client_id_fkey (
+                    id,
+                    name,
+                    logo_url
+                  )
+                `)
+                .eq('agency_id', context.orgId)
+                .neq('connection_status', 'disconnected')
+            : supabase
+                .from('connections')
+                .select(`
+                  id,
+                  agency_id,
+                  organizations!connections_agency_id_fkey (
+                    id,
+                    name,
+                    logo_url
+                  )
+                `)
+                .eq('client_id', context.orgId)
+                .neq('connection_status', 'disconnected');
+          
+          const { data: allConnectionsMetadataData } = await allConnectionsMetadataQuery;
+          
+          const allConnectionsMetadata = new Map<string, { name: string; logoUrl?: string }>();
+          if (allConnectionsMetadataData) {
+            for (const conn of allConnectionsMetadataData as Array<{
+              id: string;
+              client_id?: string;
+              agency_id?: string;
+              organizations: { id: string; name: string | null; logo_url: string | null } | Array<{ id: string; name: string | null; logo_url: string | null }>;
+            }>) {
+              const orgId = context.variant === 'agency'
+                ? (conn as { client_id: string; organizations: { id: string; name: string | null; logo_url: string | null } | Array<{ id: string; name: string | null; logo_url: string | null }> }).client_id
+                : (conn as { agency_id: string; organizations: { id: string; name: string | null; logo_url: string | null } | Array<{ id: string; name: string | null; logo_url: string | null }> }).agency_id;
+              
+              const org = Array.isArray(conn.organizations) ? conn.organizations[0] : conn.organizations;
+              if (org && orgId) {
+                if (!allConnectionsMetadata.has(orgId)) {
+                  allConnectionsMetadata.set(orgId, {
+                    name: org.name || 'Unknown',
+                    logoUrl: org.logo_url || undefined
+                  });
+                }
+              }
+            }
+          }
+          
+          return {
+            tasks: [],
+            total: 0,
+            unfilteredTotalCount: 0,
+            cursor: null,
+            hasNextPage: false,
+            loadedConnectionIds: [],
+            allConnectionsMetadata,
+            statusCounts: {},
+            clientCounts: {},
+            totalClientCount: allConnectionsMetadata.size,
+          } as any;
+        })(),
+    allowedConnectionIdsPromise,
+    // Fetch counts for accordion headers
+    // Note: For client view with assignedToMe, clientTeamMemberIds will be handled in TasksContent
+    // We fetch counts without the filter here, TasksContent will refetch with filter if needed
+    getTasksCounts(context, {
+      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+      assignedToUserIds: undefined, // Will be handled in TasksContent for client view
+    }),
   ]);
   console.log(`[Performance] getTasksSnapshot: ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
 
-  // Fetch all independent data in parallel after snapshot (snapshot needed for task IDs)
-  const taskIds = snapshot.tasks.map(t => t.id);
-  const uniqueConnectionIds = [...new Set(snapshot.tasks.map(t => t.connectionId))];
+  // Merge counts into snapshot for accordion mode
+  if (!hasActiveSearch && countsData) {
+    (snapshot as any).statusCounts = countsData.statusCounts;
+    (snapshot as any).clientCounts = countsData.clientCounts;
+  }
+
+  // Fetch all independent data in parallel
+  const taskIds = (snapshot.tasks as any[]).map((t: any) => t.id).filter((id): id is string => typeof id === 'string');
+  const uniqueConnectionIds = [...new Set((snapshot.tasks as any[]).map((t: any) => t.connectionId).filter((id): id is string => typeof id === 'string'))];
   const [
     initialComments,
     agencyMembers,
@@ -67,16 +232,16 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     connections,
     membersByConnection
   ] = await Promise.all([
-    // Comments prefetched for instant modal visibility
+    // Comments prefetched for instant modal visibility (only in search mode)
     taskIds.length > 0 ? getCommentsForTasks(taskIds) : Promise.resolve({}),
-    // Agency members (only for agencies) - kept for backward compatibility
+    // Agency members (only for agencies)
     getAgencyMembersForActiveOrg(context),
     // Client members (only for clients) - for filtering "Assigned to my team"
     getClientMembersForActiveOrg(context),
     // Connections for global task creation
     getConnectionsForGlobalView(context),
     // Members for all connections (both agency and client members per connection)
-    getMembersForAllConnections(context, uniqueConnectionIds)
+    uniqueConnectionIds.length > 0 ? getMembersForAllConnections(context, uniqueConnectionIds as string[]) : Promise.resolve({})
   ]);
 
   console.log(`[Performance] TasksPage TOTAL: ${(performance.now() - pageStartTime).toFixed(2)}ms`);

@@ -50,6 +50,7 @@ interface NewTaskModalProps {
     } | null
     clientVisible?: boolean
     clientVisibilityLocked?: boolean
+    connectionId: string
   }) => void
   onTaskCreated?: (payload: { taskId: string; tempId?: string; connectionId: string }) => void
   connectionId?: string // Optional for global mode
@@ -273,7 +274,8 @@ export function NewTaskModal({
       assigneeUserId,
       assignee: assigneeData,
       clientVisible: isClientMemberAssignee ? true : false,
-      clientVisibilityLocked: isClientMemberAssignee ? true : false
+      clientVisibilityLocked: isClientMemberAssignee ? true : false,
+      connectionId: targetConnectionId
     })
 
     // Fire server action concurrently (void prevents promise leak warnings)
