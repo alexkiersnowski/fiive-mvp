@@ -1,7 +1,7 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
-import { getTasksSnapshot, getAgencyMembersForActiveOrg, getClientMembersForActiveOrg, getConnectionsForGlobalView, getMembersForAllConnections } from '@/features/tasks/server';
+import { getTasksSnapshot, getTasksSnapshotForStatus, getAgencyMembersForActiveOrg, getClientMembersForActiveOrg, getConnectionsForGlobalView, getMembersForAllConnections } from '@/features/tasks/server';
 import { getCommentsForTasks } from '@/features/connections/server';
 import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { TasksContent } from './TasksContent';
@@ -33,13 +33,26 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     : Promise.resolve(null);
 
   const snapshotStartTime = performance.now();
+  
+  // Only fetch initial data for 'to_do' status (first expanded status)
+  // Other statuses will be fetched on-demand when expanded
+  const hasActiveSearch = (resolvedSearchParams.search || '').trim().length > 0;
+  
   const [snapshot, allowedConnectionIds] = await Promise.all([
-    getTasksSnapshot(context, {
-      search: resolvedSearchParams.search || '',
-      limit: 20, // Number of connections to load per page (not tasks)
-      assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-      loadedConnectionIds: [] // Start with empty array for initial load
-    }),
+    hasActiveSearch
+      ? // Search mode: use global snapshot
+        getTasksSnapshot(context, {
+          search: resolvedSearchParams.search || '',
+          limit: 20,
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+        })
+      : // Normal mode: fetch only 'to_do' status
+        getTasksSnapshotForStatus(context, 'to_do', {
+          search: '',
+          offset: 0,
+          limit: 20,
+          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+        }),
     allowedConnectionIdsPromise
   ]);
   console.log(`[Performance] getTasksSnapshot: ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);

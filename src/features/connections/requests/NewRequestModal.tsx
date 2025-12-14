@@ -38,8 +38,9 @@ interface NewRequestModalProps {
     projectId: string | null
     projectName?: string | null
     assigneeUserId: string | null
+    connectionId: string
   }) => void
-  onRequestCreated?: (payload: { requestId: string; tempId?: string }) => void
+  onRequestCreated?: (payload: { requestId: string; tempId?: string; connectionId?: string }) => void
   connectionId?: string // Optional for global mode
   currentOrgId: string
   variant?: 'agency' | 'client'
@@ -160,14 +161,11 @@ export function NewRequestModal({
       return
     }
     
-    // Close modal immediately for snappy UX
-    onClose()
-    
     // Look up project name from projects list
     const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId)
     const projectName = selectedProject ? selectedProject.name : null
     
-    // Emit optimistic row with temp id immediately
+    // Emit optimistic row FIRST (before closing modal) - this ensures state updates happen before modal cleanup
     const tempId = `temp-${Date.now()}`
     onRequestOptimistic?.({
       tempId,
@@ -175,8 +173,12 @@ export function NewRequestModal({
       description,
       projectId: projectId === 'general' ? null : projectId,
       projectName,
-      assigneeUserId
+      assigneeUserId,
+      connectionId: targetConnectionId
     })
+    
+    // THEN close modal (after optimistic update is queued)
+    onClose()
 
     // Fire server action concurrently (void prevents promise leak warnings)
     void createRequest(
@@ -196,7 +198,7 @@ export function NewRequestModal({
           }
           toast.success('Request created successfully')
           // Notify parent with the created id so it can fetch and prepend the row
-          onRequestCreated?.({ requestId: created.id, tempId })
+          onRequestCreated?.({ requestId: created.id, tempId, connectionId: targetConnectionId })
         }
       })
       .catch((error) => {

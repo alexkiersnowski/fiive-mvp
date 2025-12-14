@@ -1,9 +1,10 @@
 'use server'
 
-import { getTasksSnapshot, getTaskByIdGlobal, searchTasksGlobal as searchTasksGlobalServer } from './server';
+import { getTasksSnapshot, getTaskByIdGlobal, searchTasksGlobal as searchTasksGlobalServer, getTasksSnapshotForStatus } from './server';
 import { getCommentsForTask } from '@/features/connections/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { TasksSnapshot, TasksPaginationOptions } from './types';
+import type { TaskStatus } from './taskGrouping';
 
 /**
  * Fetch tasks snapshot (client action wrapper)
@@ -70,5 +71,15 @@ export async function fetchTaskByIdGlobal(
  */
 export async function fetchCommentsForTaskGlobal(taskId: string) {
   return await getCommentsForTask(taskId);
+}
+
+/**
+ * Fetch more tasks for a specific status (status-first pagination)
+ */
+export async function fetchMoreTasksForStatus(
+  context: EnhancedModeContext,
+  options: TasksPaginationOptions & { status: TaskStatus }
+): Promise<TasksSnapshot> {
+  return await getTasksSnapshotForStatus(context, options.status, options);
 }
 

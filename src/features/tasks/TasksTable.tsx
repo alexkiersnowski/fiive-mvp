@@ -14,24 +14,31 @@ import { PaywallModal } from '@/components/ui/paywall-modal'
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateTaskAssignee, updateTaskStatus } from '@/features/connections/tasks/actions'
 import type { Task } from './types'
-import { useVirtualTable, VirtualListBody } from '@/components/virtual-table'
 import type { VirtualItem } from '@tanstack/react-virtual'
 import { dispatchTaskAssignedChanged } from '@/features/home/cards/stats/TasksAssignedCard'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { groupTasksByStatusAndClient, flattenGroupedTasks, type FlattenedItem, type TaskStatus } from './taskGrouping'
 import { StatusGroupHeader } from './StatusGroupHeader'
-import { ClientGroupHeader } from './ClientGroupHeader'
-import { GlobalTaskRow } from './GlobalTaskRow'
+import { StatusGroupVirtualizer } from '@/components/virtual-table/StatusGroupVirtualizer'
+import { TaskBlock } from './TaskBlock'
 import { usePathname } from 'next/navigation'
 import { useStableSet, useStableNestedSet } from './useStableCollapseState'
 import { Skeleton } from '@/components/ui/skeleton'
+import { VIRTUAL_ROW_HEIGHT } from '@/components/virtual-table/constants'
 
 interface TasksTableProps {
   userAvatar?: string
   userInitials?: string
   onTaskClick?: (taskId: string) => void
   onNewTask?: () => void
-  tasks?: Task[]
+  tasks?: Task[] // For search mode or backward compatibility
+  tasksByStatus?: Record<TaskStatus, Task[]> // NEW: Per-status data
+  paginationByStatus?: Record<TaskStatus, {
+    offset: number;
+    hasMore: boolean;
+    isLoading: boolean;
+  }> // NEW: Per-status pagination state (offset-based)
+  fetchedConnectionIdsByStatus?: Record<TaskStatus, string[]> // NEW: Connections fetched per status (for rendering)
   agencyMembers?: Array<{
     id: string
     firstName: string
@@ -53,7 +60,8 @@ interface TasksTableProps {
   }>>
   onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; completedAtRaw?: string | null; createdAtRaw?: string | null }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: VirtualItem[]) => void
+  onLoadMore?: (status: TaskStatus | null, virtualRows?: VirtualItem[]) => void // NEW: Accept status parameter
+  onLoadMoreForStatus?: (status: TaskStatus) => void // NEW: Direct callback for status-specific loading
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -65,9 +73,17 @@ interface TasksTableProps {
   isAgency?: boolean
   onTaskDeleted?: (taskId: string) => void
   allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
+  allConnectionsMetadata?: Map<string, { name: string; logoUrl?: string }> // All connection metadata (for grouping) - RLS ENFORCED
+  statusCounts?: {
+    to_do: number;
+    in_progress: number;
+    on_hold: number;
+    done: number;
+  } // Status-specific counts across ALL connections (from server metadata)
+  totalClientCount?: number // Total unique client count (agnostic to pagination) - for status header
 }
 
-export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, allowedConnectionIds: _allowedConnectionIds = null }: TasksTableProps) {
+export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], tasksByStatus, paginationByStatus, agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onLoadMoreForStatus, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, allowedConnectionIds: _allowedConnectionIds = null, allConnectionsMetadata = new Map(), statusCounts, totalClientCount }: TasksTableProps) {
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   const [searchQuery, setSearchQuery] = useState('')
@@ -424,7 +440,16 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
 
   // Group tasks by status and client (agency view) or agency (client view)
   // Only recomputes when tasks array reference changes (which happens when tasks are added/removed/updated)
-  const { grouped: groupedTasks, allGroups: allClients } = useMemo(() => groupTasksByStatusAndClient(tasks, isAgency), [tasks, isAgency])
+  // allConnectionsMetadata is server-validated and RLS-enforced - only contains connections user has access to
+  // Determine if we're in search mode (using global tasks) or normal mode (using per-status tasks)
+  const isSearchMode = tasks.length > 0 && (!tasksByStatus || Object.values(tasksByStatus).every(arr => arr.length === 0));
+  
+  // Use per-status tasks if available, otherwise fall back to global tasks (search mode)
+  const tasksToGroup = isSearchMode 
+    ? tasks 
+    : (tasksByStatus ? Object.values(tasksByStatus).flat() : []);
+  
+  const { grouped: groupedTasks, allGroups: allClients } = useMemo(() => groupTasksByStatusAndClient(tasksToGroup, allConnectionsMetadata, isAgency), [tasksToGroup, allConnectionsMetadata, isAgency])
   
   // Auto-expand groups that contain search results when search is active
   useEffect(() => {
@@ -452,36 +477,141 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, searchQuery, groupedTasks])
+  }, [tasksToGroup, searchQuery, groupedTasks])
+
+  // Fetch data for expanded status groups on mount/expansion (visibility-based fetching)
+  useEffect(() => {
+    // Skip if in search mode or no callbacks provided
+    if (isSearchMode || !onLoadMoreForStatus || !tasksByStatus || !paginationByStatus) {
+      return;
+    }
+
+    // Only fetch data for expanded status groups
+    const expandedStatuses = (['to_do', 'in_progress', 'on_hold', 'done'] as TaskStatus[])
+      .filter(status => !collapsedStatusesState.set.has(status));
+    
+    expandedStatuses.forEach(status => {
+      const hasData = tasksByStatus[status]?.length > 0;
+      const pagination = paginationByStatus[status];
+      
+      // Simple check: no data, has more, not loading
+      if (!hasData && pagination?.hasMore && !pagination?.isLoading) {
+        onLoadMoreForStatus(status);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsedStatusesState.set, isSearchMode, onLoadMoreForStatus, tasksByStatus, paginationByStatus])
   
-  // Flatten grouped tasks for virtualization
+  // Flatten grouped tasks - returns status groups and client blocks
   // Uses stable collapse state references - only recomputes when:
   // - groupedTasks changes (tasks changed)
   // - allClients changes (new groups added)
   // - collapse state contents actually change (not just reference)
+  // allConnectionsMetadata is passed for security invariant check
   const flattenedItems = useMemo<FlattenedItem[]>(() => {
-    return flattenGroupedTasks(groupedTasks, allClients, collapsedStatusesState.set, collapsedClientsState.map, isAgency)
-  }, [groupedTasks, allClients, collapsedStatusesState.set, collapsedClientsState.map, isAgency])
+    return flattenGroupedTasks(
+      groupedTasks, 
+      allClients, 
+      collapsedStatusesState.set, 
+      collapsedClientsState.map, 
+      allConnectionsMetadata, 
+      fetchedConnectionIdsByStatus || {
+        to_do: [],
+        in_progress: [],
+        on_hold: [],
+        done: [],
+      },
+      isAgency
+    )
+  }, [groupedTasks, allClients, collapsedStatusesState.set, collapsedClientsState.map, allConnectionsMetadata, fetchedConnectionIdsByStatus, isAgency])
+  
+  // Separate status groups and client blocks
+  // CRITICAL: Always ensure we have status groups, even if flattenedItems is empty
+  const statusGroups = useMemo(() => {
+    const groups = flattenedItems.filter((item): item is Extract<FlattenedItem, { type: 'status-group' }> => item.type === 'status-group')
+    // Fallback: if no status groups found, create default ones (should never happen, but safety net)
+    if (groups.length === 0) {
+      const statusOrder: TaskStatus[] = ['in_progress', 'to_do', 'on_hold', 'done']
+      return statusOrder.map(status => ({
+        type: 'status-group' as const,
+        status,
+        count: 0,
+        loadedClientCount: 0
+      }))
+    }
+    return groups
+  }, [flattenedItems])
+  
+  // Get client blocks per status
+  const clientBlocksByStatus = useMemo(() => {
+    const blocks: Record<TaskStatus, Extract<FlattenedItem, { type: 'client-block' }>[]> = {
+      in_progress: [],
+      to_do: [],
+      on_hold: [],
+      done: []
+    }
+    for (const item of flattenedItems) {
+      if (item.type === 'client-block') {
+        blocks[item.status].push(item)
+      }
+    }
+    return blocks
+  }, [flattenedItems])
   
   // Toggle status group collapse/expand - uses stable reference hook
+  // Toggle status group collapse/expand - uses stable reference hook
+  // Fetch data when expanding if not already loaded
   const toggleStatusGroup = useCallback((status: TaskStatus) => {
-    collapsedStatusesState.toggle(status)
-  }, [collapsedStatusesState])
+    const isCurrentlyCollapsed = collapsedStatusesState.set.has(status);
+    collapsedStatusesState.toggle(status);
+    
+    // If expanding and we have loadMoreForStatus callback, check if data needs to be fetched
+    if (isCurrentlyCollapsed && onLoadMoreForStatus && tasksByStatus && paginationByStatus) {
+      const hasData = tasksByStatus[status]?.length > 0;
+      const pagination = paginationByStatus[status];
+      
+      // Simple check: no data, has more, not loading
+      if (!hasData && pagination?.hasMore && !pagination?.isLoading) {
+        onLoadMoreForStatus(status);
+      }
+    }
+  }, [collapsedStatusesState, onLoadMoreForStatus, tasksByStatus, paginationByStatus])
   
   // Toggle client group collapse/expand - uses stable reference hook
   const toggleClientGroup = useCallback((status: TaskStatus, clientId: string) => {
     collapsedClientsState.toggle(status, clientId)
   }, [collapsedClientsState])
 
-  // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
-    items: flattenedItems,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
+  // Handle load more - trigger when any status group's virtualizer reaches end
+  // Handle load more - trigger when any status group's virtualizer reaches end
+  // Pass status context so parent knows which status to paginate
+  const handleLoadMore = useCallback((status: TaskStatus, virtualItems: VirtualItem[]) => {
+    if (onLoadMore) {
+      onLoadMore(status, virtualItems)
+    }
+  }, [onLoadMore])
   
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+  // Estimate size for client blocks (dynamic based on expanded state and task count)
+  // Note: useVirtualizer's estimateSize takes (index) => number, so we need to get the item from the array
+  const estimateClientBlockSize = useCallback((clientBlocks: Extract<FlattenedItem, { type: 'client-block' }>[]) => {
+    return (index: number): number => {
+      const item = clientBlocks[index]
+      if (!item || item.type !== 'client-block') {
+        return VIRTUAL_ROW_HEIGHT
+      }
+      const isExpanded = !collapsedClientsState.get(item.status).has(item.clientId)
+      if (isExpanded) {
+        // Header (44px) + tasks (44px each)
+        return VIRTUAL_ROW_HEIGHT + ((item.tasks?.length || 0) * VIRTUAL_ROW_HEIGHT)
+      }
+      // Just header when collapsed
+      return VIRTUAL_ROW_HEIGHT
+    }
+  }, [collapsedClientsState])
+  
+  // Empty state: only show if we're not bootstrapping AND there are truly no tasks AND no status groups
+  // Status groups should always render (even with 0 tasks) to show the structure
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && statusGroups.length === 0;
 
 
   return (
@@ -591,7 +721,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       {/* Scrollable Table Body Section */}
       <div
         className="w-full overflow-x-auto"
-        ref={containerRef}
         style={{ backgroundColor: 'var(--color-neutral-2)' }}
       >
         <div
@@ -686,110 +815,132 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                 </div>
               ))}
             </div>
-          ) : (
-            <VirtualListBody
-              items={flattenedItems}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-              emptyState={isEmptyState ? (
-                <div 
-                  className="text-left" 
-                  style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
-                >
-                  <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-                    <div className="flex flex-col items-start gap-2">
-                      <h2 className="display-8-medium">Your best work starts here</h2>
-                      <span className="text-sm-regular text-neutral-11">
-                        {isAgency 
-                          ? 'Add action items for your team or client, and choose what stays client-visible.'
-                          : 'Your agency manages all tasks. Submit a request to kick things off or share what you need next.'
-                        }
-                      </span>
-                      </div>
-                    {onNewTask && isAgency && (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-                        onClick={onNewTask}
-                      >
-                        <Plus size={16} weight="regular" />
-                        New task
-                      </Button>
-                    )}
-                  </div>
+          ) : isEmptyState ? (
+            <div 
+              className="text-left" 
+              style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
+            >
+              <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                <div className="flex flex-col items-start gap-2">
+                  <h2 className="display-8-medium">Your best work starts here</h2>
+                  <span className="text-sm-regular text-neutral-11">
+                    {isAgency 
+                      ? 'Add action items for your team or client, and choose what stays client-visible.'
+                      : 'Your agency manages all tasks. Submit a request to kick things off or share what you need next.'
+                    }
+                  </span>
                 </div>
-              ) : undefined}
-              getItemKey={(item) => {
-                if (item.type === 'status-group') {
-                  return `status-${item.status}`
-                }
-                if (item.type === 'client-group') {
-                  return `client-${item.status}-${item.clientId}`
-                }
-                return `task-${item.task.id}`
-              }}
-              renderItem={(item, index) => {
-                if (item.type === 'status-group') {
-                  const isFirstGroup = item.status === 'in_progress'
-                        return (
+                {onNewTask && isAgency && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+                    onClick={onNewTask}
+                  >
+                    <Plus size={16} weight="regular" />
+                    New task
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : statusGroups.length > 0 ? (
+            <div>
+              {statusGroups.map((statusGroup, statusIndex) => {
+                const isExpanded = !collapsedStatusesState.set.has(statusGroup.status)
+                const clientBlocks = clientBlocksByStatus[statusGroup.status]
+                const isFirstGroup = statusIndex === 0
+                
+                return (
+                  <div key={`status-${statusGroup.status}`}>
+                    {/* Status Group Header - NOT virtualized */}
                     <StatusGroupHeader
-                      status={item.status}
-                      count={item.count}
-                      isExpanded={!collapsedStatusesState.set.has(item.status)}
-                      onToggle={() => toggleStatusGroup(item.status)}
+                      status={statusGroup.status}
+                      statusCount={statusCounts?.[statusGroup.status] || 0} // Use metadata count, not derived count
+                      loadedClientCount={totalClientCount} // Show total client count (agnostic to pagination)
+                      isExpanded={isExpanded}
+                      onToggle={() => toggleStatusGroup(statusGroup.status)}
                       isAgency={isAgency}
                       isFirstGroup={isFirstGroup}
                     />
-                  )
-                }
-                if (item.type === 'client-group') {
-                  // Find if this is the first client in this status group
-                  const statusGroupIndex = flattenedItems.findIndex(i => i.type === 'status-group' && i.status === item.status)
-                  const itemsAfterStatusGroup = flattenedItems.slice(statusGroupIndex + 1)
-                  const firstClientGroupIndex = itemsAfterStatusGroup.findIndex(i => i.type === 'client-group' && i.status === item.status)
-                  const isFirstClient = index === statusGroupIndex + 1 + firstClientGroupIndex
-
-                      return (
-                    <ClientGroupHeader
-                      clientId={item.clientId}
-                      clientName={item.clientName}
-                      clientLogoUrl={item.clientLogoUrl}
-                      agencyId={item.agencyId}
-                      agencyName={item.agencyName}
-                      agencyLogoUrl={item.agencyLogoUrl}
-                      count={item.count}
-                      isExpanded={!collapsedClientsState.get(item.status).has(item.clientId)}
-                      onToggle={() => toggleClientGroup(item.status, item.clientId)}
-                      isAgency={isAgency}
-                      isFirstClient={isFirstClient}
-                    />
-                  )
-                }
-                // item.type === 'task'
-                const clientEditableMembers = getClientEditableMembersForTask(item.task.connectionId)
-                return (
-                  <GlobalTaskRow
-                    task={item.task}
-                    isAgency={isAgency}
-                    clientEditableMembers={clientEditableMembers}
-                    comboboxOptions={getComboboxOptionsForTask(item.task.connectionId)}
-                    membersByConnection={membersByConnection}
-                    statusInlineRefs={statusInlineRefs}
-                    onStatusChange={handleStatusChange}
-                    onAssigneeSelect={handleAssigneeSelect}
-                    onClearAssignee={handleClearAssignee}
-                    onRowClick={handleRowClick}
-                    onCopyLink={handleCopyLink}
-                    onDeleteTask={handleDeleteTask}
-                    onContactClick={handleContactClick}
-                    openActionsDropdown={openActionsDropdown}
-                    setOpenActionsDropdown={setOpenActionsDropdown}
-                    baseRoute={baseRoute}
-                  />
+                    
+                    {/* Client Blocks Virtualizer - only render if status group is expanded */}
+                    {isExpanded && clientBlocks.length > 0 && (
+                      <StatusGroupVirtualizer
+                        items={clientBlocks}
+                        onLoadMore={(virtualItems) => handleLoadMore(statusGroup.status, virtualItems)}
+                        parentRef={parentRef}
+                        estimateSize={estimateClientBlockSize(clientBlocks)}
+                        getItemKey={(item, index) => `client-${item.status}-${item.clientId}`}
+                        renderItem={(item, index, virtualRow) => {
+                          const isFirstClient = index === 0
+                          const isExpanded = !collapsedClientsState.get(item.status).has(item.clientId)
+                          
+                          return (
+                            <TaskBlock
+                              status={item.status}
+                              clientId={item.clientId}
+                              clientName={item.clientName}
+                              clientLogoUrl={item.clientLogoUrl}
+                              agencyId={item.agencyId}
+                              agencyName={item.agencyName}
+                              agencyLogoUrl={item.agencyLogoUrl}
+                              tasks={item.tasks}
+                              isExpanded={isExpanded}
+                              onToggle={() => toggleClientGroup(item.status, item.clientId)}
+                              isAgency={isAgency}
+                              isFirstClient={isFirstClient}
+                              getComboboxOptionsForTask={getComboboxOptionsForTask}
+                              getClientEditableMembersForTask={getClientEditableMembersForTask}
+                              membersByConnection={membersByConnection}
+                              statusInlineRefs={statusInlineRefs}
+                              onStatusChange={handleStatusChange}
+                              onAssigneeSelect={handleAssigneeSelect}
+                              onClearAssignee={handleClearAssignee}
+                              onRowClick={handleRowClick}
+                              onCopyLink={handleCopyLink}
+                              onDeleteTask={handleDeleteTask}
+                              onContactClick={handleContactClick}
+                              openActionsDropdown={openActionsDropdown}
+                              setOpenActionsDropdown={setOpenActionsDropdown}
+                              baseRoute={baseRoute}
+                            />
+                          )
+                        }}
+                      />
+                    )}
+                  </div>
                 )
-              }}
-          />
+              })}
+            </div>
+          ) : (
+            // Fallback: render empty state if statusGroups is somehow empty
+            <div 
+              className="text-left" 
+              style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
+            >
+              <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                <div className="flex flex-col items-start gap-2">
+                  <h2 className="display-8-medium">Your best work starts here</h2>
+                  <span className="text-sm-regular text-neutral-11">
+                    {isAgency 
+                      ? 'Add action items for your team or client, and choose what stays client-visible.'
+                      : 'Your agency manages all tasks. Submit a request to kick things off or share what you need next.'
+                    }
+                  </span>
+                </div>
+                {onNewTask && isAgency && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+                    onClick={onNewTask}
+                  >
+                    <Plus size={16} weight="regular" />
+                    New task
+                  </Button>
+                )}
+              </div>
+            </div>
           )}
           </div>
         </div>

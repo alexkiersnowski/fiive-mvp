@@ -6,14 +6,15 @@ import type { TaskStatus } from './taskGrouping'
 
 interface StatusGroupHeaderProps {
   status: TaskStatus
-  count: number
+  statusCount: number // From server metadata (ALL connections) - NEVER derive from rendered data
+  loadedClientCount?: number
   isExpanded: boolean
   onToggle: () => void
   isAgency: boolean
   isFirstGroup?: boolean
 }
 
-export function StatusGroupHeader({ status, count, isExpanded, onToggle, isAgency, isFirstGroup: _isFirstGroup = false }: StatusGroupHeaderProps) {
+export function StatusGroupHeader({ status, statusCount, loadedClientCount, isExpanded, onToggle, isAgency, isFirstGroup: _isFirstGroup = false }: StatusGroupHeaderProps) {
   return (
     <div
       className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]`}
@@ -50,7 +51,12 @@ export function StatusGroupHeader({ status, count, isExpanded, onToggle, isAgenc
           className="flex-shrink-0"
         />
         <span className="text-xs-regular text-[var(--color-base-text-tertiary)]">
-          {count} {count === 1 ? 'task' : 'tasks'}
+          {statusCount} {statusCount === 1 ? 'task' : 'tasks'}
+          {loadedClientCount !== undefined && loadedClientCount > 0 && (
+            <span className="ml-1 text-[var(--color-base-text-tertiary)] opacity-70">
+              (from {loadedClientCount} {loadedClientCount === 1 ? 'client' : 'clients'})
+            </span>
+          )}
         </span>
       </div>
       

@@ -63,19 +63,38 @@ export type TasksSnapshot = {
   tasks: Task[];
   total: number;
   unfilteredTotalCount: number; // Total count without search/filter applied
-  cursor?: string | null;
-  hasNextPage: boolean;
-  // Client-based pagination: track which connections have been loaded
-  loadedConnectionIds?: string[]; // Connection IDs that have been loaded in this snapshot
+  offset: number; // REQUIRED: Server always returns explicit next offset (never optional)
+  hasMore: boolean; // Changed from hasNextPage
+  fetchedConnectionIds: string[]; // REQUIRED for status-specific pagination: Org IDs (groupIds) that were paginated/fetched. Empty array for search mode.
+  // All connection metadata (for grouping) - includes ALL connections user has access to (RLS enforced)
+  allConnectionsMetadata?: Map<string, { name: string; logoUrl?: string }>;
+  // Status-specific counts across ALL connections (not just loaded) - calculated from metadata
+  statusCounts?: {
+    to_do: number;
+    in_progress: number;
+    on_hold: number;
+    done: number;
+  };
+  // Status counts from loaded connections only (for debugging/display)
+  loadedStatusCounts?: {
+    to_do: number;
+    in_progress: number;
+    on_hold: number;
+    done: number;
+  };
+  // Total unique client count (agnostic to pagination) - for status header display
+  totalClientCount?: number; // Total unique clients across ALL connections (e.g., 25)
+  // Which status this snapshot represents (for status-specific pagination)
+  status?: 'to_do' | 'in_progress' | 'on_hold' | 'done';
 };
 
 export type TasksPaginationOptions = {
   search?: string;
-  cursor?: string; // Now represents connection cursor, not task cursor
+  offset?: number; // Changed from cursor - offset into paginated connection list
   limit?: number; // Number of connections to load per page (default: 20)
   assignedToUserId?: string;
   assignedToUserIds?: string[]; // For filtering by multiple user IDs (e.g., all client team members)
-  // Client-based pagination: track which connections have been loaded
-  loadedConnectionIds?: string[]; // Connection IDs already loaded (to avoid duplicates)
+  // Status-specific pagination
+  status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; // Filter by status for status-specific pagination
 };
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/search-input'
@@ -14,22 +14,22 @@ import { toast } from 'sonner'
 import { PaywallModal } from '@/components/ui/paywall-modal'
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateRequestAssignee, updateRequestStatus } from '@/features/connections/requests/actions'
-import type { Request } from './types'
-import { useVirtualTable, VirtualListBody } from '@/components/virtual-table'
-import type { VirtualItem } from '@tanstack/react-virtual'
-import { groupRequestsByStatusAndClient, flattenGroupedRequests, type FlattenedItem, type RequestStatus } from './requestGrouping'
+import type { Request, SearchResults } from './types'
 import { StatusGroupHeader } from './StatusGroupHeader'
 import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalRequestRow } from './GlobalRequestRow'
-import { useStableSet, useStableNestedSet } from './useStableCollapseState'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { RequestStatus } from './requestGrouping'
 
 interface RequestsTableProps {
   userAvatar?: string
   userInitials?: string
   onRequestClick?: (requestId: string) => void
   onNewRequest?: () => void
-  requests?: Request[]
+  requests: Request[] // Flat array of requests (only used in search mode)
+  requestsByClientStatus?: Map<string, Request[]> // Map<`${status}-${clientOrgId}`, Request[]> - accordion cache
+  isLoadingClientStatus?: Map<string, boolean> // Map<`${status}-${clientOrgId}`, boolean> - loading states
+  onFetchClientRequests?: (status: string, clientOrgId: string, forceFetch?: boolean) => void // Fetch-on-expand callback
   agencyMembers?: Array<{
     id: string
     firstName: string
@@ -40,7 +40,7 @@ interface RequestsTableProps {
   }>
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: VirtualItem[]) => void
+  onLoadMore?: () => void // Only used in search mode
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -52,29 +52,37 @@ interface RequestsTableProps {
   isAgency?: boolean
   onRequestDeleted?: (requestId: string) => void
   onConvertToTask?: (request: Request) => void
-  allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
+  allowedConnectionIds?: string[] | null
+  allConnectionsMetadata?: Map<string, { name: string; logoUrl?: string }>
+  statusCounts: Map<string, number> // From metadata fetch
+  clientCounts: Map<string, number> // From metadata fetch (clientOrgId -> count, keyed by `${status}-${clientOrgId}`)
+  collapsedStatuses: Set<string> // Client-side collapse state
+  collapsedClients: Map<string, Set<string>> // Map<status, Set<clientOrgId>>
+  onToggleStatus: (status: string) => void // Simple state update
+  onToggleClient: (status: string, clientOrgId: string) => void // Simple state update
+  hasOptimisticData?: (cacheKey: string) => boolean // Check if cache key has optimistic data
+  searchQuery?: string // Optional search query for client-side filtering (browse mode)
+  searchResults?: SearchResults | null // Server-side search results (search mode)
+  isSearching?: boolean // Search loading state
+  assignedFilterResults?: SearchResults | null // Server-side assigned filter results (assigned filter mode)
+  isLoadingAssignedFilter?: boolean // Assigned filter loading state
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, allowedConnectionIds: _allowedConnectionIds = null }: RequestsTableProps) {
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests, requestsByClientStatus = new Map(), isLoadingClientStatus = new Map(), onFetchClientRequests, agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, allowedConnectionIds: _allowedConnectionIds = null, allConnectionsMetadata = new Map(), statusCounts, clientCounts, collapsedStatuses, collapsedClients, onToggleStatus, onToggleClient, hasOptimisticData, searchQuery: searchQueryProp, searchResults, isSearching = false, assignedFilterResults, isLoadingAssignedFilter = false }: RequestsTableProps) {
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
-  const [searchQuery, setSearchQuery] = useState('')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
   // Paywall modal state
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
-  
-  // Track collapsed groups with stable references
-  // Default: 'closed' and 'canceled' status groups collapsed
-  const collapsedStatusesState = useStableSet<RequestStatus>(new Set(['closed', 'canceled']))
-  // Track collapsed client groups per status: Map<status, Set<clientId>>
-  const collapsedClientsState = useStableNestedSet<RequestStatus>(new Map())
   
   const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
   const isMutingStatus = useRef(false)
+  
+  // Auto-expand refs removed - no longer needed with server-side search mode
   
   // Profile Card state
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -91,8 +99,25 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     };
   } | null>(null)
 
-  // Use total count from database, fallback to displayed requests count if not provided
-  const requestCount = totalCount !== undefined ? totalCount : requests.length
+  // Calculate total request count from statusCounts (sum of all statuses)
+  // This gives us the accurate total across all connections, regardless of what's loaded
+  // In search mode, use the count from search results instead
+  const requestCount = useMemo(() => {
+    // If in search mode, calculate count from search results
+    if (searchResults) {
+      return searchResults.clients.reduce((sum, client) => sum + client.requests.length, 0);
+    }
+    // If in assigned filter mode, calculate count from assigned filter results
+    if (assignedFilterResults) {
+      return assignedFilterResults.clients.reduce((sum, client) => sum + client.requests.length, 0);
+    }
+    // Otherwise, use accordion mode: sum all status counts
+    let total = 0;
+    for (const count of statusCounts.values()) {
+      total += typeof count === 'number' ? count : 0;
+    }
+    return total;
+  }, [statusCounts, searchResults, assignedFilterResults])
   
   // Transform agency members to combobox options (memoized to prevent recreation)
   const comboboxOptions = useMemo(() => 
@@ -294,72 +319,75 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     onRequestDeleted?.(requestId)
   }
 
-  // Group requests by status and client (agency view) or agency (client view)
-  // Only recomputes when requests array reference changes (which happens when requests are added/removed/updated)
-  const { grouped: groupedRequests, allGroups: allClients } = useMemo(() => groupRequestsByStatusAndClient(requests, isAgency), [requests, isAgency])
-  
-  // Auto-expand groups that contain search results when search is active
-  // Note: 'closed' and 'canceled' status groups always stay collapsed
-  useEffect(() => {
-    // Only auto-expand if there's an active search query
-    if (searchQuery.trim().length === 0) {
-      return
+  // Status order for accordion rendering
+  const statusOrder: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
+
+  // Build client groups by status from allConnectionsMetadata
+  // This gives us all client headers even if requests aren't loaded yet
+  // Filter by search query if provided (client-side filtering)
+  const clientGroupsByStatus = useMemo(() => {
+    const groups: Record<string, Array<{ orgId: string; name: string; logoUrl?: string }>> = {
+      new: [],
+      in_review: [],
+      accepted: [],
+      closed: [],
+      canceled: [],
     }
 
-    // Expand all status groups that have requests (except 'closed' and 'canceled')
-    for (const status of Object.keys(groupedRequests) as RequestStatus[]) {
-      // Skip 'closed' and 'canceled' - they always stay collapsed
-      if (status === 'closed' || status === 'canceled') {
-        continue
-      }
-      
-      const clientGroups = groupedRequests[status]
-      const hasRequests = Object.values(clientGroups).some(requests => requests.length > 0)
-      
-      if (hasRequests) {
-        // Remove from collapsed set (expand the group)
-        collapsedStatusesState.remove(status)
-        
-        // Expand all client groups within this status that have requests
-        for (const [clientId, clientRequests] of Object.entries(clientGroups)) {
-          if (clientRequests.length > 0) {
-            // Remove from collapsed set (expand the client group)
-            collapsedClientsState.remove(status, clientId)
-          }
-        }
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requests, searchQuery, groupedRequests])
-  
-  // Flatten grouped requests for virtualization
-  // Uses stable collapse state references - only recomputes when:
-  // - groupedRequests changes (requests changed)
-  // - allClients changes (new groups added)
-  // - collapse state contents actually change (not just reference)
-  const flattenedItems = useMemo<FlattenedItem[]>(() => {
-    return flattenGroupedRequests(groupedRequests, allClients, collapsedStatusesState.set, collapsedClientsState.map, isAgency)
-  }, [groupedRequests, allClients, collapsedStatusesState.set, collapsedClientsState.map, isAgency])
-  
-  // Toggle status group collapse/expand - uses stable reference hook
-  const toggleStatusGroup = useCallback((status: RequestStatus) => {
-    collapsedStatusesState.toggle(status)
-  }, [collapsedStatusesState])
-  
-  // Toggle client group collapse/expand - uses stable reference hook
-  const toggleClientGroup = useCallback((status: RequestStatus, clientId: string) => {
-    collapsedClientsState.toggle(status, clientId)
-  }, [collapsedClientsState])
+    // Get all unique client orgs from metadata
+    let clientOrgs = Array.from(allConnectionsMetadata.entries())
+      .map(([orgId, metadata]) => ({
+        orgId,
+        name: metadata.name,
+        logoUrl: metadata.logoUrl,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
-  // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd: _isNearEnd } = useVirtualTable({
-    items: flattenedItems,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
+    // Filter by search query if provided (client-side filtering for browse mode only)
+    // In search mode (searchResults !== null), server handles filtering
+    if (searchQueryProp && searchQueryProp.trim().length > 0 && searchResults === null) {
+      const searchLower = searchQueryProp.trim().toLowerCase()
+      clientOrgs = clientOrgs.filter(client => 
+        client.name.toLowerCase().includes(searchLower)
+      )
+    }
+
+    // Add all clients to all status groups (they'll show counts from clientCounts)
+    for (const status of statusOrder) {
+      groups[status] = clientOrgs
+    }
+
+    return groups
+  }, [allConnectionsMetadata, searchQueryProp, searchResults])
+
+  // Auto-expand logic removed - using server-side search mode instead
+  // Search mode handles expansion automatically with pre-loaded data
+
+  // No search mode rendering - always use accordion mode
   
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+  // Empty state: only show if we're not bootstrapping AND there are truly no requests
+  // In accordion mode, always show headers (even with 0 counts) so users can see the structure
+  // Show empty state if search is active but no clients match the search query
+  const hasMatchingClients = useMemo(() => {
+    if (!searchQueryProp || searchQueryProp.trim().length === 0) return true
+    // Check if any status group has matching clients
+    return Object.values(clientGroupsByStatus).some(clients => clients.length > 0)
+  }, [searchQueryProp, clientGroupsByStatus])
+  
+  const isEmptyState = !isBootstrapping && 
+    searchQueryProp && 
+    searchQueryProp.trim().length > 0 &&
+    !hasMatchingClients;
+
+  // Determine render mode priority:
+  // 1. Search Mode (only if we have search results OR actively searching with a query)
+  // 2. Assigned Filter Mode (only if we have filter results OR actively loading with filter enabled)
+  // 3. Browse Mode (default)
+  // Only show skeleton if actively searching AND we don't have results yet
+  // Don't show skeleton when transitioning back to browse mode
+  const hasActiveSearchQuery = (searchQueryProp || '').trim().length > 0;
+  const isSearchMode = searchResults !== null || (isSearching && hasActiveSearchQuery);
+  const isAssignedFilterMode = assignedFilterResults !== null || (isLoadingAssignedFilter && assignedToMe);
 
   return (
     <div className="w-full min-w-0">
@@ -387,10 +415,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-3">
                 <SearchInput
-                  placeholder="Search requests by client or title…"
-                  value={searchQuery}
+                  placeholder="Search requests by client…"
+                  value={searchQueryProp || ''}
                   onChange={(value) => {
-                    setSearchQuery(value)
                     onSearchChange?.(value)
                   }}
                   count={requestCount}
@@ -468,7 +495,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       {/* Scrollable Table Body Section */}
       <div
         className="w-full overflow-x-auto"
-        ref={containerRef}
         style={{ backgroundColor: 'var(--color-neutral-2)' }}
       >
         <div
@@ -568,109 +594,572 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 </div>
               ))}
             </div>
-          ) : (
-            <VirtualListBody
-              items={flattenedItems}
-              virtualItems={virtualItems}
-              rowVirtualizer={rowVirtualizer}
-              emptyState={isEmptyState ? (
-                <div 
-                  className="text-left" 
-                  style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
-                >
-                  <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-                    <div className="flex flex-col items-start gap-2">
-                      <h2 className="display-8-medium">Your best work starts here</h2>
-                      <span className="text-sm-regular text-neutral-11">
-                        {isAgency 
-                          ? 'Clients can submit requests from their portal, or you can add one for them.'
-                          : 'Ask questions, share updates, or request new work directly from your agency.'
-                        }
-                      </span>
-                      </div>
-                    {onNewRequest && (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-                        onClick={onNewRequest}
-                      >
-                        <Plus size={16} weight="regular" />
-                        {isAgency ? 'New request' : 'Submit request'}
-                      </Button>
-                    )}
+          ) : isSearchMode ? (
+            // Search Mode: Server-side search with atomic results
+            <div className="space-y-0">
+              {isSearching && hasActiveSearchQuery && searchResults === null ? (
+                // Loading state: Show skeleton only if we have active search query and no results yet
+                <div className="space-y-0">
+                  {/* Status Group Skeleton */}
+                  <div
+                    className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-12 h-5 rounded" />
+                      <Skeleton className="w-16 h-4 rounded" />
+                    </div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
                   </div>
+                  {/* Client Group + Request Row Skeletons - repeatable pattern (3 clients, 4 rows each) */}
+                  {[1, 2, 3].map((clientIndex) => (
+                    <div key={clientIndex}>
+                      {/* Client Group Skeleton */}
+                      <div
+                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                        style={{
+                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                        }}
+                      >
+                        <div className="flex items-center justify-center">
+                          <Skeleton className="w-3 h-3" />
+                        </div>
+                        <div className="flex items-center gap-3 px-3">
+                          <Skeleton className="w-5 h-5 rounded-full" />
+                          <Skeleton className="w-24 h-4 rounded" />
+                          <Skeleton className="w-12 h-4 rounded" />
+                        </div>
+                        {/* Empty cells to match grid structure */}
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div></div>
+                      </div>
+                      {/* Request Row Skeletons - 4 per client group */}
+                      {[1, 2, 3, 4].map((requestIndex) => (
+                        <div
+                          key={`${clientIndex}-${requestIndex}`}
+                          className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                          style={{
+                            gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                          }}
+                        >
+                          {/* Empty drag handle cell */}
+                          <div></div>
+                          {/* Title */}
+                          <div className="px-3">
+                            <Skeleton className="w-32 h-4 rounded" />
+                          </div>
+                          {/* Status */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          {/* Assignee */}
+                          <div className="px-3">
+                            <Skeleton className="w-16 h-4 rounded" />
+                          </div>
+                          {/* Project */}
+                          <div className="px-3">
+                            <Skeleton className="w-24 h-4 rounded" />
+                          </div>
+                          {/* Created */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          <div></div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
-              ) : undefined}
-              getItemKey={(item) => {
-                if (item.type === 'status-group') {
-                  return `status-${item.status}`
-                }
-                if (item.type === 'client-group') {
-                  return `client-${item.status}-${item.clientId}`
-                }
-                return `request-${item.request.id}`
-              }}
-              renderItem={(item, index) => {
-                if (item.type === 'status-group') {
-                  const isFirstGroup = item.status === 'new'
-                  return (
-                    <StatusGroupHeader
-                      status={item.status}
-                      count={item.count}
-                      isExpanded={!collapsedStatusesState.set.has(item.status)}
-                      onToggle={() => toggleStatusGroup(item.status)}
-                      isAgency={isAgency}
-                      isFirstGroup={isFirstGroup}
-                    />
-                  )
-                }
-                if (item.type === 'client-group') {
-                  // Find if this is the first client in this status group
-                  const statusGroupIndex = flattenedItems.findIndex(i => i.type === 'status-group' && i.status === item.status)
-                  const itemsAfterStatusGroup = flattenedItems.slice(statusGroupIndex + 1)
-                  const firstClientGroupIndex = itemsAfterStatusGroup.findIndex(i => i.type === 'client-group' && i.status === item.status)
-                  const isFirstClient = index === statusGroupIndex + 1 + firstClientGroupIndex
+              ) : searchResults ? (
+                // Search results: Render accordion structure with pre-loaded data
+                // Always show all status headers, even with 0 results
+                statusOrder.map((status) => {
+                  // Filter clients that have requests in this status
+                  const clientsInStatus = searchResults.clients.filter((client: SearchResults['clients'][0]) => 
+                    client.requests.some((req: Request) => req.status === status)
+                  );
 
+                  // Calculate status count from search results
+                  const statusCount = searchResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
+                    sum + client.requests.filter((req: Request) => req.status === status).length, 0
+                  );
+
+                  // Always render status header, even if count is 0
                   return (
-                    <ClientGroupHeader
-                      clientId={item.clientId}
-                      clientName={item.clientName}
-                      clientLogoUrl={item.clientLogoUrl}
-                      agencyId={item.agencyId}
-                      agencyName={item.agencyName}
-                      agencyLogoUrl={item.agencyLogoUrl}
-                      count={item.count}
-                      isExpanded={!collapsedClientsState.get(item.status).has(item.clientId)}
-                      onToggle={() => toggleClientGroup(item.status, item.clientId)}
-                      isAgency={isAgency}
-                      isFirstClient={isFirstClient}
-                    />
-                  )
-                }
-                // item.type === 'request'
+                    <React.Fragment key={status}>
+                      <StatusGroupHeader
+                        status={status}
+                        statusCount={statusCount}
+                        isCollapsed={collapsedStatuses.has(status)}
+                        onToggle={() => onToggleStatus(status)}
+                      />
+                      {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
+                        // Filter requests for this status
+                        const requestsInStatus = clientResult.requests.filter((req: Request) => req.status === status);
+                        
+                        if (requestsInStatus.length === 0) {
+                          return null;
+                        }
+
+                        // Check if this client is collapsed in search mode
+                        // Set tracks expanded clients, so if NOT in Set, it's collapsed
+                        // Default to expanded (all clients should be in Set), but allow toggling
+                        const isClientCollapsed = !collapsedClients.get(status)?.has(clientResult.client_id);
+
+                        return (
+                          <React.Fragment key={clientResult.client_id}>
+                            <ClientGroupHeader
+                              clientId={clientResult.client_id}
+                              clientName={isAgency ? clientResult.client_name : undefined}
+                              clientLogoUrl={isAgency ? clientResult.client_logo_url : undefined}
+                              agencyId={!isAgency ? clientResult.client_id : undefined}
+                              agencyName={!isAgency ? clientResult.client_name : undefined}
+                              agencyLogoUrl={!isAgency ? clientResult.client_logo_url : undefined}
+                              count={requestsInStatus.length}
+                              isCollapsed={isClientCollapsed}
+                              onToggle={() => onToggleClient(status, clientResult.client_id)}
+                              isAgency={isAgency}
+                            />
+                            {/* Render all requests - data is pre-loaded, only when expanded */}
+                            {!isClientCollapsed && requestsInStatus.map((request: Request) => (
+                              <GlobalRequestRow
+                                key={request.id}
+                                request={request}
+                                isAgency={isAgency}
+                                comboboxOptions={comboboxOptions}
+                                agencyMembers={agencyMembers}
+                                statusInlineRefs={statusInlineRefs}
+                                onStatusChange={handleStatusChange}
+                                onAssigneeSelect={handleAssigneeSelect}
+                                onClearAssignee={handleClearAssignee}
+                                onRowClick={handleRowClick}
+                                onCopyLink={handleCopyLink}
+                                onDeleteRequest={handleDeleteRequest}
+                                onContactClick={handleContactClick}
+                                openActionsDropdown={openActionsDropdown}
+                                setOpenActionsDropdown={setOpenActionsDropdown}
+                                currentOrgId={currentOrgId}
+                                onConvertToTask={onConvertToTask}
+                              />
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })
+              ) : null}
+            </div>
+          ) : isAssignedFilterMode ? (
+            // Assigned Filter Mode: Server-side filter with atomic results
+            <div className="space-y-0">
+              {isLoadingAssignedFilter || (assignedToMe && !assignedFilterResults) ? (
+                // Loading state: Show skeleton while loading OR when assignedToMe is true but no results yet
+                <div className="space-y-0">
+                  {/* Status Group Skeleton */}
+                  <div
+                    className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-12 h-5 rounded" />
+                      <Skeleton className="w-16 h-4 rounded" />
+                    </div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Client Group + Request Row Skeletons - repeatable pattern (3 clients, 4 rows each) */}
+                  {[1, 2, 3].map((clientIndex) => (
+                    <div key={clientIndex}>
+                      {/* Client Group Skeleton */}
+                      <div
+                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                        style={{
+                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                        }}
+                      >
+                        <div className="flex items-center justify-center">
+                          <Skeleton className="w-3 h-3" />
+                        </div>
+                        <div className="flex items-center gap-3 px-3">
+                          <Skeleton className="w-5 h-5 rounded-full" />
+                          <Skeleton className="w-24 h-4 rounded" />
+                          <Skeleton className="w-12 h-4 rounded" />
+                        </div>
+                        {/* Empty cells to match grid structure */}
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div></div>
+                      </div>
+                      {/* Request Row Skeletons - 4 per client group */}
+                      {[1, 2, 3, 4].map((requestIndex) => (
+                        <div
+                          key={`${clientIndex}-${requestIndex}`}
+                          className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                          style={{
+                            gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                          }}
+                        >
+                          {/* Empty drag handle cell */}
+                          <div></div>
+                          {/* Title */}
+                          <div className="px-3">
+                            <Skeleton className="w-32 h-4 rounded" />
+                          </div>
+                          {/* Status */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          {/* Assignee */}
+                          <div className="px-3">
+                            <Skeleton className="w-16 h-4 rounded" />
+                          </div>
+                          {/* Project */}
+                          <div className="px-3">
+                            <Skeleton className="w-24 h-4 rounded" />
+                          </div>
+                          {/* Created */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          <div></div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : assignedFilterResults ? (
+                // Assigned filter results: Render accordion structure with pre-loaded data
+                // Always show all status headers, even with 0 results
+                statusOrder.map((status) => {
+                  // Filter clients that have requests in this status
+                  const clientsInStatus = assignedFilterResults.clients.filter((client: SearchResults['clients'][0]) => 
+                    client.requests.some((req: Request) => req.status === status)
+                  );
+
+                  // Calculate status count from assigned filter results
+                  const statusCount = assignedFilterResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
+                    sum + client.requests.filter((req: Request) => req.status === status).length, 0
+                  );
+
+                  // Always render status header, even if count is 0
+                  return (
+                    <React.Fragment key={status}>
+                      <StatusGroupHeader
+                        status={status}
+                        statusCount={statusCount}
+                        isCollapsed={collapsedStatuses.has(status)}
+                        onToggle={() => onToggleStatus(status)}
+                      />
+                      {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
+                        // Filter requests for this status
+                        const requestsInStatus = clientResult.requests.filter((req: Request) => req.status === status);
+                        
+                        if (requestsInStatus.length === 0) {
+                          return null;
+                        }
+
+                        // Check if this client is collapsed in assigned filter mode
+                        // Set tracks expanded clients, so if NOT in Set, it's collapsed
+                        // Default to expanded (all clients should be in Set), but allow toggling
+                        const isClientCollapsed = !collapsedClients.get(status)?.has(clientResult.client_id);
+
+                        return (
+                          <React.Fragment key={clientResult.client_id}>
+                            <ClientGroupHeader
+                              clientId={clientResult.client_id}
+                              clientName={isAgency ? clientResult.client_name : undefined}
+                              clientLogoUrl={isAgency ? clientResult.client_logo_url : undefined}
+                              agencyId={!isAgency ? clientResult.client_id : undefined}
+                              agencyName={!isAgency ? clientResult.client_name : undefined}
+                              agencyLogoUrl={!isAgency ? clientResult.client_logo_url : undefined}
+                              count={requestsInStatus.length}
+                              isCollapsed={isClientCollapsed}
+                              onToggle={() => onToggleClient(status, clientResult.client_id)}
+                              isAgency={isAgency}
+                            />
+                            {/* Render all requests - data is pre-loaded, only when expanded */}
+                            {!isClientCollapsed && requestsInStatus.map((request: Request) => (
+                              <GlobalRequestRow
+                                key={request.id}
+                                request={request}
+                                isAgency={isAgency}
+                                comboboxOptions={comboboxOptions}
+                                agencyMembers={agencyMembers}
+                                statusInlineRefs={statusInlineRefs}
+                                onStatusChange={handleStatusChange}
+                                onAssigneeSelect={handleAssigneeSelect}
+                                onClearAssignee={handleClearAssignee}
+                                onRowClick={handleRowClick}
+                                onCopyLink={handleCopyLink}
+                                onDeleteRequest={handleDeleteRequest}
+                                onContactClick={handleContactClick}
+                                openActionsDropdown={openActionsDropdown}
+                                setOpenActionsDropdown={setOpenActionsDropdown}
+                                currentOrgId={currentOrgId}
+                                onConvertToTask={onConvertToTask}
+                              />
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })
+              ) : null}
+            </div>
+          ) : isEmptyState ? (
+            <div 
+              className="text-left" 
+              style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
+            >
+              <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                <div className="flex flex-col items-start gap-2">
+                  <h2 className="display-8-medium">Your best work starts here</h2>
+                  <span className="text-sm-regular text-neutral-11">
+                    {isAgency 
+                      ? 'Clients can submit requests from their portal, or you can add one for them.'
+                      : 'Ask questions, share updates, or request new work directly from your agency.'
+                    }
+                  </span>
+                </div>
+                {onNewRequest && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+                    onClick={onNewRequest}
+                  >
+                    <Plus size={16} weight="regular" />
+                    {isAgency ? 'New request' : 'Submit request'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
+            // Accordion mode: direct hierarchical rendering
+            // Always show status headers, even if counts are 0 or clients list is empty
+            <div className="space-y-0">
+              {statusOrder.map((status) => {
+                const isStatusCollapsed = collapsedStatuses.has(status)
+                const statusCount = statusCounts.get(status) ?? 0
+                const clients = clientGroupsByStatus[status] || []
+                
+                // Always render status header, even if count is 0
                 return (
-                  <GlobalRequestRow
-                    request={item.request}
-                    isAgency={isAgency}
-                    comboboxOptions={comboboxOptions}
-                    agencyMembers={agencyMembers}
-                    statusInlineRefs={statusInlineRefs}
-                    onStatusChange={handleStatusChange}
-                    onAssigneeSelect={handleAssigneeSelect}
-                    onClearAssignee={handleClearAssignee}
-                    onRowClick={handleRowClick}
-                    onCopyLink={handleCopyLink}
-                    onDeleteRequest={handleDeleteRequest}
-                    onContactClick={handleContactClick}
-                    openActionsDropdown={openActionsDropdown}
-                    setOpenActionsDropdown={setOpenActionsDropdown}
-                    currentOrgId={currentOrgId}
-                    onConvertToTask={onConvertToTask}
-                  />
+                  <React.Fragment key={status}>
+                    <StatusGroupHeader
+                      status={status}
+                      statusCount={statusCount}
+                      isCollapsed={isStatusCollapsed}
+                      onToggle={() => onToggleStatus(status)}
+                    />
+                    {!isStatusCollapsed && clients.length > 0 && clients.map((client) => {
+                      const cacheKey = `${status}-${client.orgId}`
+                      // Client is expanded if it's in the Set, collapsed otherwise (default to collapsed)
+                      const isClientCollapsed = !collapsedClients.get(status)?.has(client.orgId)
+                      
+                      // 1. Get the raw value. DO NOT default to [].
+                      // If this returns undefined, it means we haven't fetched it yet.
+                      const clientRequests = requestsByClientStatus.get(cacheKey)
+                      
+                      const isLoading = isLoadingClientStatus.get(cacheKey) || false
+                      const knownCount = clientCounts.get(cacheKey) ?? 0
+                      
+                      // 2. Derive the state
+                      const isExpanded = !isClientCollapsed
+                      const hasData = clientRequests !== undefined
+                      const isEmpty = hasData && clientRequests.length === 0
+                      
+                      // Separate optimistic requests from real requests if we have data
+                      const optimisticRequests = hasData ? clientRequests.filter(r => r.id.startsWith('temp-')) : []
+                      const realRequests = hasData ? clientRequests.filter(r => !r.id.startsWith('temp-')) : []
+                      
+                      return (
+                        <React.Fragment key={client.orgId}>
+                          <ClientGroupHeader
+                            clientId={client.orgId}
+                            clientName={isAgency ? client.name : undefined}
+                            clientLogoUrl={isAgency ? client.logoUrl : undefined}
+                            agencyId={!isAgency ? client.orgId : undefined}
+                            agencyName={!isAgency ? client.name : undefined}
+                            agencyLogoUrl={!isAgency ? client.logoUrl : undefined}
+                            count={knownCount}
+                            isCollapsed={isClientCollapsed}
+                            onToggle={() => {
+                              const wasCollapsed = isClientCollapsed
+                              onToggleClient(status, client.orgId)
+                              // Fetch if expanding (was collapsed, now will be expanded)
+                              // Always fetch if we haven't fetched yet (undefined) OR cache is incomplete
+                              if (wasCollapsed && !isLoading && onFetchClientRequests) {
+                                const cacheKey = `${status}-${client.orgId}`
+                                const hasOptimistic = hasOptimisticData?.(cacheKey) ?? false
+                                const expectedCount = knownCount
+                                const cachedCount = hasData ? clientRequests.length : 0
+                                
+                                // Fetch if: haven't fetched yet OR optimistic data exists OR cache is incomplete
+                                if (!hasData || hasOptimistic || cachedCount < expectedCount) {
+                                  onFetchClientRequests(status, client.orgId)
+                                }
+                              }
+                            }}
+                            isAgency={isAgency}
+                          />
+                          {isExpanded && (
+                            <>
+                              {/* CASE 1: We have never fetched this OR we have optimistic requests but no real data yet.
+                                  Show optimistic requests (if any) above the skeleton. */}
+                              {(!hasData || (hasData && optimisticRequests.length > 0 && realRequests.length === 0 && isLoading)) && (
+                                <>
+                                  {/* Render optimistic requests FIRST (at the top) if they exist */}
+                                  {optimisticRequests.map((request) => (
+                                    <GlobalRequestRow
+                                      key={request.id}
+                                      request={request}
+                                      isAgency={isAgency}
+                                      comboboxOptions={comboboxOptions}
+                                      agencyMembers={agencyMembers}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteRequest={handleDeleteRequest}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      currentOrgId={currentOrgId}
+                                      onConvertToTask={onConvertToTask}
+                                    />
+                                  ))}
+                                  
+                                  {/* Show skeleton while loading (existing skeleton logic) */}
+                                  <div className="space-y-0">
+                                    {[1, 2, 3].map((i) => (
+                                      <div
+                                        key={i}
+                                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                                        style={{
+                                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                                        }}
+                                      >
+                                        <div></div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-32 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-20 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-16 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-24 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-20 h-4 rounded" />
+                                        </div>
+                                        <div></div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                              
+                              {/* CASE 2: We fetched, and it's truly empty (no optimistic requests either). */}
+                              {hasData && isEmpty && optimisticRequests.length === 0 && (
+                                <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
+                                  No requests found
+                                </div>
+                              )}
+                              
+                              {/* CASE 3: We have data (optimistic or real). Render optimistic requests first, then real requests. */}
+                              {hasData && !isEmpty && !(optimisticRequests.length > 0 && realRequests.length === 0 && isLoading) && (
+                                <>
+                                  {/* Render optimistic requests FIRST (at the top) */}
+                                  {optimisticRequests.map((request) => (
+                                    <GlobalRequestRow
+                                      key={request.id}
+                                      request={request}
+                                      isAgency={isAgency}
+                                      comboboxOptions={comboboxOptions}
+                                      agencyMembers={agencyMembers}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteRequest={handleDeleteRequest}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      currentOrgId={currentOrgId}
+                                      onConvertToTask={onConvertToTask}
+                                    />
+                                  ))}
+                                  
+                                  {/* Render real requests (below optimistic) */}
+                                  {realRequests.map((request) => (
+                                    <GlobalRequestRow
+                                      key={request.id}
+                                      request={request}
+                                      isAgency={isAgency}
+                                      comboboxOptions={comboboxOptions}
+                                      agencyMembers={agencyMembers}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteRequest={handleDeleteRequest}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      currentOrgId={currentOrgId}
+                                      onConvertToTask={onConvertToTask}
+                                    />
+                                  ))}
+                                </>
+                              )}
+                            </>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                    {!isStatusCollapsed && clients.length === 0 && (
+                      <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
+                        No clients found
+                      </div>
+                    )}
+                  </React.Fragment>
                 )
-              }}
-            />
+              })}
+            </div>
           )}
           </div>
         </div>

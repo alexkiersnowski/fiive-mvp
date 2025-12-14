@@ -6,17 +6,15 @@ import type { RequestStatus } from './requestGrouping'
 
 interface StatusGroupHeaderProps {
   status: RequestStatus
-  count: number
-  isExpanded: boolean
+  statusCount: number | string // From metadata fetch
+  isCollapsed: boolean
   onToggle: () => void
-  isAgency: boolean
-  isFirstGroup?: boolean
 }
 
-export function StatusGroupHeader({ status, count, isExpanded, onToggle, isAgency, isFirstGroup: _isFirstGroup = false }: StatusGroupHeaderProps) {
+export function StatusGroupHeader({ status, statusCount, isCollapsed, onToggle }: StatusGroupHeaderProps) {
   return (
     <div
-      className={`bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]`}
+      className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]"
       style={{
         gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
         height: '44px',
@@ -33,7 +31,7 @@ export function StatusGroupHeader({ status, count, isExpanded, onToggle, isAgenc
           weight="fill"
           style={{
             color: 'var(--color-base-text-tertiary)',
-            transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
             transition: 'transform 0.2s ease'
           }}
         />
@@ -45,11 +43,10 @@ export function StatusGroupHeader({ status, count, isExpanded, onToggle, isAgenc
           variant={status}
           size="sm"
           showText={true}
-          customLabel={status === 'new' && !isAgency ? 'Submitted' : undefined}
           className="flex-shrink-0"
         />
         <span className="text-xs-regular text-[var(--color-base-text-tertiary)]">
-          {count} {count === 1 ? 'request' : 'requests'}
+          {statusCount} {typeof statusCount === 'number' && statusCount === 1 ? 'request' : 'requests'}
         </span>
       </div>
       

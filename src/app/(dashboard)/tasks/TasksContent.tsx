@@ -7,7 +7,8 @@ import TasksTable from '@/features/tasks/TasksTable';
 import { TasksHeader } from '@/features/tasks/TasksHeader';
 import { TaskDetailModal } from '@/features/connections/tasks/TaskDetailModal';
 import { NewTaskModal } from '@/features/connections/tasks/NewTaskModal';
-import { fetchMoreTasks, refreshTasksData, fetchTaskByIdGlobal, fetchCommentsForTaskGlobal, searchTasksGlobal } from '@/features/tasks/actions';
+import { fetchMoreTasks, refreshTasksData, fetchTaskByIdGlobal, fetchCommentsForTaskGlobal, searchTasksGlobal, fetchMoreTasksForStatus } from '@/features/tasks/actions';
+import type { TaskStatus } from '@/features/tasks/taskGrouping';
 import { fetchProjectsForConnection } from '@/features/connections/tasks/actions';
 import { PaywallModal } from '@/components/ui/paywall-modal';
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
@@ -79,12 +80,52 @@ export function TasksContent({
   })()
   const [assignedToMe, setAssignedToMe] = useState(initiallyAssigned);
   
-  const [tasks, setTasks] = useState<Task[]>(snapshot.tasks);
+  // Per-status pagination state (offset-based)
+  const [paginationByStatus, setPaginationByStatus] = useState<Record<TaskStatus, {
+    offset: number;
+    hasMore: boolean;
+    isLoading: boolean;
+  }>>({
+    to_do: { offset: 0, hasMore: true, isLoading: false },
+    in_progress: { offset: 0, hasMore: true, isLoading: false },
+    on_hold: { offset: 0, hasMore: true, isLoading: false },
+    done: { offset: 0, hasMore: true, isLoading: false },
+  });
+
+  // Track fetched connection IDs per status (for rendering)
+  const [fetchedConnectionIdsByStatus, setFetchedConnectionIdsByStatus] = useState<
+    Record<TaskStatus, string[]>
+  >({
+    to_do: [],
+    in_progress: [],
+    on_hold: [],
+    done: [],
+  });
+
+  // Per-status data
+  const [tasksByStatus, setTasksByStatus] = useState<Record<TaskStatus, Task[]>>({
+    to_do: [],
+    in_progress: [],
+    on_hold: [],
+    done: [],
+  });
+
+  // Global state (for search mode and status counts)
   const [totalCount, setTotalCount] = useState(snapshot.total);
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState(snapshot.unfilteredTotalCount);
-  const [cursor, setCursor] = useState<string | null>(snapshot.cursor || null);
-  const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
-  const [loadedConnectionIds, setLoadedConnectionIds] = useState<string[]>(snapshot.loadedConnectionIds || []);
+  const [totalClientCount, setTotalClientCount] = useState<number>(snapshot.totalClientCount || 0);
+  const [allConnectionsMetadata, setAllConnectionsMetadata] = useState<Map<string, { name: string; logoUrl?: string }>>(snapshot.allConnectionsMetadata || new Map());
+  
+  // Global status counts (never changes, global truth)
+  const [statusCounts, setStatusCounts] = useState(snapshot.statusCounts || {
+    to_do: 0,
+    in_progress: 0,
+    on_hold: 0,
+    done: 0,
+  });
+  
+  // Search mode tasks
+  const [searchTasks, setSearchTasks] = useState<Task[]>([]);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
   const [isLoading, setIsLoading] = useState(false);
@@ -133,12 +174,36 @@ export function TasksContent({
     }
     
     startTransition(() => {
-      setTasks(snapshot.tasks);
+      // If snapshot has a status, update per-status state
+      if (snapshot.status) {
+        setTasksByStatus(prev => ({
+          ...prev,
+          [snapshot.status!]: snapshot.tasks
+        }));
+        setPaginationByStatus(prev => ({
+          ...prev,
+          [snapshot.status!]: {
+            offset: snapshot.offset, // Trust server's explicit offset (always returned)
+            hasMore: snapshot.hasMore,
+            isLoading: false,
+          }
+        }));
+        // Track fetched connection IDs (deduplicate to prevent duplicates)
+        if (snapshot.fetchedConnectionIds) {
+          setFetchedConnectionIdsByStatus(prev => ({
+            ...prev,
+            [snapshot.status!]: Array.from(new Set(snapshot.fetchedConnectionIds || []))
+          }));
+        }
+      }
+      
       setTotalCount(snapshot.total);
       setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
-      setCursor(snapshot.cursor || null);
-      setHasNextPage(snapshot.hasNextPage);
-      setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
+      setTotalClientCount(snapshot.totalClientCount || 0);
+      setAllConnectionsMetadata(snapshot.allConnectionsMetadata || new Map());
+      if (snapshot.statusCounts) {
+        setStatusCounts(snapshot.statusCounts);
+      }
       setIsFetchingServerResults(false);
     });
   }, [snapshot, startTransition, assignedToMe, context.variant, clientTeamMemberIds, searchParams]);
@@ -231,12 +296,14 @@ export function TasksContent({
       cursor: undefined // Start from beginning for new search
     }).then(snapshot => {
       startTransition(() => {
-        setTasks(snapshot.tasks);
+        setSearchTasks(snapshot.tasks);
         setTotalCount(snapshot.total);
         setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
-        setCursor(snapshot.cursor || null);
-        setHasNextPage(snapshot.hasNextPage);
-        setLoadedConnectionIds([]); // Not used for search mode
+        setTotalClientCount(snapshot.totalClientCount || 0);
+        setAllConnectionsMetadata(snapshot.allConnectionsMetadata || new Map());
+        if (snapshot.statusCounts) {
+          setStatusCounts(snapshot.statusCounts);
+        }
         setIsFetchingServerResults(false);
       });
     }).catch(error => {
@@ -261,12 +328,30 @@ export function TasksContent({
       loadedConnectionIds: [] // Reset when filtering changes
     }).then(snapshot => {
       startTransition(() => {
-        setTasks(snapshot.tasks);
+        // For filtered mode, we still use per-status structure
+        // But since this is a global fetch, we'll distribute tasks by status
+        if (snapshot.tasks.length > 0) {
+          const tasksByStatusLocal: Record<TaskStatus, Task[]> = {
+            to_do: [],
+            in_progress: [],
+            on_hold: [],
+            done: [],
+          };
+          
+          snapshot.tasks.forEach(task => {
+            tasksByStatusLocal[task.status].push(task);
+          });
+          
+          setTasksByStatus(tasksByStatusLocal);
+        }
+        
         setTotalCount(snapshot.total);
         setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
-        setCursor(snapshot.cursor || null);
-        setHasNextPage(snapshot.hasNextPage);
-        setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
+        setTotalClientCount(snapshot.totalClientCount || 0);
+        setAllConnectionsMetadata(snapshot.allConnectionsMetadata || new Map());
+        if (snapshot.statusCounts) {
+          setStatusCounts(snapshot.statusCounts);
+        }
         setIsFetchingServerResults(false);
       });
     }).catch(error => {
@@ -275,8 +360,10 @@ export function TasksContent({
     });
   }, [assignedToMe, context, debouncedSearchValue, clientTeamMemberIds, startTransition]);
 
-  // Display: Use server results directly (no optimistic filtering)
-  const displayedTasks = tasks;
+  // Display: Combine all status tasks for display (or use search results)
+  const displayedTasks = searchValue.trim().length > 0 
+    ? searchTasks 
+    : Object.values(tasksByStatus).flat();
   const displayedTotal = totalCount;
 
   // Track header height for sticky table offset
@@ -292,56 +379,123 @@ export function TasksContent({
     return () => observer.disconnect();
   }, []);
 
-  const loadMore = useCallback(async () => {
-    if (!hasNextPage || isLoading || !cursor) return;
+  // Status-specific load more callback
+  const loadMoreForStatus = useCallback(async (status: TaskStatus) => {
+    const pagination = paginationByStatus[status];
+    // Simple check: hasMore and not loading
+    if (!pagination.hasMore || pagination.isLoading) return;
     
+    // Set loading state for this status
+    setPaginationByStatus(prev => ({
+      ...prev,
+      [status]: { ...prev[status], isLoading: true }
+    }));
+    
+    try {
+      const snapshot = await fetchMoreTasksForStatus(context, {
+        status,
+        offset: pagination.offset, // Use offset instead of cursor
+        limit: 20,
+        assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
+        assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
+      });
+      
+      startTransition(() => {
+        // Merge new tasks with existing ones for this status (avoid duplicates)
+        setTasksByStatus(prev => {
+          const existingIds = new Set(prev[status].map(t => t.id));
+          const newTasks = snapshot.tasks.filter(t => !existingIds.has(t.id));
+          return {
+            ...prev,
+            [status]: [...prev[status], ...newTasks]
+          };
+        });
+        
+        setPaginationByStatus(prev => ({
+          ...prev,
+          [status]: {
+            offset: snapshot.offset, // Trust server's explicit offset (always returned)
+            hasMore: snapshot.hasMore,
+            isLoading: false,
+          }
+        }));
+        
+        // Append fetched connection IDs (deduplicate to prevent duplicates)
+        if (snapshot.fetchedConnectionIds) {
+          setFetchedConnectionIdsByStatus(prev => ({
+            ...prev,
+            [status]: Array.from(new Set([...prev[status], ...snapshot.fetchedConnectionIds]))
+          }));
+        }
+        
+        // Update global status counts if provided
+        if (snapshot.statusCounts) {
+          setStatusCounts(snapshot.statusCounts);
+        }
+        setTotalClientCount(snapshot.totalClientCount || 0);
+        if (snapshot.allConnectionsMetadata) {
+          setAllConnectionsMetadata(snapshot.allConnectionsMetadata);
+        }
+      });
+    } catch (error) {
+      console.error(`Error loading more tasks for status ${status}:`, error);
+      setPaginationByStatus(prev => ({
+        ...prev,
+        [status]: { ...prev[status], isLoading: false, hasMore: false }
+      }));
+    }
+  }, [paginationByStatus, context, assignedToMe, clientTeamMemberIds, startTransition]);
+
+  // Global load more (for search mode only)
+  const loadMore = useCallback(async (status: TaskStatus | null, virtualItems?: any[]) => {
+    // If status is provided, use status-specific pagination
+    if (status) {
+      await loadMoreForStatus(status);
+      return;
+    }
+    
+    // Otherwise, this is search mode - use global pagination
     const hasActiveSearch = debouncedSearchValue.trim().length > 0;
+    
+    if (!hasActiveSearch) {
+      // Should not happen in normal mode - status should always be provided
+      return;
+    }
+    
+    // Get current pagination state for search
+    const currentCursor = searchTasks.length > 0 ? String(searchTasks.length) : null;
+    if (!currentCursor) return;
     
     setIsLoading(true);
     try {
-      let snapshot: TasksSnapshot;
-      
-      if (hasActiveSearch) {
-        // Use search-based pagination (offset-based)
-        snapshot = await searchTasksGlobal(context, {
-          search: debouncedSearchValue,
-          limit: 50, // Search-based pagination: 50 tasks per page
-          cursor, // Offset-based cursor for search
-          assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
-          assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-        });
-      } else {
-        // Use connection-based pagination (normal mode)
-        snapshot = await fetchMoreTasks(context, {
-        cursor,
+      const snapshot = await searchTasksGlobal(context, {
         search: debouncedSearchValue,
-        limit: 20, // Number of connections to load per page
+        limit: 50,
+        cursor: currentCursor,
         assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
         assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
-        loadedConnectionIds: loadedConnectionIds // Pass already loaded connection IDs to avoid duplicates
       });
-      }
       
       startTransition(() => {
-        // Merge new tasks with existing ones (avoid duplicates)
-        setTasks(prev => {
-          const existingIds = new Set(prev.map(t => t.id));
-          const newTasks = snapshot.tasks.filter(t => !existingIds.has(t.id));
-          return [...prev, ...newTasks];
-        });
+        const existingIds = new Set(searchTasks.map(t => t.id));
+        const newTasks = snapshot.tasks.filter(t => !existingIds.has(t.id));
+        setSearchTasks(prev => [...prev, ...newTasks]);
         setTotalCount(snapshot.total);
         setUnfilteredTotalCount(snapshot.unfilteredTotalCount);
-        setCursor(snapshot.cursor || null);
-        setHasNextPage(snapshot.hasNextPage);
-        setLoadedConnectionIds(snapshot.loadedConnectionIds || []);
+        if (snapshot.statusCounts) {
+          setStatusCounts(snapshot.statusCounts);
+        }
+        setTotalClientCount(snapshot.totalClientCount || 0);
+        if (snapshot.allConnectionsMetadata) {
+          setAllConnectionsMetadata(snapshot.allConnectionsMetadata);
+        }
       });
     } catch (error) {
-      console.error('Error loading more tasks:', error);
-      setHasNextPage(false);
+      console.error('Error loading more search results:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [hasNextPage, isLoading, cursor, context, debouncedSearchValue, assignedToMe, clientTeamMemberIds, loadedConnectionIds, startTransition]);
+  }, [debouncedSearchValue, context, assignedToMe, clientTeamMemberIds, searchTasks, loadMoreForStatus, startTransition]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchValue(value);
@@ -349,8 +503,13 @@ export function TasksContent({
     // Keep count persistent (less jarring than showing 0)
     if (value.trim() !== debouncedSearchValue.trim()) {
       setIsFetchingServerResults(true);
-      // Clear tasks immediately to show skeletons, but keep count persistent
-      setTasks([]);
+      // Clear search tasks immediately to show skeletons, but keep count persistent
+      if (value.trim().length > 0) {
+        setSearchTasks([]);
+      } else {
+        // Clearing search - clear search results
+        setSearchTasks([]);
+      }
       // Don't clear totalCount - keep it persistent until new results arrive
     }
   }, [debouncedSearchValue]);
@@ -453,9 +612,18 @@ export function TasksContent({
       linkedRequest: null,
     };
 
-    setTasks(prev => [optimisticTask, ...prev]);
+    // Add to 'to_do' status (optimistic task is always 'to_do')
+    setTasksByStatus(prev => ({
+      ...prev,
+      to_do: [optimisticTask, ...prev.to_do]
+    }));
     setTotalCount(prev => prev + 1);
     setUnfilteredTotalCount(prev => prev + 1);
+    // Update status counts optimistically
+    setStatusCounts(prev => ({
+      ...prev,
+      to_do: prev.to_do + 1
+    }));
   }, [selectedConnectionId, connections, context]);
 
   // Track pending task creations to show toast when task appears
@@ -491,11 +659,16 @@ export function TasksContent({
       
       console.log('[TasksContent] Task fetched successfully, updating state and showing toast');
       
-      // Replace temp row if present; otherwise prepend and increment count
-      setTasks(prev => {
-        const without = prev.filter(t => t.id !== tempId && t.id !== task.id);
-        const next = [task, ...without];
-        return next;
+      // Replace temp row if present; otherwise prepend
+      // Find which status this task belongs to
+      const taskStatus = task.status;
+      setTasksByStatus(prev => {
+        const statusTasks = prev[taskStatus];
+        const without = statusTasks.filter(t => t.id !== tempId && t.id !== task.id);
+        return {
+          ...prev,
+          [taskStatus]: [task, ...without]
+        };
       });
       
       // Show success toast after server confirms and task is successfully fetched
@@ -540,8 +713,9 @@ export function TasksContent({
   }, [context]);
 
   const handleTaskClick = useCallback(async (taskId: string) => {
-    // Try to get task from local state first
-    const localTask = tasks.find(t => t.id === taskId);
+    // Try to get task from local state first (check all statuses)
+    const allTasks = Object.values(tasksByStatus).flat();
+    const localTask = allTasks.find(t => t.id === taskId) || searchTasks.find(t => t.id === taskId);
     
     if (!localTask) {
       // If not in local state, fetch from server (will trigger paywall check)
@@ -603,7 +777,7 @@ export function TasksContent({
         console.error('Error fetching comments:', error);
       });
     }
-  }, [tasks, context, commentsByTask, allowedConnectionIds]);
+  }, [tasksByStatus, searchTasks, context, commentsByTask, allowedConnectionIds]);
   
   const handleTaskDetailModalClose = useCallback(() => {
     setIsTaskDetailModalOpen(false);
@@ -624,27 +798,104 @@ export function TasksContent({
   }, [selectedTask, context.variant]);
 
   const handleTaskUpdate = useCallback((taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; completedAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => {
-    setTasks(prev => {
-      // Update the task
-      const updated = prev.map(t => 
-      t.id === taskId 
-        ? { ...t, ...updates }
-        : t
-      );
+    // Optimistic update - handle status change specially
+    if (updates.status) {
+      // Status changed - move task from old status to new status
+      const oldStatus = selectedTask?.status || 'to_do';
+      const newStatus = updates.status;
       
-      return updated;
-    });
+      setTasksByStatus(prev => {
+        // Find task in old status
+        const oldStatusTasks = prev[oldStatus];
+        const task = oldStatusTasks.find(t => t.id === taskId);
+        
+        if (!task) {
+          // Task not found, update all statuses just in case
+          return Object.entries(prev).reduce((acc, [status, tasks]) => {
+            acc[status as TaskStatus] = tasks.map(t => 
+              t.id === taskId ? { ...t, ...updates } : t
+            );
+            return acc;
+          }, {} as Record<TaskStatus, Task[]>);
+        }
+        
+        // Remove from old status, add to new status
+        const updatedTask = { ...task, ...updates };
+        return {
+          ...prev,
+          [oldStatus]: oldStatusTasks.filter(t => t.id !== taskId),
+          [newStatus]: [updatedTask, ...prev[newStatus]]
+        };
+      });
+    } else {
+      // No status change - update in place
+      setTasksByStatus(prev => {
+        return Object.entries(prev).reduce((acc, [status, tasks]) => {
+          acc[status as TaskStatus] = tasks.map(t => 
+            t.id === taskId ? { ...t, ...updates } : t
+          );
+          return acc;
+        }, {} as Record<TaskStatus, Task[]>);
+      });
+    }
+    
+    // Also update searchTasks if in search mode
+    if (searchTasks.length > 0) {
+      setSearchTasks(prev => prev.map(t => 
+        t.id === taskId ? { ...t, ...updates } : t
+      ));
+    }
+    
+    // Also update selectedTask if it's the current one
     if (selectedTask && selectedTask.id === taskId) {
       setSelectedTask(prev => prev ? { ...prev, ...updates } : null);
     }
-  }, [selectedTask]);
+  }, [selectedTask, searchTasks]);
 
   const handleTaskDeleted = useCallback(async (taskId: string) => {
-    const deletedIndex = tasks.findIndex(t => t.id === taskId);
-    const deletedTask = deletedIndex >= 0 ? tasks[deletedIndex] : null;
+    // Find task in per-status state
+    let deletedTask: Task | null = null;
+    let deletedStatus: TaskStatus | null = null;
+    let deletedIndex = -1;
     
-    // Optimistically remove from UI
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    for (const [status, tasks] of Object.entries(tasksByStatus)) {
+      const index = tasks.findIndex(t => t.id === taskId);
+      if (index >= 0) {
+        deletedTask = tasks[index];
+        deletedStatus = status as TaskStatus;
+        deletedIndex = index;
+        break;
+      }
+    }
+    
+    // Also check searchTasks
+    if (!deletedTask) {
+      const searchIndex = searchTasks.findIndex(t => t.id === taskId);
+      if (searchIndex >= 0) {
+        deletedTask = searchTasks[searchIndex];
+        deletedIndex = searchIndex;
+      }
+    }
+    
+    // Optimistically remove task immediately (no flicker)
+    if (deletedStatus) {
+      setTasksByStatus(prev => ({
+        ...prev,
+        [deletedStatus!]: prev[deletedStatus!].filter(t => t.id !== taskId)
+      }));
+      // Update status counts optimistically
+      if (deletedTask) {
+        setStatusCounts(prev => ({
+          ...prev,
+          [deletedTask!.status]: Math.max(0, prev[deletedTask!.status] - 1)
+        }));
+      }
+    }
+    
+    if (searchTasks.length > 0) {
+      setSearchTasks(prev => prev.filter(t => t.id !== taskId));
+    }
+    
     setTotalCount(prev => Math.max(0, prev - 1));
     setUnfilteredTotalCount(prev => Math.max(0, prev - 1));
     
@@ -660,17 +911,32 @@ export function TasksContent({
       toast.success('Task deleted');
     } catch (error) {
       // Rollback optimistic update on error
-      if (deletedTask && deletedIndex >= 0) {
-        setTasks(prev => {
-          return [...prev.slice(0, deletedIndex), deletedTask, ...prev.slice(deletedIndex)];
+      if (deletedTask && deletedStatus && deletedIndex >= 0) {
+        setTasksByStatus(prev => {
+          const statusTasks = prev[deletedStatus!];
+          return {
+            ...prev,
+            [deletedStatus!]: [
+              ...statusTasks.slice(0, deletedIndex),
+              deletedTask!,
+              ...statusTasks.slice(deletedIndex)
+            ]
+          };
         });
+        // Revert status counts
+        if (deletedTask) {
+          setStatusCounts(prev => ({
+            ...prev,
+            [deletedTask!.status]: prev[deletedTask!.status] + 1
+          }));
+        }
         setTotalCount(prev => prev + 1);
         setUnfilteredTotalCount(prev => prev + 1);
       }
       console.error('Error deleting task:', error);
       toast.error('Failed to delete task');
     }
-  }, [tasks, selectedTask]);
+  }, [tasksByStatus, searchTasks, selectedTask]);
 
   const handleToggleAssignedToMe = useCallback(() => {
     setAssignedToMe(prev => !prev);
@@ -708,9 +974,13 @@ export function TasksContent({
       <div ref={parentRef}>
         <TasksTable
           tasks={displayedTasks}
+          tasksByStatus={tasksByStatus}
+          paginationByStatus={paginationByStatus}
+          fetchedConnectionIdsByStatus={fetchedConnectionIdsByStatus}
           isBootstrapping={isFetchingServerResults}
           unfilteredTotalCount={unfilteredTotalCount}
           onLoadMore={loadMore}
+          onLoadMoreForStatus={loadMoreForStatus}
           onNewTask={handleNewTask}
           onTaskClick={handleTaskClick}
           onTaskUpdate={handleTaskUpdate}
@@ -728,6 +998,9 @@ export function TasksContent({
           membersByConnection={membersByConnection}
           onSearchChange={handleSearchChange}
           allowedConnectionIds={allowedConnectionIds}
+          allConnectionsMetadata={allConnectionsMetadata}
+          statusCounts={snapshot.statusCounts}
+          totalClientCount={totalClientCount}
         />
       </div>
 

@@ -69,7 +69,7 @@ export function VirtualListBody<T>({
             key={getItemKey(item, virtualRow.index)}
             ref={(node) => rowVirtualizer.measureElement(node)}
             data-index={virtualRow.index}
-            style={{ height: `${VIRTUAL_ROW_HEIGHT}px` }}
+            style={{ height: `${virtualRow.size}px` }}
           >
             {renderItem(item, virtualRow.index, virtualRow)}
           </div>

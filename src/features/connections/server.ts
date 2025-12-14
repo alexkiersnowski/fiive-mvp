@@ -2294,9 +2294,33 @@ export const getCommentsForRequests = cache(async (
     .limit(50);
 
   if (error) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('Error fetching comments:', error);
+    // Extract error properties (only truthy, non-empty values)
+    const errorMessage = error?.message?.trim();
+    const errorCode = error?.code;
+    const errorDetails = error?.details;
+    const errorHint = error?.hint;
+    
+    // Build log object with only meaningful error properties
+    const errorInfo: Record<string, unknown> = {};
+    if (errorMessage) errorInfo.message = errorMessage;
+    if (errorCode) errorInfo.code = errorCode;
+    if (errorDetails) errorInfo.details = errorDetails;
+    if (errorHint) errorInfo.hint = errorHint;
+    
+    // Only log if we have at least one meaningful error property
+    // This prevents logging empty error objects {} from Supabase
+    const hasMeaningfulError = Object.keys(errorInfo).length > 0;
+    
+    if (hasMeaningfulError && process.env.NODE_ENV !== 'production') {
+      console.error('Error fetching comments:', {
+        ...errorInfo,
+        requestIdsCount: requestIds.length,
+        ...(requestIds.length > 0 && { requestIdsSample: requestIds.slice(0, 5) })
+      });
     }
+    
+    // Return empty object to prevent breaking the UI
+    // This is safe - the UI handles empty comments gracefully
     return {};
   }
 
