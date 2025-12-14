@@ -49,6 +49,27 @@ export function formatRequestDate(dateString: string | null): string {
 }
 
 /**
+ * Format a date as "DD Month YYYY" (e.g., "15 January 2024")
+ * Used for displaying full month names in request/task tables
+ */
+export function formatRequestDateFullMonth(dateString: string | null): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString; // Return original if invalid
+    
+    const day = date.getDate();
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear();
+    
+    return `${day} ${month} ${year}`;
+  } catch {
+    return dateString; // Return original if parsing fails
+  }
+}
+
+/**
  * Build submitted by user info
  */
 export function buildSubmittedBy(

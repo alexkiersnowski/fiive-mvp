@@ -96,6 +96,13 @@ export function RequestsContent({
   const [collapsedStatuses, setCollapsedStatuses] = useState<Set<string>>(new Set(['closed', 'canceled']));
   // Client groups: all collapsed by default (empty Map means all are collapsed)
   const [collapsedClients, setCollapsedClients] = useState<Map<string, Set<string>>>(new Map()); // Map<status, Set<clientOrgId>>
+  
+  // Track if we're currently in search mode (to detect transitions)
+  // Initialize based on initialSearchValue to correctly detect transitions
+  const wasInSearchModeRef = useRef((initialSearchValue || '').trim().length > 0);
+  
+  // Track if we're currently in assigned filter mode (to detect transitions)
+  const wasInAssignedFilterModeRef = useRef(false);
 
   // Global state (for search mode and metadata)
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState(snapshot.unfilteredTotalCount);
@@ -352,6 +359,8 @@ export function RequestsContent({
   // Server-side search effect (triggers on any non-empty search)
   useEffect(() => {
     const trimmedSearch = searchValue.trim();
+    const isNowInSearchMode = trimmedSearch.length > 0;
+    const wasInSearchMode = wasInSearchModeRef.current;
     
     // Only clear search results if search is completely empty
     if (trimmedSearch.length === 0) {
@@ -359,9 +368,18 @@ export function RequestsContent({
       setSearchResults(null);
       setIsSearching(false); // Explicitly set to false, don't show skeleton
       
-      // Reset collapse state to default (all clients collapsed, closed/canceled statuses collapsed)
-      setCollapsedStatuses(new Set(['closed', 'canceled']));
-      setCollapsedClients(new Map()); // Empty map = all clients collapsed
+      // CRITICAL: Only reset collapse state if we're transitioning FROM search mode TO browse mode
+      // If we're already in browse mode (wasInSearchMode = false), preserve existing collapse state
+      // This prevents collapsing clients that were expanded by request creation/updates
+      if (wasInSearchMode) {
+        // Transitioning from search → browse: reset to default collapse state
+        setCollapsedStatuses(new Set(['closed', 'canceled']));
+        setCollapsedClients(new Map()); // Empty map = all clients collapsed
+      }
+      // If wasInSearchMode = false, we're already in browse mode - preserve collapse state
+      
+      // Update ref for next comparison
+      wasInSearchModeRef.current = false;
       
       // Scroll to top when clearing search
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -371,6 +389,9 @@ export function RequestsContent({
       
       return;
     }
+    
+    // Update ref: we're entering/remaining in search mode
+    wasInSearchModeRef.current = true;
 
     // Perform server-side search (even for 1 char - let server handle it)
     const performSearch = async () => {
@@ -430,17 +451,35 @@ export function RequestsContent({
 
   // Assigned filter effect - ONLY reacts to assignedToMe changes
   useEffect(() => {
+    const wasInAssignedFilterMode = wasInAssignedFilterModeRef.current;
+    
     if (!assignedToMe) {
-      // Turn OFF - preserve user's position, no skeleton
+      // Turn OFF - transition to browse mode
       setIsLoadingAssignedFilter(true);
-      // DO NOT reset collapse state - preserve user's position
       setAssignedFilterResults(null);
       // DO NOT clear requestsByClientStatus - preserve browse cache
+      
+      // CRITICAL: Only reset collapse state if we're transitioning FROM assigned filter mode TO browse mode
+      // If we're already in browse mode (wasInAssignedFilterMode = false), preserve existing collapse state
+      // This prevents collapsing clients that were expanded by request creation/updates
+      if (wasInAssignedFilterMode) {
+        // Transitioning from assigned filter → browse: reset to default collapse state
+        setCollapsedStatuses(new Set(['closed', 'canceled']));
+        setCollapsedClients(new Map()); // Empty map = all clients collapsed
+      }
+      // If wasInAssignedFilterMode = false, we're already in browse mode - preserve collapse state
+      
+      // Update ref for next comparison
+      wasInAssignedFilterModeRef.current = false;
+      
       // Scroll to top when turning off filter
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setTimeout(() => setIsLoadingAssignedFilter(false), 200);
       return;
     }
+    
+    // Update ref: we're entering/remaining in assigned filter mode
+    wasInAssignedFilterModeRef.current = true;
 
     const performAssignedFilter = async () => {
       try {

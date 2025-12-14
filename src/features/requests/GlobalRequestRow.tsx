@@ -8,6 +8,7 @@ import { RequestBadge } from '@/components/ui/request-badge'
 import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User } from '@phosphor-icons/react'
+import { formatRequestDateFullMonth } from '@/features/connections/formatters'
 import type { Request } from './types'
 
 interface GlobalRequestRowProps {
@@ -230,7 +231,12 @@ export function GlobalRequestRow({
 
       {/* Created */}
       <div className="min-w-0 truncate py-0 px-3">
-        <span className="text-sm-regular">{request.createdAt}</span>
+        <span className="text-sm-regular">
+          {/* Format ISO timestamps (from optimistic entries), display formatted dates as-is (from server) */}
+          {request.createdAt.includes('T') || request.createdAt.includes('Z') 
+            ? formatRequestDateFullMonth(request.createdAt) 
+            : request.createdAt}
+        </span>
       </div>
 
       {/* Actions */}
