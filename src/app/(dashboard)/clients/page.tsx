@@ -1,9 +1,14 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
 import { getClientsSnapshot } from '@/features/clients/server';
 import { ClientsContent } from './ClientsContent';
 import { countInternalConnections, checkPaywall } from '@/lib/paywall/checkConnectionLimit';
+
+export const metadata: Metadata = {
+  title: 'Fiive | Clients',
+};
 
 interface ClientsPageProps {
   searchParams: Promise<{

@@ -1,7 +1,12 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { getHomeSnapshot } from '@/features/home/loaders';
 import { homeCardRegistry } from '@/features/home/registry';
 import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
+
+export const metadata: Metadata = {
+  title: 'Fiive | Home',
+};
 
 // Cache for 30 seconds to improve performance while keeping data reasonably fresh
 export const revalidate = 30;

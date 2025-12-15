@@ -95,6 +95,9 @@ export function RequestsContent({
   // Track cache keys that have optimistic data (so we always fetch to replace them)
   const optimisticCacheKeysRef = useRef<Set<string>>(new Set());
   
+  // Track tempId → requestId mappings to coordinate optimistic replacement
+  const tempIdToRequestIdRef = useRef<Map<string, string>>(new Map());
+  
   // Ref to track fetch function to avoid circular dependency
   const fetchRequestsForClientStatusRef = useRef<((status: string, clientOrgId: string) => Promise<void>) | null>(null);
 
@@ -295,21 +298,68 @@ export function RequestsContent({
           !r.id.startsWith('temp-') && !serverRequestIds.has(r.id)
         );
         
+        // Check which optimistic requests have been replaced via tempId → requestId mapping
+        const replacedTempIds = new Set<string>();
+        for (const [tempId, requestId] of tempIdToRequestIdRef.current.entries()) {
+          // Check if the replacement request exists in server response or cache
+          if (serverRequestIds.has(requestId) || existingRequests.some(r => r.id === requestId)) {
+            replacedTempIds.add(tempId);
+          }
+        }
+        
         // Match optimistic requests to server requests by connectionId + title
         // If server has a matching request, the optimistic one should be removed (replaced)
         const serverRequestKeys = new Set(
           requests.map(r => `${r.connectionId}:${r.title}`)
         );
         
+        // Create a set of cache-only request keys for matching
+        const cacheOnlyRequestKeys = new Set(
+          cacheOnlyRequests.map(r => `${r.connectionId}:${r.title}`)
+        );
+        
         // Preserve optimistic requests that don't have a matching server request yet
+        // BUT also check if handleRequestCreated already replaced them with real requests
         const preservedOptimistic = optimisticRequests.filter(optReq => {
+          // CRITICAL: If this tempId has been replaced via mapping, don't preserve it
+          if (replacedTempIds.has(optReq.id)) {
+            return false;
+          }
+          
+          // CRITICAL: Check if there's a cache-only replacement (handleRequestCreated already ran)
+          // This is the ONLY other way we should remove optimistic requests
           const optKey = `${optReq.connectionId}:${optReq.title}`;
-          return !serverRequestKeys.has(optKey); // Keep if no match (not yet in server response)
+          const hasCacheOnlyReplacement = cacheOnlyRequestKeys.has(optKey);
+          
+          // Keep if: no cache-only replacement yet (meaning handleRequestCreated hasn't run yet)
+          // DO NOT check server match - that could be a different request created at the same time
+          return !hasCacheOnlyReplacement;
         });
         
-        // Combine: server requests + cache-only requests (from handleRequestCreated) + preserved optimistic
+        // Ensure replaced requests are included in merged result
+        // Find the real requests that replaced optimistic ones
+        const replacedRequests = Array.from(replacedTempIds)
+          .map(tempId => {
+            const requestId = tempIdToRequestIdRef.current.get(tempId);
+            if (!requestId) return null;
+            // Find the real request from server response, cache-only requests, or existing requests
+            return requests.find(r => r.id === requestId) || 
+                   cacheOnlyRequests.find(r => r.id === requestId) ||
+                   existingRequests.find(r => r.id === requestId);
+          })
+          .filter((r): r is Request => r !== null);
+        
+        // CRITICAL: Only preserve cache-only requests that are tracked in tempId mapping
+        // This ensures we only keep legitimate requests from handleRequestCreated, not stale/deleted ones
+        // If a request isn't in the server response AND isn't tracked in the mapping, it's stale and should be removed
+        const trackedRequestIds = new Set(Array.from(tempIdToRequestIdRef.current.values()));
+        const preservedCacheOnly = cacheOnlyRequests.filter(cacheReq => 
+          trackedRequestIds.has(cacheReq.id)
+        );
+        
+        // Combine: server requests + replaced requests + preserved cache-only + preserved optimistic
         // Server requests are already sorted by createdAt DESC from the server
-        const merged = [...requests, ...cacheOnlyRequests, ...preservedOptimistic];
+        const merged = [...requests, ...replacedRequests, ...preservedCacheOnly, ...preservedOptimistic];
         
         // Deduplicate by requestId (in case server response includes requests that were added by handleRequestCreated)
         const deduplicated = Array.from(
@@ -324,6 +374,13 @@ export function RequestsContent({
         });
         
         newMap.set(cacheKey, deduplicated);
+        
+        // Clean up tempId mappings for requests now in server response
+        for (const [tempId, requestId] of tempIdToRequestIdRef.current.entries()) {
+          if (serverRequestIds.has(requestId)) {
+            tempIdToRequestIdRef.current.delete(tempId);
+          }
+        }
         
         // Only remove from optimistic tracking if all optimistic requests have been replaced
         const stillHasOptimistic = deduplicated.some(r => r.id.startsWith('temp-'));
@@ -778,6 +835,11 @@ export function RequestsContent({
       const clientOrgId = context.variant === 'agency' ? request.client.id : (request.agency?.id || '');
       const cacheKey = `${request.status}-${clientOrgId}`;
       
+      // Record the tempId → requestId mapping to coordinate with fetch merge
+      if (tempId) {
+        tempIdToRequestIdRef.current.set(tempId, requestId);
+      }
+      
       // Check if the target client group is expanded
       const isNewStatusClientExpanded = collapsedClients.get(request.status)?.has(clientOrgId) || false;
       
@@ -806,10 +868,23 @@ export function RequestsContent({
       setRequestsByClientStatus(prev => {
         const newMap = new Map(prev);
         const existingRequests = newMap.get(cacheKey) || [];
+        
+        // Always ensure real request exists, even if fetch merge already added it
+        const hasRealRequest = existingRequests.some(r => r.id === request.id);
+        
         // Remove temp request and any duplicate real request
         const without = existingRequests.filter(r => r.id !== tempId && r.id !== request.id);
-        // Replace temp with real request at the top
-        newMap.set(cacheKey, [request, ...without]);
+        
+        // If real request already exists, just remove temp (don't add duplicate or overwrite)
+        // Otherwise, replace temp with real request at the top
+        if (hasRealRequest) {
+          // Real request already in cache (from fetch merge), just remove temp
+          newMap.set(cacheKey, without);
+        } else {
+          // Replace temp with real request at the top
+          newMap.set(cacheKey, [request, ...without]);
+        }
+        
         // Keep optimistic marker - the in-progress fetch will replace with complete data
         optimisticCacheKeysRef.current.add(cacheKey);
         return newMap;
@@ -841,6 +916,10 @@ export function RequestsContent({
       }
     } catch (error) {
       console.error('Failed to fetch newly created request:', error);
+      // If request creation failed, remove from mapping
+      if (tempId) {
+        tempIdToRequestIdRef.current.delete(tempId);
+      }
     }
   }, [selectedConnectionId, context, collapsedClients]);
 

@@ -1,7 +1,13 @@
+import type { Metadata } from 'next';
 import { redirect } from "next/navigation"
 import AuthLayout from '@/components/layouts/AuthLayout'
 import { createClient, isUserVerified } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
+
+export const metadata: Metadata = {
+  title: 'Sign in to Fiive | Client management software',
+  description: 'Sign in to Fiive to access your agency hub or client portal. Manage requests, tasks, projects, and ongoing work in one place.',
+};
 
 async function handleSignIn(data: { email: string }) {
   'use server'

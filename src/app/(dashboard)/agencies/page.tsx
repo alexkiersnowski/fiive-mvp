@@ -1,8 +1,13 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
 import { getAgenciesSnapshot } from '@/features/agencies/server';
 import { AgenciesContent } from './AgenciesContent';
+
+export const metadata: Metadata = {
+  title: 'Fiive | Agencies',
+};
 
 interface AgenciesPageProps {
   searchParams: Promise<{

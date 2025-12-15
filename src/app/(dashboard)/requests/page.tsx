@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
@@ -7,6 +8,10 @@ import type { Request, RequestsSnapshot } from '@/features/requests/types';
 import { getCommentsForRequests } from '@/features/connections/server';
 import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { RequestsContent } from './RequestsContent';
+
+export const metadata: Metadata = {
+  title: 'Fiive | Requests',
+};
 
 interface RequestsPageProps {
   searchParams: Promise<{

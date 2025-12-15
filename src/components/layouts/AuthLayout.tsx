@@ -178,7 +178,7 @@ export default function AuthLayout({
                       <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
                         By proceeding you agree to the{' '}
                         <a 
-                          href="/terms" 
+                          href="https://www.fiive.co/legal/terms" 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-sm-regular underline"
@@ -188,7 +188,7 @@ export default function AuthLayout({
                         </a>
                         {' '}and{' '}
                         <a 
-                          href="/privacy" 
+                          href="https://www.fiive.co/legal/privacy" 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-sm-regular underline"
@@ -238,10 +238,11 @@ export default function AuthLayout({
                 borderRadius: '50%',
                 width: '250%',
                 height: '150%',
-                filter: 'blur(125px)',
+                
+                filter: 'blur(100px)',
                 right: '-125%',
                 top: '-5%',
-                opacity: 0.9,
+                opacity: 1,
               }}
             />
             {/* Watermark image on top */}
@@ -251,9 +252,10 @@ export default function AuthLayout({
               width={240}
               height={240}
               className="max-w-full h-60 object-contain relative z-10"
-              style={{ opacity: 0.6 }}
+              style={{ opacity: 0.78 }}
               draggable={false}
               loading="eager"
+              suppressHydrationWarning
             />
           </div>
         </div>

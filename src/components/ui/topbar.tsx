@@ -205,9 +205,16 @@ const Topbar = memo(function Topbar({ user, profile, organization, variant = 'ag
               {/* Section 2: Explore further */}
               <div className="px-3 pb-3">
                 <div className="text-sm font-normal text-muted-foreground mb-2">Explore further</div>
-                <DropdownMenuItem>
-                  <BookOpen size={16} className="text-inherit" />
-                  Release notes
+                <DropdownMenuItem asChild>
+                  <a 
+                    href="https://www.fiive.co/release-notes/v0.0.0"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center w-full"
+                  >
+                    <BookOpen size={16} className="text-inherit" />
+                    Release notes
+                  </a>
                 </DropdownMenuItem>
               </div>
             </DropdownMenuContent>

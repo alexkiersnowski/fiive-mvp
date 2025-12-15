@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
@@ -8,6 +9,10 @@ import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { getConnectionIdsForContext } from '@/features/requests/server';
 import type { TasksSnapshot, Task } from '@/features/tasks/types';
 import { TasksContent } from './TasksContent';
+
+export const metadata: Metadata = {
+  title: 'Fiive | Tasks',
+};
 
 interface TasksPageProps {
   searchParams: Promise<{

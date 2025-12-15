@@ -113,6 +113,9 @@ export function TasksContent({
   // Track cache keys that have optimistic data (so we always fetch to replace them)
   const optimisticCacheKeysRef = useRef<Set<string>>(new Set());
   
+  // Track tempId → taskId mappings to coordinate optimistic replacement
+  const tempIdToTaskIdRef = useRef<Map<string, string>>(new Map());
+  
   // Ref to track fetch function to avoid circular dependency
   const fetchTasksForClientStatusRef = useRef<((status: string, clientOrgId: string) => Promise<void>) | null>(null);
 
@@ -302,21 +305,68 @@ export function TasksContent({
           !t.id.startsWith('temp-') && !serverTaskIds.has(t.id)
         );
         
+        // Check which optimistic tasks have been replaced via tempId → taskId mapping
+        const replacedTempIds = new Set<string>();
+        for (const [tempId, taskId] of tempIdToTaskIdRef.current.entries()) {
+          // Check if the replacement task exists in server response or cache
+          if (serverTaskIds.has(taskId) || existingTasks.some(t => t.id === taskId)) {
+            replacedTempIds.add(tempId);
+          }
+        }
+        
         // Match optimistic tasks to server tasks by connectionId + title
         // If server has a matching task, the optimistic one should be removed (replaced)
         const serverTaskKeys = new Set(
           tasks.map(t => `${t.connectionId}:${t.title}`)
         );
         
+        // Create a set of cache-only task keys for matching
+        const cacheOnlyTaskKeys = new Set(
+          cacheOnlyTasks.map(t => `${t.connectionId}:${t.title}`)
+        );
+        
         // Preserve optimistic tasks that don't have a matching server task yet
+        // BUT also check if handleTaskCreated already replaced them with real tasks
         const preservedOptimistic = optimisticTasks.filter(optTask => {
+          // CRITICAL: If this tempId has been replaced via mapping, don't preserve it
+          if (replacedTempIds.has(optTask.id)) {
+            return false;
+          }
+          
+          // CRITICAL: Check if there's a cache-only replacement (handleTaskCreated already ran)
+          // This is the ONLY other way we should remove optimistic tasks
           const optKey = `${optTask.connectionId}:${optTask.title}`;
-          return !serverTaskKeys.has(optKey); // Keep if no match (not yet in server response)
+          const hasCacheOnlyReplacement = cacheOnlyTaskKeys.has(optKey);
+          
+          // Keep if: no cache-only replacement yet (meaning handleTaskCreated hasn't run yet)
+          // DO NOT check server match - that could be a different task created at the same time
+          return !hasCacheOnlyReplacement;
         });
         
-        // Combine: server tasks + cache-only tasks (from handleTaskCreated) + preserved optimistic
+        // Ensure replaced tasks are included in merged result
+        // Find the real tasks that replaced optimistic ones
+        const replacedTasks = Array.from(replacedTempIds)
+          .map(tempId => {
+            const taskId = tempIdToTaskIdRef.current.get(tempId);
+            if (!taskId) return null;
+            // Find the real task from server response, cache-only tasks, or existing tasks
+            return tasks.find(t => t.id === taskId) || 
+                   cacheOnlyTasks.find(t => t.id === taskId) ||
+                   existingTasks.find(t => t.id === taskId);
+          })
+          .filter((t): t is Task => t !== null);
+        
+        // CRITICAL: Only preserve cache-only tasks that are tracked in tempId mapping
+        // This ensures we only keep legitimate tasks from handleTaskCreated, not stale/deleted ones
+        // If a task isn't in the server response AND isn't tracked in the mapping, it's stale and should be removed
+        const trackedTaskIds = new Set(Array.from(tempIdToTaskIdRef.current.values()));
+        const preservedCacheOnly = cacheOnlyTasks.filter(cacheTask => 
+          trackedTaskIds.has(cacheTask.id)
+        );
+        
+        // Combine: server tasks + replaced tasks + preserved cache-only + preserved optimistic
         // Server tasks are already sorted by createdAt DESC from the server
-        const merged = [...tasks, ...cacheOnlyTasks, ...preservedOptimistic];
+        const merged = [...tasks, ...replacedTasks, ...preservedCacheOnly, ...preservedOptimistic];
         
         // Deduplicate by taskId (in case server response includes tasks that were added by handleTaskCreated)
         const deduplicated = Array.from(
@@ -331,6 +381,13 @@ export function TasksContent({
         });
         
         newMap.set(cacheKey, deduplicated);
+        
+        // Clean up tempId mappings for tasks now in server response
+        for (const [tempId, taskId] of tempIdToTaskIdRef.current.entries()) {
+          if (serverTaskIds.has(taskId)) {
+            tempIdToTaskIdRef.current.delete(tempId);
+          }
+        }
         
         // Only remove from optimistic tracking if all optimistic tasks have been replaced
         const stillHasOptimistic = deduplicated.some(t => t.id.startsWith('temp-'));
@@ -800,9 +857,17 @@ export function TasksContent({
         return;
       }
       
+      // Show success toast after successfully fetching the task
+      toast.success('Task created successfully');
+      
       // Determine client org ID for cache key
       const clientOrgId = context.variant === 'agency' ? task.client.id : (task.agency?.id || '');
       const cacheKey = `${task.status}-${clientOrgId}`;
+      
+      // Record the tempId → taskId mapping to coordinate with fetch merge
+      if (tempId) {
+        tempIdToTaskIdRef.current.set(tempId, taskId);
+      }
       
       // Check if the target client group is expanded
       const isNewStatusClientExpanded = collapsedClients.get(task.status)?.has(clientOrgId) || false;
@@ -832,10 +897,23 @@ export function TasksContent({
       setTasksByClientStatus(prev => {
         const newMap = new Map(prev);
         const existingTasks = newMap.get(cacheKey) || [];
+        
+        // Always ensure real task exists, even if fetch merge already added it
+        const hasRealTask = existingTasks.some(t => t.id === task.id);
+        
         // Remove temp task and any duplicate real task
         const without = existingTasks.filter(t => t.id !== tempId && t.id !== task.id);
-        // Replace temp with real task at the top
-        newMap.set(cacheKey, [task, ...without]);
+        
+        // If real task already exists, just remove temp (don't add duplicate or overwrite)
+        // Otherwise, replace temp with real task at the top
+        if (hasRealTask) {
+          // Real task already in cache (from fetch merge), just remove temp
+          newMap.set(cacheKey, without);
+        } else {
+          // Replace temp with real task at the top
+          newMap.set(cacheKey, [task, ...without]);
+        }
+        
         // Keep optimistic marker - the in-progress fetch will replace with complete data
         optimisticCacheKeysRef.current.add(cacheKey);
         return newMap;
@@ -867,6 +945,10 @@ export function TasksContent({
       }
     } catch (error) {
       console.error('Failed to fetch newly created task:', error);
+      // If task creation failed, remove from mapping
+      if (tempId) {
+        tempIdToTaskIdRef.current.delete(tempId);
+      }
     }
   }, [selectedConnectionId, context, collapsedClients]);
 

@@ -129,7 +129,9 @@ export function agencyProWelcomeTemplate({
 
     <!-- Footer -->
     <img src="${logoUrl}" alt="Fiive Logo" style="display: block; margin: 0 0 16px 0; max-height: 24px; -webkit-user-drag: none; -khtml-user-drag: none; -moz-user-drag: none; -o-user-drag: none; user-drag: none;">
-    <p style="display: block; width: calc(100% - 0px); box-sizing: border-box; color: rgba(3, 9, 26, 0.56); font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 400; line-height: 16px; margin: 0 0 4px 0;">© 2025 Fiive Ltd. All rights reserved.</p>
+    <p style="display: block; width: calc(100% - 0px); box-sizing: border-box; color: rgba(3, 9, 26, 0.56); font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 400; line-height: 16px; margin: 0 0 12px 0;">© 2025 Fiive Ltd. All rights reserved.</p>
+    <p style="display: block; width: calc(100% - 0px); box-sizing: border-box; color: rgba(3, 9, 26, 0.56); font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 400; line-height: 16px; margin: 0 0 4px 0;">Need help? Email <a href="mailto:support@fiive.co" style="color: rgba(3, 9, 26, 0.56); text-decoration: underline;">support@fiive.co</a></p>
+    <p style="display: block; width: calc(100% - 0px); box-sizing: border-box; color: rgba(3, 9, 26, 0.56); font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 400; line-height: 16px; margin: 0 0 4px 0;">86-90 Paul Street, London, EC2A 4NE</p>
     <a href="https://fiive.co" target="_blank" style="display: block; width: calc(100% - 0px); box-sizing: border-box; color: rgba(3, 9, 26, 0.56); font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 400; line-height: 16px; text-decoration: none; margin: 0;">fiive.co</a>
   </div>
 </body>
