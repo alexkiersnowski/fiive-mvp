@@ -1,6 +1,6 @@
 'use client'
 
-import { VIRTUAL_ROW_HEIGHT } from './constants'
+// VIRTUAL_ROW_HEIGHT imported but not used - kept for potential future use
 import type { VirtualItem } from '@tanstack/react-virtual'
 
 interface VirtualListBodyProps<T> {

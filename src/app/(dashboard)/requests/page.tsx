@@ -124,7 +124,16 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
             allConnectionsMetadata,
             statusCounts: {},
             clientCounts: {},
-          } as any;
+          } as {
+            requests: Request[];
+            total: number;
+            unfilteredTotalCount: number;
+            offset: number;
+            hasMore: boolean;
+            allConnectionsMetadata: Map<string, { name: string; logoUrl?: string }>;
+            statusCounts: Record<string, number>;
+            clientCounts: Record<string, number>;
+          };
         })(),
     allowedConnectionIdsPromise,
     // Fetch counts for accordion headers
@@ -137,8 +146,8 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
 
   // Merge counts into snapshot for accordion mode
   if (!hasActiveSearch && countsData) {
-    (snapshot as any).statusCounts = countsData.statusCounts
-    ;(snapshot as any).clientCounts = countsData.clientCounts
+    (snapshot as { statusCounts?: Record<string, number>; clientCounts?: Record<string, number> }).statusCounts = countsData.statusCounts;
+    (snapshot as { statusCounts?: Record<string, number>; clientCounts?: Record<string, number> }).clientCounts = countsData.clientCounts;
   }
 
   // Fetch all independent data in parallel

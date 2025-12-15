@@ -1,7 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { getRequestsForConnection, getRequestsCountsForConnection, getAgencyMembersForConnection, getProjectOptionsForConnection, getCommentsForRequests } from '../server';
 import RequestsPageClient from './RequestsPageClient';
-import { PAGE_SIZE } from '../constants';
+// PAGE_SIZE imported but not used - kept for potential future use
 
 interface RequestsPageProps {
   connectionId: string

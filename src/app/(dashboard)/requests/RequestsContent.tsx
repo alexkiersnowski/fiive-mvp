@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef, useTransition, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useTransition } from 'react';
 import { flushSync } from 'react-dom';
 import { toast } from 'sonner';
 import RequestsTable from '@/features/requests/RequestsTable';
@@ -81,11 +81,11 @@ export function RequestsContent({
   // Minimal metadata for accurate counts
   // Initialize from server-fetched snapshot to prevent flicker
   const [statusCounts, setStatusCounts] = useState<Map<string, number>>(() => {
-    const counts = (snapshot as any).statusCounts || {};
+    const counts = (snapshot as { statusCounts?: Record<string, number> }).statusCounts || {};
     return new Map(Object.entries(counts));
   });
   const [clientCounts, setClientCounts] = useState<Map<string, number>>(() => {
-    const counts = (snapshot as any).clientCounts || {};
+    const counts = (snapshot as { clientCounts?: Record<string, number> }).clientCounts || {};
     return new Map(Object.entries(counts));
   });
   
@@ -116,8 +116,8 @@ export function RequestsContent({
   const [allConnectionsMetadata, setAllConnectionsMetadata] = useState<Map<string, { name: string; logoUrl?: string }>>(snapshot.allConnectionsMetadata || new Map());
   // Initialize searchValue from prop only
   const [searchValue, setSearchValue] = useState(initialSearchValue || '');
-  const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue || '');
-  const [isLoading, setIsLoading] = useState(false);
+  const [_debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue || '');
+  const [_isLoading, _setIsLoading] = useState(false);
   const [, startTransition] = useTransition();
   
   // Search mode state (server-side search with atomic results)
@@ -184,7 +184,7 @@ export function RequestsContent({
     }).catch(error => {
       console.error('Error fetching requests counts:', error);
     });
-  }, [context, assignedToMe]);
+  }, [context, assignedToMe, statusCounts.size, clientCounts.size]);
 
   // Initial load: only set metadata, no requests fetched
   useEffect(() => {
@@ -205,7 +205,11 @@ export function RequestsContent({
   const toggleStatus = useCallback((status: string) => {
     setCollapsedStatuses(prev => {
       const newSet = new Set(prev);
-      newSet.has(status) ? newSet.delete(status) : newSet.add(status);
+      if (newSet.has(status)) {
+        newSet.delete(status);
+      } else {
+        newSet.add(status);
+      }
       return newSet;
     });
   }, []);
@@ -380,7 +384,6 @@ export function RequestsContent({
   // Server-side search effect (triggers on any non-empty search)
   useEffect(() => {
     const trimmedSearch = searchValue.trim();
-    const isNowInSearchMode = trimmedSearch.length > 0;
     const wasInSearchMode = wasInSearchModeRef.current;
     
     // Only clear search results if search is completely empty
@@ -547,7 +550,7 @@ export function RequestsContent({
   // Search is handled by filtering allConnectionsMetadata client-side in RequestsTable
 
   // Always use accordion mode - no search mode
-  const displayedTotal = unfilteredTotalCount;
+  const _displayedTotal = unfilteredTotalCount;
 
   // Track header height for sticky table offset
   useEffect(() => {
@@ -839,7 +842,7 @@ export function RequestsContent({
     } catch (error) {
       console.error('Failed to fetch newly created request:', error);
     }
-  }, [selectedConnectionId, context, collapsedClients, requestsByClientStatus]);
+  }, [selectedConnectionId, context, collapsedClients, requestsByClientStatus, handleFetchRequestsForClientStatus]);
 
   // Helper to find request in cached accordion state or search results
   const findRequestInCache = useCallback((requestId: string): Request | null => {
@@ -850,7 +853,7 @@ export function RequestsContent({
     }
     
     return null;
-  }, [requestsByClientStatus]);
+  }, [requestsByClientStatus, allConnectionsMetadata]);
 
   const handleRequestClick = useCallback(async (requestId: string) => {
     // Try to get request from local state first
@@ -987,7 +990,7 @@ export function RequestsContent({
       const isNewStatusClientExpanded = collapsedClients.get(newStatus)?.has(newClientOrgId) || false;
       
       // Get current cache state
-      const oldRequests = requestsByClientStatus.get(oldCacheKey) || [];
+      const _oldRequests = requestsByClientStatus.get(oldCacheKey) || [];
       const newRequests = requestsByClientStatus.get(newCacheKey) || [];
       const hasNewCacheData = newRequests.length > 0;
       
@@ -1076,7 +1079,7 @@ export function RequestsContent({
     if (selectedRequest && selectedRequest.id === requestId) {
       setSelectedRequest(prev => prev ? { ...prev, ...updates } : null);
     }
-  }, [selectedRequest, findRequestInCache, context, assignedToMe, collapsedClients]);
+  }, [selectedRequest, findRequestInCache, context, assignedToMe, collapsedClients, requestsByClientStatus]);
 
   const handleRequestDeleted = useCallback(async (requestId: string) => {
     // Find request in cache

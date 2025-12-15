@@ -12,7 +12,8 @@ import type { Task, Comment } from '../server';
 import { fetchTasksForConnection, fetchTaskById, fetchCommentsForTasks } from '../tasks/actions';
 import { sortTasksWithPinnedFirst } from '../tasks/taskSort';
 import { sortMembersWithActiveFirst, type MemberSummary } from '../utils/memberSorting';
-import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
+import { PAGE_SIZE, isDev } from '../constants';
+// PREFETCH_TIMEOUT_MS imported but not used - kept for potential future use
 import type { VirtualItem } from '@tanstack/react-virtual';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
@@ -41,7 +42,7 @@ interface TasksPageClientProps {
 // Client component wrapper that handles all client-side interactivity
 export default function TasksPageClient({ connectionId, initialTasks, initialTotalCount, initialStatusCounts, agencyMembers, projects, initialCommentsByTask }: TasksPageClientProps) {
   const { snapshot, context, setIsEmpty } = useConnection();
-  const router = useRouter()
+  const _router = useRouter()
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
@@ -106,7 +107,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   })
   
   // Total count state (filtered)
-  const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
+  const [_totalCount, setTotalCount] = useState<number>(initialTotalCount)
   
   // Unfiltered total count state (total tasks for connection regardless of filters)
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState<number>(initialTotalCount)
@@ -114,7 +115,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
-  const previousDebouncedSearchRef = useRef<string>('')
+  const _previousDebouncedSearchRef = useRef<string>('')
   const [assignedToMe, setAssignedToMe] = useState<boolean>(false)
   
   // Pagination state (disabled - we fetch all data upfront)
@@ -123,7 +124,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   const parentRef = useRef<HTMLDivElement>(null)
   // Buffer initial empty render with skeleton (no longer needed for filters, but kept for compatibility)
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
-  const [isSearching, setIsSearching] = useState<boolean>(false)
+  const [_isSearching, _setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
   const [_isPending, startTransition] = useTransition()
@@ -134,13 +135,13 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // Prefetching state
   const [prefetchedTasks, setPrefetchedTasks] = useState<Task[]>([])
   const [prefetchedOffset, setPrefetchedOffset] = useState<number | null>(null)
-  const [isPrefetching, setIsPrefetching] = useState(false)
+  const [_isPrefetching, _setIsPrefetching] = useState(false)
   
   // fetchOnce gate: Single gate for all fetch operations to prevent duplicates
   // Uses Promise-based deduplication (server actions don't support AbortController cancellation)
-  const inFlight = useRef(new Map<string, Promise<any>>())
+  const inFlight = useRef(new Map<string, Promise<unknown>>())
 
-  const fetchOnce = useCallback((key: string, fn: () => Promise<any>) => {
+  const fetchOnce = useCallback((key: string, fn: () => Promise<unknown>) => {
     const existing = inFlight.current.get(key)
     if (existing) {
       if (isDev()) {

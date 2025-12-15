@@ -430,7 +430,7 @@ export const getRequestsSnapshot = cache(async (
   
   // Fetch requests for each connection separately to guarantee completeness
   const allRequests: RequestRow[] = [];
-  const requestErrors: Array<{ connectionId: string; error: any }> = [];
+  const requestErrors: Array<{ connectionId: string; error: Error | unknown }> = [];
 
   for (const connectionId of connectionIds) {
     let connectionQuery = supabase

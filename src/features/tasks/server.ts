@@ -442,7 +442,7 @@ export const getTasksSnapshot = cache(async (
   
   // Fetch tasks for each connection separately to guarantee completeness
   const allTasks: TaskRow[] = [];
-  const taskErrors: Array<{ connectionId: string; error: any }> = [];
+  const taskErrors: Array<{ connectionId: string; error: Error | unknown }> = [];
 
   for (const connectionId of connectionIds) {
     let connectionQuery = supabase
@@ -1277,7 +1277,7 @@ export const getTasksSnapshotForStatus = cache(async (
   };
   
   const allTasks: TaskRow[] = [];
-  const taskErrors: Array<{ connectionId: string; error: any }> = [];
+  const taskErrors: Array<{ connectionId: string; error: Error | unknown }> = [];
 
   for (const connectionId of paginatedConnectionIds) {
     let connectionQuery = supabase

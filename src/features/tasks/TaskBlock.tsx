@@ -46,7 +46,7 @@ interface TaskBlockProps {
     orgName?: string
     orgType?: 'agency' | 'client'
   }>>
-  statusInlineRefs: React.MutableRefObject<Record<string, any>>
+  statusInlineRefs: React.MutableRefObject<Record<string, HTMLButtonElement | null>>
   onStatusChange: (taskId: string, newStatus: string) => void
   onAssigneeSelect: (taskId: string, memberId: string, connectionId: string) => void
   onClearAssignee: (taskId: string) => void
@@ -149,6 +149,7 @@ export function TaskBlock({
     </div>
   )
 }
+
 
 
 

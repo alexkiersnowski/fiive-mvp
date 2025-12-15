@@ -29,7 +29,7 @@ interface ProjectsPageClientProps {
 // Client component wrapper that handles all client-side interactivity
 export default function ProjectsPageClient({ connectionId, initialProjects, initialTotalCount, agencyMembers }: ProjectsPageClientProps) {
   const { snapshot, context, setIsEmpty } = useConnection();
-  const router = useRouter()
+  const _router = useRouter()
   const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
@@ -51,7 +51,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   const [sort, setSort] = useState<string>('project_asc')
   
   const parentRef = useRef<HTMLDivElement>(null)
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
+  const [_isBootstrapping, _setIsBootstrapping] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
   const [_isPending, startTransition] = useTransition()
@@ -166,7 +166,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
           }
         })
     }
-  }, []) // Only run once on mount - allProjects is initialized from initialProjects
+  }, [allProjects]) // Include allProjects in dependencies
 
   // Debounce search query (150ms delay - industry standard for real-time client-side search)
   // Apply debounce only to the input value, not to filtering/rendering logic
@@ -179,7 +179,7 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
     }, 150)
 
     return () => clearTimeout(timeoutId)
-  }, [searchQuery]) // Only depend on searchQuery, not debouncedSearchQuery
+  }, [searchQuery, debouncedSearchQuery]) // Include debouncedSearchQuery in dependencies
 
   // Real-time: listen for inserts and updates (including soft-deletes)
   useEffect(() => {

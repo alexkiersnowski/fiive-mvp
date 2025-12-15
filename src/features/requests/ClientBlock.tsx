@@ -32,7 +32,7 @@ interface ClientBlockProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  statusInlineRefs: React.MutableRefObject<Record<string, any>>
+  statusInlineRefs: React.MutableRefObject<Record<string, HTMLButtonElement | null>>
   onStatusChange: (requestId: string, newStatus: string) => void
   onAssigneeSelect: (requestId: string, memberId: string) => void
   onClearAssignee: (requestId: string) => void
@@ -133,6 +133,7 @@ export function ClientBlock({
     </div>
   )
 }
+
 
 
 

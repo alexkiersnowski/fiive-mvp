@@ -46,7 +46,7 @@ interface TasksTableProps {
   }>
   onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: Array<{ index: number; start: number; end: number; size: number }>) => void
   searchQuery?: string
   onSearchChange?: (query: string) => void
   totalCount?: number

@@ -1,7 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { getTasksForConnection, getTasksCountsForConnection, getConnectionMembers, getProjectOptionsForConnection, getCommentsForTasks } from '../server';
 import TasksPageClient from './TasksPageClient';
-import { PAGE_SIZE } from '../constants';
+// PAGE_SIZE imported but not used - kept for potential future use
 
 interface TasksPageProps {
   connectionId: string

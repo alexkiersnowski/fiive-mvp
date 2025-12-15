@@ -27,6 +27,9 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const resolvedSearchParams = await searchParams;
   const assignedToMe = resolvedSearchParams.assigned === 'me';
 
+  // Fetch connection IDs once and share across queries to avoid redundant fetches
+  const connectionIds = await getConnectionIdsForContext(context);
+
   // Prefetch allowed connection IDs for paywall checks (only for agencies)
   const billingStatus = context.organization.billing_status || 'free';
   const allowedConnectionIdsPromise = context.variant === 'agency'
@@ -61,7 +64,6 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           
           // Convert SearchResults to TasksSnapshot format for compatibility
           const allTasks = searchResults.clients.flatMap(client => client.tasks);
-          const uniqueConnectionIds = [...new Set(allTasks.map(t => t.connectionId))];
           
           // Fetch all connections metadata
           const allConnectionsMetadataQuery = context.variant === 'agency'
@@ -133,7 +135,21 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
               done: allTasks.filter(t => t.status === 'done').length,
             },
             totalClientCount: searchResults.totalClients,
-          } as any;
+          } as {
+            tasks: Array<{
+              id: string;
+              connectionId: string;
+              status: string;
+            }>;
+            total: number;
+            unfilteredTotalCount: number;
+            cursor: null;
+            hasNextPage: boolean;
+            loadedConnectionIds: string[];
+            allConnectionsMetadata: Map<string, { name: string; logoUrl?: string }>;
+            statusCounts: Record<string, number>;
+            totalClientCount: number;
+          };
         })()
       : // Accordion mode: create empty snapshot with metadata
         (async () => {
@@ -203,7 +219,18 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             statusCounts: {},
             clientCounts: {},
             totalClientCount: allConnectionsMetadata.size,
-          } as any;
+          } as {
+            tasks: never[];
+            total: number;
+            unfilteredTotalCount: number;
+            cursor: null;
+            hasNextPage: boolean;
+            loadedConnectionIds: never[];
+            allConnectionsMetadata: Map<string, { name: string; logoUrl?: string }>;
+            statusCounts: Record<string, number>;
+            clientCounts: Record<string, number>;
+            totalClientCount: number;
+          };
         })(),
     allowedConnectionIdsPromise,
     // Fetch counts for accordion headers
@@ -218,13 +245,13 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
   // Merge counts into snapshot for accordion mode
   if (!hasActiveSearch && countsData) {
-    (snapshot as any).statusCounts = countsData.statusCounts;
-    (snapshot as any).clientCounts = countsData.clientCounts;
+    (snapshot as { statusCounts?: Record<string, number>; clientCounts?: Record<string, number> }).statusCounts = countsData.statusCounts;
+    (snapshot as { statusCounts?: Record<string, number>; clientCounts?: Record<string, number> }).clientCounts = countsData.clientCounts;
   }
 
   // Fetch all independent data in parallel
-  const taskIds = (snapshot.tasks as any[]).map((t: any) => t.id).filter((id): id is string => typeof id === 'string');
-  const uniqueConnectionIds = [...new Set((snapshot.tasks as any[]).map((t: any) => t.connectionId).filter((id): id is string => typeof id === 'string'))];
+  const taskIds = Array.isArray(snapshot.tasks) ? snapshot.tasks.map((t: { id: string }) => t.id).filter((id): id is string => typeof id === 'string') : [];
+  const uniqueConnectionIds = Array.isArray(snapshot.tasks) ? [...new Set(snapshot.tasks.map((t: { connectionId: string }) => t.connectionId).filter((id): id is string => typeof id === 'string'))] : [];
   const [
     initialComments,
     agencyMembers,

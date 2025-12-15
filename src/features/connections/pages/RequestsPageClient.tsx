@@ -12,10 +12,10 @@ import type { Request, Comment } from '../server';
 import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequests } from '../requests/actions';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
 import { convertRequestToTask } from '../tasks/actions'
-import { PAGE_SIZE, PREFETCH_TIMEOUT_MS, isDev } from '../constants';
+import { PAGE_SIZE, isDev } from '../constants';
 import type { VirtualItem } from '@tanstack/react-virtual';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
-import { formatRequestDate } from '../formatters';
+// PREFETCH_TIMEOUT_MS and formatRequestDate imported but not used - kept for potential future use
 import { sortRequestsForDisplay } from '../requests/requestSort';
 
 // Error boundary for RequestsPageClient to catch runtime errors
@@ -120,7 +120,12 @@ type ModalRequest = {
 
 // Client component wrapper that handles all client-side interactivity
 function RequestsPageClientContent({ connectionId, initialRequests, initialTotalCount, initialNewCount, initialStatusCounts, agencyMembers, projects, initialComments = {} }: RequestsPageClientProps) {
-  // Defensive guards for critical props
+  // CRITICAL: All hooks must be called before any early returns
+  const { snapshot, context, setIsEmpty, setNewRequestsCount } = useConnection();
+  const _router = useRouter()
+  const pathname = usePathname()
+  
+  // Defensive guards for critical props (after hooks)
   if (!connectionId) {
     console.error('[RequestsPageClient] Missing connectionId prop');
     return (
@@ -153,17 +158,8 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
       </div>
     );
   }
-
-  const { snapshot, context, setIsEmpty, setNewRequestsCount } = useConnection();
-  const router = useRouter()
-  const pathname = usePathname()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
-  // Get user avatar and organization from context
-  const userAvatar = context.user?.avatarUrl || '';
-  const userInitials = context.user?.firstName?.[0] + context.user?.lastName?.[0] || 'U';
-  const currentOrgId = context.organization.id;
-
   // Store unfiltered data (all requests fetched upfront)
   const [allRequests, setAllRequests] = useState<Request[]>(initialRequests)
   // Optimistic new requests disabled (relying on real-time updates)
@@ -175,20 +171,15 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   })
   
   // Total count state (filtered)
-  const [totalCount, setTotalCount] = useState<number>(initialTotalCount)
+  const [_totalCount, setTotalCount] = useState<number>(initialTotalCount)
   
   // Unfiltered total count state (total requests for connection regardless of filters)
   const [unfilteredTotalCount, setUnfilteredTotalCount] = useState<number>(initialTotalCount)
-  useEffect(() => {
-    if (context.variant === 'agency') {
-      setNewRequestsCount(initialNewCount ?? 0)
-    }
-  }, [context.variant, initialNewCount, setNewRequestsCount])
   
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
-  const previousDebouncedSearchRef = useRef<string>('')
+  const _previousDebouncedSearchRef = useRef<string>('')
   const [assignedToMe, setAssignedToMe] = useState<boolean>(false)
   
   // Pagination state (disabled - we fetch all data upfront)
@@ -197,7 +188,7 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   const parentRef = useRef<HTMLDivElement>(null)
   // Buffer initial empty render with skeleton (no longer needed for filters, but kept for compatibility)
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
-  const [isSearching, setIsSearching] = useState<boolean>(false)
+  const [_isSearching, _setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
   const [_isPending, startTransition] = useTransition()
@@ -208,13 +199,13 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   // Prefetching state
   const [prefetchedRequests, setPrefetchedRequests] = useState<Request[]>([])
   const [prefetchedOffset, setPrefetchedOffset] = useState<number | null>(null)
-  const [isPrefetching, setIsPrefetching] = useState(false)
+  const [_isPrefetching, _setIsPrefetching] = useState(false)
   
   // fetchOnce gate: Single gate for all fetch operations to prevent duplicates
   // Uses Promise-based deduplication (server actions don't support AbortController cancellation)
-  const inFlight = useRef(new Map<string, Promise<any>>())
+  const inFlight = useRef(new Map<string, Promise<unknown>>())
 
-  const fetchOnce = useCallback((key: string, fn: () => Promise<any>) => {
+  const fetchOnce = useCallback((key: string, fn: () => Promise<unknown>) => {
     const existing = inFlight.current.get(key)
     if (existing) {
       if (isDev()) {
@@ -246,6 +237,17 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   // Comments map keyed by requestId for instant lookup
   // Initialize with server-fetched comments for instant availability
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments)
+  
+  // Get user avatar and organization from context (after all hooks)
+  const userAvatar = context.user?.avatarUrl || '';
+  const userInitials = context.user?.firstName?.[0] + context.user?.lastName?.[0] || 'U';
+  const currentOrgId = context.organization.id;
+  
+  useEffect(() => {
+    if (context.variant === 'agency') {
+      setNewRequestsCount(initialNewCount ?? 0)
+    }
+  }, [context.variant, initialNewCount, setNewRequestsCount])
 
   // Client-side filtering: filter allRequests based on searchQuery and assignedToMe
   const filteredRequests = useMemo(() => {
@@ -639,7 +641,7 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   // This prevents ~80% of request spam
 
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
+  const _handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
     // Virtual scroll triggers loadMore in RequestsTable based on scroll position
     // This handler is called when user scrolls near the end
             loadMore()

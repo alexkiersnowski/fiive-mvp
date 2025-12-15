@@ -99,11 +99,11 @@ export function TasksContent({
   // Minimal metadata for accurate counts
   // Initialize from server-fetched snapshot to prevent flicker
   const [statusCounts, setStatusCounts] = useState<Map<string, number>>(() => {
-    const counts = (snapshot as any).statusCounts || {};
+    const counts = (snapshot as { statusCounts?: Record<string, number> }).statusCounts || {};
     return new Map(Object.entries(counts));
   });
   const [clientCounts, setClientCounts] = useState<Map<string, number>>(() => {
-    const counts = (snapshot as any).clientCounts || {};
+    const counts = (snapshot as { clientCounts?: Record<string, number> }).clientCounts || {};
     return new Map(Object.entries(counts));
   });
   
@@ -134,8 +134,8 @@ export function TasksContent({
   const [allConnectionsMetadata, setAllConnectionsMetadata] = useState<Map<string, { name: string; logoUrl?: string }>>(snapshot.allConnectionsMetadata || new Map());
   // Initialize searchValue from prop only
   const [searchValue, setSearchValue] = useState(initialSearchValue || '');
-  const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue || '');
-  const [isLoading, setIsLoading] = useState(false);
+  const [_debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue || '');
+  const [_isLoading, _setIsLoading] = useState(false);
   const [, startTransition] = useTransition();
   
   // Search mode state (server-side search with atomic results)
@@ -193,7 +193,7 @@ export function TasksContent({
     }).catch(error => {
       console.error('Error fetching tasks counts:', error);
     });
-  }, [context, assignedToMe, clientTeamMemberIds]);
+  }, [context, assignedToMe, clientTeamMemberIds, statusCounts.size, clientCounts.size]);
 
   // Initial load: only set metadata, no tasks fetched
   useEffect(() => {
@@ -214,7 +214,11 @@ export function TasksContent({
   const toggleStatus = useCallback((status: string) => {
     setCollapsedStatuses(prev => {
       const newSet = new Set(prev);
-      newSet.has(status) ? newSet.delete(status) : newSet.add(status);
+      if (newSet.has(status)) {
+        newSet.delete(status);
+      } else {
+        newSet.add(status);
+      }
       return newSet;
     });
   }, []);
@@ -387,7 +391,6 @@ export function TasksContent({
   // Server-side search effect (triggers on any non-empty search)
   useEffect(() => {
     const trimmedSearch = searchValue.trim();
-    const isNowInSearchMode = trimmedSearch.length > 0;
     const wasInSearchMode = wasInSearchModeRef.current;
     
     // Only clear search results if search is completely empty
@@ -554,7 +557,7 @@ export function TasksContent({
   // Search is handled by filtering allConnectionsMetadata client-side in TasksTable
 
   // Always use accordion mode - no search mode
-  const displayedTotal = unfilteredTotalCount;
+  const _displayedTotal = unfilteredTotalCount;
 
   // Track header height for sticky table offset
   useEffect(() => {
@@ -1029,7 +1032,7 @@ export function TasksContent({
       const isNewStatusClientExpanded = collapsedClients.get(newStatus)?.has(newClientOrgId) || false;
       
       // Get current cache state
-      const oldTasks = tasksByClientStatus.get(oldCacheKey) || [];
+      const _oldTasks = tasksByClientStatus.get(oldCacheKey) || [];
       const newTasks = tasksByClientStatus.get(newCacheKey) || [];
       const hasNewCacheData = newTasks.length > 0;
       
@@ -1118,7 +1121,7 @@ export function TasksContent({
     if (selectedTask && selectedTask.id === taskId) {
       setSelectedTask(prev => prev ? { ...prev, ...updates } : null);
     }
-  }, [selectedTask, findTaskInCache, context, assignedToMe, clientTeamMemberIds, collapsedClients, tasksByClientStatus]);
+  }, [selectedTask, findTaskInCache, context, assignedToMe, clientTeamMemberIds, collapsedClients, tasksByClientStatus, handleFetchTasksForClientStatus]);
 
   const handleTaskDeleted = useCallback(async (taskId: string) => {
     // Find task in cache

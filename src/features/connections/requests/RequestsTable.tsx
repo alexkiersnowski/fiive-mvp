@@ -43,7 +43,7 @@ interface RequestsTableProps {
   }>
   onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: Array<{ index: number; start: number; end: number; size: number }>) => void
   searchQuery?: string
   onSearchChange?: (query: string) => void
   totalCount?: number
