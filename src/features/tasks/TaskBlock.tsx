@@ -4,6 +4,7 @@ import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalTaskRow } from './GlobalTaskRow'
 import type { Task } from './types'
 import type { TaskStatus } from './taskGrouping'
+import type { InlineEditRef } from '@/components/ui/inline-edit'
 
 interface TaskBlockProps {
   status: TaskStatus
@@ -46,7 +47,7 @@ interface TaskBlockProps {
     orgName?: string
     orgType?: 'agency' | 'client'
   }>>
-  statusInlineRefs: React.MutableRefObject<Record<string, HTMLButtonElement | null>>
+  statusInlineRefs: React.MutableRefObject<Record<string, InlineEditRef | null>>
   onStatusChange: (taskId: string, newStatus: string) => void
   onAssigneeSelect: (taskId: string, memberId: string, connectionId: string) => void
   onClearAssignee: (taskId: string) => void
@@ -115,10 +116,9 @@ export function TaskBlock({
         agencyName={agencyName}
         agencyLogoUrl={agencyLogoUrl}
         count={tasks.length}
-        isExpanded={isExpanded}
+        isCollapsed={!isExpanded}
         onToggle={onToggle}
         isAgency={isAgency}
-        isFirstClient={isFirstClient}
       />
       
       {/* Tasks - rendered directly when expanded (NOT virtualized) */}
@@ -131,7 +131,7 @@ export function TaskBlock({
             isAgency={isAgency}
             clientEditableMembers={clientEditableMembers}
             comboboxOptions={getComboboxOptionsForTask(task.connectionId)}
-            membersByConnection={membersByConnection}
+            membersByConnection={membersByConnection || {}}
             statusInlineRefs={statusInlineRefs}
             onStatusChange={onStatusChange}
             onAssigneeSelect={onAssigneeSelect}
