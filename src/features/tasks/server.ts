@@ -178,8 +178,6 @@ export const getTasksSnapshot = cache(async (
       offset: 0,
       hasMore: false,
       fetchedConnectionIds: [],
-      loadedConnectionCount: 0,
-      totalConnectionCount: 0,
       allConnectionsMetadata: allConnectionsMetadata,
       totalClientCount: allConnectionsMetadata.size, // Total unique clients
     };
@@ -227,7 +225,7 @@ export const getTasksSnapshot = cache(async (
       unfilteredTotalCount: 0,
       offset: 0,
       hasMore: false,
-      loadedConnectionIds: loadedConnectionIds,
+      fetchedConnectionIds: loadedConnectionIds,
       allConnectionsMetadata: allConnectionsMetadata,
       statusCounts: emptyStatusCounts,
       loadedStatusCounts: emptyStatusCounts,
@@ -1221,7 +1219,7 @@ export const getTasksSnapshotForStatus = cache(async (
       unfilteredTotalCount: 0,
       offset: 0,
       hasMore: false,
-      loadedConnectionIds: loadedConnectionIds,
+      fetchedConnectionIds: loadedConnectionIds,
       allConnectionsMetadata: allConnectionsMetadata,
       statusCounts,
       totalClientCount: allConnectionsMetadata.size,
@@ -1356,7 +1354,7 @@ export const getTasksSnapshotForStatus = cache(async (
       unfilteredTotalCount: unfilteredTotalCount || 0,
       offset: 0,
       hasMore: false,
-      loadedConnectionIds: loadedConnectionIds,
+      fetchedConnectionIds: loadedConnectionIds,
       allConnectionsMetadata: allConnectionsMetadata,
       statusCounts,
       loadedStatusCounts: { to_do: 0, in_progress: 0, on_hold: 0, done: 0 },
@@ -1857,8 +1855,6 @@ export const searchTasksGlobal = cache(async (
       offset: 0,
       hasMore: false,
       fetchedConnectionIds: [],
-      loadedConnectionCount: 0,
-      totalConnectionCount: 0,
       allConnectionsMetadata: allConnectionsMetadata,
     };
   }
@@ -2309,7 +2305,7 @@ export const searchTasksGlobal = cache(async (
     unfilteredTotalCount: unfilteredTotalCount || 0,
     offset: nextCursor, // Offset-based pagination for search
     hasNextPage: hasMoreResults,
-    loadedConnectionIds: [], // Not used for search mode
+    fetchedConnectionIds: [], // Not used for search mode
     allConnectionsMetadata: allConnectionsMetadata,
   };
 });
