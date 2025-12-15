@@ -133,72 +133,45 @@ export function NewTaskModal({
     }
   }, [providedProjects])
   
-  const hasAutoSelectedRef = useRef(false)
-  
-  // Auto-select connection if only one available in global mode
-  useEffect(() => {
-    if (isGlobal && isOpen && connections.length === 1 && !selectedConnectionId && !hasAutoSelectedRef.current) {
-      const connectionId = connections[0].id
-      setSelectedConnectionId(connectionId)
-      hasAutoSelectedRef.current = true
-      // Immediately notify parent and fetch projects + members
-      onConnectionSelect?.(connectionId)
-      fetchProjectsForConnection(connectionId)
-        .then(setProjects)
-        .catch(() => {
-          setProjects([])
-        })
-      fetchMembersForConnection(connectionId)
-        .then(({ agencyMembers, clientMembers }) => {
-          const allMembers = [...agencyMembers, ...clientMembers]
-          setConnectionMembers(allMembers)
-        })
-        .catch(() => {
-          setConnectionMembers([])
-        })
-    }
-    // Reset refs when modal closes
-    if (!isOpen) {
-      hasAutoSelectedRef.current = false
-      prevSelectedConnectionIdRef.current = ''
-    }
-  }, [isGlobal, isOpen, connections, selectedConnectionId, onConnectionSelect])
-
   // Track previous selectedConnectionId to detect manual changes
   const prevSelectedConnectionIdRef = useRef<string>('')
+  
+  // Reset refs when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      prevSelectedConnectionIdRef.current = ''
+    }
+  }, [isOpen])
   
   // Fetch projects and members when connection is manually selected in global mode
   useEffect(() => {
     if (isGlobal && selectedConnectionId && selectedConnectionId !== prevSelectedConnectionIdRef.current) {
-      // Skip the initial auto-select (already handled by auto-select useEffect)
-      const wasAutoSelected = hasAutoSelectedRef.current && prevSelectedConnectionIdRef.current === ''
-      if (!wasAutoSelected) {
-        // Reset project selection and assignee when connection changes
-        setProjectId('')
-        setAssigneeUserId(null)
-        // Notify parent of connection selection
-        onConnectionSelect?.(selectedConnectionId)
-        
-        // Fetch projects for the selected connection
-        fetchProjectsForConnection(selectedConnectionId)
-          .then(setProjects)
-          .catch(error => {
-            console.error('Error fetching projects:', error)
-            setProjects([])
-          })
-        
-        // Fetch members (both agency and client) for the selected connection
-        fetchMembersForConnection(selectedConnectionId)
-          .then(({ agencyMembers, clientMembers }) => {
-            // Combine both agency and client members
-            const allMembers = [...agencyMembers, ...clientMembers]
-            setConnectionMembers(allMembers)
-          })
-          .catch(error => {
-            console.error('Error fetching members:', error)
-            setConnectionMembers([])
-          })
-      }
+      // Reset project selection and assignee when connection changes
+      setProjectId('')
+      setAssigneeUserId(null)
+      // Notify parent of connection selection
+      onConnectionSelect?.(selectedConnectionId)
+      
+      // Fetch projects for the selected connection
+      fetchProjectsForConnection(selectedConnectionId)
+        .then(setProjects)
+        .catch(error => {
+          console.error('Error fetching projects:', error)
+          setProjects([])
+        })
+      
+      // Fetch members (both agency and client) for the selected connection
+      fetchMembersForConnection(selectedConnectionId)
+        .then(({ agencyMembers, clientMembers }) => {
+          // Combine both agency and client members
+          const allMembers = [...agencyMembers, ...clientMembers]
+          setConnectionMembers(allMembers)
+        })
+        .catch(error => {
+          console.error('Error fetching members:', error)
+          setConnectionMembers([])
+        })
+      
       prevSelectedConnectionIdRef.current = selectedConnectionId
     } else if (!isGlobal && isOpen && connectionId) {
       // Non-global mode: fetch projects for the fixed connection

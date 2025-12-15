@@ -89,6 +89,17 @@ export function RequestsContent({
     return new Map(Object.entries(counts));
   });
   
+  // Optimistic new requests count (for agency badge)
+  // Initialize from prop, but update optimistically when requests are created/updated
+  const [optimisticNewRequestsCount, setOptimisticNewRequestsCount] = useState<number>(newRequestsCount || 0);
+  
+  // Sync optimistic count with prop when it changes (e.g., on page refresh)
+  useEffect(() => {
+    if (typeof newRequestsCount === 'number') {
+      setOptimisticNewRequestsCount(newRequestsCount);
+    }
+  }, [newRequestsCount]);
+  
   // Ref to track count refresh timeout for debouncing
   const countRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -281,10 +292,45 @@ export function RequestsContent({
         createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined,
       });
       
+      // Track merged count for count updates
+      let mergedCount = 0;
+      
+      // CRITICAL: Capture hasOptimistic BEFORE merge callback (merge might clear it)
+      // This ensures we can preserve optimistic count even if merge clears the flag
+      const hadOptimisticBeforeMerge = optimisticCacheKeysRef.current.has(cacheKey);
+      
       // Merge server data with optimistic requests - preserve optimistic until replaced by real data
       setRequestsByClientStatus(prev => {
         const newMap = new Map(prev);
-        const existingRequests = newMap.get(cacheKey) || [];
+        
+        // CRITICAL: If we have optimistic data, ALWAYS read from ref first (before checking prev)
+        // This ensures we get the optimistic item even if prev doesn't have it yet (collapsed client auto-expand)
+        // The ref is synced synchronously in flushSync, so it should always have the latest data
+        const hasOptimisticData = optimisticCacheKeysRef.current.has(cacheKey);
+        let existingRequests = newMap.get(cacheKey);
+        
+        if (hasOptimisticData) {
+          // Always try to read from ref when optimistic data exists
+          const refRequests = requestsByClientStatusRef.current.get(cacheKey);
+          if (refRequests && refRequests.length > 0) {
+            // Ref has data - use it (this is the source of truth for optimistic items)
+            existingRequests = refRequests;
+            // Update newMap to include ref data so merge works correctly
+            newMap.set(cacheKey, existingRequests);
+          } else if (!existingRequests || existingRequests.length === 0) {
+            // Ref doesn't have it but optimistic data exists - this shouldn't happen
+            // But if it does, we need to preserve the optimistic count, so keep existingRequests as undefined
+            // This will be handled in the count update logic
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('Optimistic data exists but not found in ref or prev for cacheKey:', cacheKey);
+            }
+          }
+        }
+        
+        // Fallback to empty array if still no data (only if no optimistic data exists)
+        if (!existingRequests) {
+          existingRequests = [];
+        }
         
         // Create a set of server request IDs for deduplication
         const serverRequestIds = new Set(requests.map(r => r.id));
@@ -386,6 +432,50 @@ export function RequestsContent({
         const stillHasOptimistic = deduplicated.some(r => r.id.startsWith('temp-'));
         if (!stillHasOptimistic) {
           optimisticCacheKeysRef.current.delete(cacheKey);
+        }
+        
+        // Store merged count for count updates outside this callback
+        mergedCount = deduplicated.length;
+        
+        return newMap;
+      });
+      
+      // Update counts to reflect merged state
+      // CRITICAL: Optimistic counts MUST persist until server confirms
+      // If optimistic data existed before merge, NEVER update count to 0 - only update if mergedCount > 0
+      setClientCounts(prev => {
+        const newMap = new Map(prev);
+        const currentClientCount = newMap.get(cacheKey) || 0;
+        
+        // If we had optimistic data before merge, preserve the count unless mergedCount is > 0
+        // This ensures optimistic count persists until server data confirms it
+        // (We check hadOptimisticBeforeMerge because merge callback might have cleared the flag)
+        if (hadOptimisticBeforeMerge && mergedCount === 0 && currentClientCount > 0) {
+          // Optimistic count exists - preserve it, don't update to 0
+          return newMap;
+        }
+        
+        // Update client count if merged count differs
+        // mergedCount includes optimistic items if they were preserved in the merge
+        if (mergedCount !== currentClientCount) {
+          newMap.set(cacheKey, mergedCount);
+          
+          // Recalculate status count by summing all client counts for this status
+          // This ensures statusCounts always matches sum of clientCounts
+          const statusPrefix = `${status}-`;
+          let statusTotal = 0;
+          for (const [key, count] of newMap.entries()) {
+            if (key.startsWith(statusPrefix)) {
+              statusTotal += count;
+            }
+          }
+          
+          // Update status count atomically
+          setStatusCounts(prevStatus => {
+            const newStatusMap = new Map(prevStatus);
+            newStatusMap.set(status, statusTotal);
+            return newStatusMap;
+          });
         }
         
         return newMap;
@@ -773,6 +863,8 @@ export function RequestsContent({
           // Mark as optimistic so fetch replaces it with complete server data
           optimisticCacheKeysRef.current.add(cacheKey);
         }
+        // CRITICAL: Sync ref synchronously so fetch callback can read it
+        requestsByClientStatusRef.current = newMap;
         return newMap;
       });
       
@@ -810,6 +902,10 @@ export function RequestsContent({
         newMap.set(cacheKey, currentCount + 1);
         return newMap;
       });
+      // Update new requests count optimistically (for agency badge)
+      if (isAgency) {
+        setOptimisticNewRequestsCount(prev => prev + 1);
+      }
     });
     
     // Always trigger fetch to replace optimistic request with server data
@@ -884,6 +980,10 @@ export function RequestsContent({
           // Replace temp with real request at the top
           newMap.set(cacheKey, [request, ...without]);
         }
+        
+        // CRITICAL: Sync ref synchronously so fetch callback can read the real request
+        // This ensures when fetch merge runs, it sees the real request instead of temp
+        requestsByClientStatusRef.current = newMap;
         
         // Keep optimistic marker - the in-progress fetch will replace with complete data
         optimisticCacheKeysRef.current.add(cacheKey);
@@ -1051,6 +1151,16 @@ export function RequestsContent({
           newMap.set(newStatus, newCount + 1);
           return newMap;
         });
+        // Update new requests count optimistically (for agency badge)
+        // Decrement if status changed FROM 'new' to something else
+        // Increment if status changed TO 'new' from something else
+        if (context.variant === 'agency') {
+          if (oldRequest.status === 'new' && newStatus !== 'new') {
+            setOptimisticNewRequestsCount(prev => Math.max(0, prev - 1));
+          } else if (oldRequest.status !== 'new' && newStatus === 'new') {
+            setOptimisticNewRequestsCount(prev => prev + 1);
+          }
+        }
       }
       
       // Optimistically update client counts for OLD cache key (decrement)
@@ -1191,6 +1301,12 @@ export function RequestsContent({
         newMap.set(cacheKey, Math.max(0, currentCount - 1));
         return newMap;
       });
+      
+      // Update new requests count optimistically (for agency badge)
+      // Decrement if deleted request had status 'new'
+      if (context.variant === 'agency' && deletedRequest.status === 'new') {
+        setOptimisticNewRequestsCount(prev => Math.max(0, prev - 1));
+      }
     }
     
     setUnfilteredTotalCount(prev => Math.max(0, prev - 1));
@@ -1234,6 +1350,12 @@ export function RequestsContent({
           newMap.set(cacheKey, currentCount + 1);
           return newMap;
         });
+        
+        // Revert new requests count optimistically (for agency badge)
+        // Restore if deleted request had status 'new'
+        if (context.variant === 'agency' && deletedRequest.status === 'new') {
+          setOptimisticNewRequestsCount(prev => prev + 1);
+        }
         
         setUnfilteredTotalCount(prev => prev + 1);
       }
@@ -1364,7 +1486,7 @@ export function RequestsContent({
       >
         <RequestsHeader
           onNewRequest={handleNewRequest}
-          newRequestsCount={newRequestsCount}
+          newRequestsCount={optimisticNewRequestsCount}
           isAgency={isAgency}
         />
       </div>

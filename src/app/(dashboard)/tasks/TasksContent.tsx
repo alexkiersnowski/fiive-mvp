@@ -288,10 +288,45 @@ export function TasksContent({
         assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined,
       });
       
+      // Track merged count for count updates
+      let mergedCount = 0;
+      
+      // CRITICAL: Capture hasOptimistic BEFORE merge callback (merge might clear it)
+      // This ensures we can preserve optimistic count even if merge clears the flag
+      const hadOptimisticBeforeMerge = optimisticCacheKeysRef.current.has(cacheKey);
+      
       // Merge server data with optimistic tasks - preserve optimistic until replaced by real data
       setTasksByClientStatus(prev => {
         const newMap = new Map(prev);
-        const existingTasks = newMap.get(cacheKey) || [];
+        
+        // CRITICAL: If we have optimistic data, ALWAYS read from ref first (before checking prev)
+        // This ensures we get the optimistic item even if prev doesn't have it yet (collapsed client auto-expand)
+        // The ref is synced synchronously in flushSync, so it should always have the latest data
+        const hasOptimisticData = optimisticCacheKeysRef.current.has(cacheKey);
+        let existingTasks = newMap.get(cacheKey);
+        
+        if (hasOptimisticData) {
+          // Always try to read from ref when optimistic data exists
+          const refTasks = tasksByClientStatusRef.current.get(cacheKey);
+          if (refTasks && refTasks.length > 0) {
+            // Ref has data - use it (this is the source of truth for optimistic items)
+            existingTasks = refTasks;
+            // Update newMap to include ref data so merge works correctly
+            newMap.set(cacheKey, existingTasks);
+          } else if (!existingTasks || existingTasks.length === 0) {
+            // Ref doesn't have it but optimistic data exists - this shouldn't happen
+            // But if it does, we need to preserve the optimistic count, so keep existingTasks as undefined
+            // This will be handled in the count update logic
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('Optimistic data exists but not found in ref or prev for cacheKey:', cacheKey);
+            }
+          }
+        }
+        
+        // Fallback to empty array if still no data (only if no optimistic data exists)
+        if (!existingTasks) {
+          existingTasks = [];
+        }
         
         // Create a set of server task IDs for deduplication
         const serverTaskIds = new Set(tasks.map(t => t.id));
@@ -393,6 +428,50 @@ export function TasksContent({
         const stillHasOptimistic = deduplicated.some(t => t.id.startsWith('temp-'));
         if (!stillHasOptimistic) {
           optimisticCacheKeysRef.current.delete(cacheKey);
+        }
+        
+        // Store merged count for count updates outside this callback
+        mergedCount = deduplicated.length;
+        
+        return newMap;
+      });
+      
+      // Update counts to reflect merged state
+      // CRITICAL: Optimistic counts MUST persist until server confirms
+      // If optimistic data existed before merge, NEVER update count to 0 - only update if mergedCount > 0
+      setClientCounts(prev => {
+        const newMap = new Map(prev);
+        const currentClientCount = newMap.get(cacheKey) || 0;
+        
+        // If we had optimistic data before merge, preserve the count unless mergedCount is > 0
+        // This ensures optimistic count persists until server data confirms it
+        // (We check hadOptimisticBeforeMerge because merge callback might have cleared the flag)
+        if (hadOptimisticBeforeMerge && mergedCount === 0 && currentClientCount > 0) {
+          // Optimistic count exists - preserve it, don't update to 0
+          return newMap;
+        }
+        
+        // Update client count if merged count differs
+        // mergedCount includes optimistic items if they were preserved in the merge
+        if (mergedCount !== currentClientCount) {
+          newMap.set(cacheKey, mergedCount);
+          
+          // Recalculate status count by summing all client counts for this status
+          // This ensures statusCounts always matches sum of clientCounts
+          const statusPrefix = `${status}-`;
+          let statusTotal = 0;
+          for (const [key, count] of newMap.entries()) {
+            if (key.startsWith(statusPrefix)) {
+              statusTotal += count;
+            }
+          }
+          
+          // Update status count atomically
+          setStatusCounts(prevStatus => {
+            const newStatusMap = new Map(prevStatus);
+            newStatusMap.set(status, statusTotal);
+            return newStatusMap;
+          });
         }
         
         return newMap;
@@ -799,6 +878,8 @@ export function TasksContent({
           // Mark as optimistic so fetch replaces it with complete server data
           optimisticCacheKeysRef.current.add(cacheKey);
         }
+        // CRITICAL: Sync ref synchronously so fetch callback can read it
+        tasksByClientStatusRef.current = newMap;
         return newMap;
       });
       
@@ -913,6 +994,10 @@ export function TasksContent({
           // Replace temp with real task at the top
           newMap.set(cacheKey, [task, ...without]);
         }
+        
+        // CRITICAL: Sync ref synchronously so fetch callback can read the real task
+        // This ensures when fetch merge runs, it sees the real task instead of temp
+        tasksByClientStatusRef.current = newMap;
         
         // Keep optimistic marker - the in-progress fetch will replace with complete data
         optimisticCacheKeysRef.current.add(cacheKey);
