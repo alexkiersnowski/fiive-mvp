@@ -824,13 +824,33 @@ export default function OnboardingLayout({
       {/* Right side - Graphic container (1/3 width) - Fixed height, no scroll */}
       <div className="flex items-center justify-center overflow-hidden" style={{ width: '33.33%', height: '100vh' }}>
         <div className="w-full h-full p-2">
-          <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
+          <div 
+            className="w-full h-full rounded-sm flex items-center justify-center relative overflow-hidden"
+            style={{ backgroundColor: 'var(--color-neutral-3)' }}
+          >
+            {/* Circular gradient blur element */}
+            <div
+              className="absolute"
+              suppressHydrationWarning
+              style={{
+                background: 'linear-gradient(180deg, #FF8C1A 0%, #FF8985 40%, #51D9CC 100%)',
+                borderRadius: '50%',
+                width: '250%',
+                height: '150%',
+                filter: 'blur(125px)',
+                right: '-125%',
+                top: '-5%',
+                opacity: 0.9,
+              }}
+            />
+            {/* Watermark image on top */}
             <Image 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
               width={240}
               height={240}
-              className="max-w-full h-60 object-contain"
+              className="max-w-full h-60 object-contain relative z-10"
+              style={{ opacity: 0.6 }}
               draggable={false}
               priority
             />

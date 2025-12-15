@@ -115,7 +115,7 @@ export default async function SignUpPage() {
         linkText="Already have an account?"
         linkHref="/signin"
         linkLabel="Sign in"
-        buttonText="Continue"
+        buttonText="Get early access"
         onSubmit={handleSignUp}
         formKey="signup-form"
       />
