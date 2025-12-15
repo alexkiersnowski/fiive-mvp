@@ -28,7 +28,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const assignedToMe = resolvedSearchParams.assigned === 'me';
 
   // Fetch connection IDs once and share across queries to avoid redundant fetches
-  const connectionIds = await getConnectionIdsForContext(context);
+  const _connectionIds = await getConnectionIdsForContext(context);
 
   // Prefetch allowed connection IDs for paywall checks (only for agencies)
   const billingStatus = context.organization.billing_status || 'free';

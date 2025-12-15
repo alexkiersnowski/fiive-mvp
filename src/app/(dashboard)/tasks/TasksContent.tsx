@@ -785,7 +785,7 @@ export function TasksContent({
     // Always show skeleton while loading (even if we have optimistic data)
     // This ensures user sees skeleton below optimistic task while server data loads
     handleFetchTasksForClientStatus('to_do', clientOrgId, true);
-  }, [connections, context, tasksByClientStatus, collapsedClients, handleFetchTasksForClientStatus, allConnectionsMetadata]);
+  }, [connections, context, allConnectionsMetadata, handleFetchTasksForClientStatus, tasksByClientStatus]);
 
   const handleTaskCreated = useCallback(async ({ taskId, tempId, connectionId }: { taskId: string; tempId?: string; connectionId?: string }) => {
     // Use connectionId from payload, fallback to selectedConnectionId for backward compatibility
@@ -868,7 +868,7 @@ export function TasksContent({
     } catch (error) {
       console.error('Failed to fetch newly created task:', error);
     }
-  }, [selectedConnectionId, context, collapsedClients, tasksByClientStatus]);
+  }, [selectedConnectionId, context, collapsedClients]);
 
   // Helper to find task in cached accordion state or search results
   const findTaskInCache = useCallback((taskId: string): Task | null => {
@@ -1121,7 +1121,7 @@ export function TasksContent({
     if (selectedTask && selectedTask.id === taskId) {
       setSelectedTask(prev => prev ? { ...prev, ...updates } : null);
     }
-  }, [selectedTask, findTaskInCache, context, assignedToMe, clientTeamMemberIds, collapsedClients, tasksByClientStatus, handleFetchTasksForClientStatus]);
+  }, [selectedTask, findTaskInCache, context, assignedToMe, clientTeamMemberIds, collapsedClients, handleFetchTasksForClientStatus, tasksByClientStatus]);
 
   const handleTaskDeleted = useCallback(async (taskId: string) => {
     // Find task in cache

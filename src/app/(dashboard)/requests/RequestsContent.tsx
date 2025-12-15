@@ -759,7 +759,7 @@ export function RequestsContent({
     // Always show skeleton while loading (even if we have optimistic data)
     // This ensures user sees skeleton below optimistic request while server data loads
     handleFetchRequestsForClientStatus('new', clientOrgId, true);
-  }, [connections, context, requestsByClientStatus, collapsedClients, handleFetchRequestsForClientStatus]);
+  }, [connections, context, allConnectionsMetadata, handleFetchRequestsForClientStatus, requestsByClientStatus]);
 
   const handleRequestCreated = useCallback(async ({ requestId, tempId, connectionId }: { requestId: string; tempId?: string; connectionId?: string }) => {
     // Use connectionId from payload, fallback to selectedConnectionId for backward compatibility
@@ -842,7 +842,7 @@ export function RequestsContent({
     } catch (error) {
       console.error('Failed to fetch newly created request:', error);
     }
-  }, [selectedConnectionId, context, collapsedClients, requestsByClientStatus, handleFetchRequestsForClientStatus]);
+  }, [selectedConnectionId, context, collapsedClients]);
 
   // Helper to find request in cached accordion state or search results
   const findRequestInCache = useCallback((requestId: string): Request | null => {
@@ -853,7 +853,7 @@ export function RequestsContent({
     }
     
     return null;
-  }, [requestsByClientStatus, allConnectionsMetadata]);
+  }, [requestsByClientStatus]);
 
   const handleRequestClick = useCallback(async (requestId: string) => {
     // Try to get request from local state first

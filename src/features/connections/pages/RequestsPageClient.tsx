@@ -125,41 +125,6 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   const _router = useRouter()
   const pathname = usePathname()
   
-  // Defensive guards for critical props (after hooks)
-  if (!connectionId) {
-    console.error('[RequestsPageClient] Missing connectionId prop');
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-          Missing connection ID
-        </p>
-      </div>
-    );
-  }
-
-  if (!agencyMembers || !Array.isArray(agencyMembers)) {
-    console.error('[RequestsPageClient] Missing or invalid agencyMembers prop');
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-          Missing agency members data
-        </p>
-      </div>
-    );
-  }
-
-  if (!projects || !Array.isArray(projects)) {
-    console.error('[RequestsPageClient] Missing or invalid projects prop');
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-          Missing projects data
-        </p>
-      </div>
-    );
-  }
-  const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
-  
   // Store unfiltered data (all requests fetched upfront)
   const [allRequests, setAllRequests] = useState<Request[]>(initialRequests)
   // Optimistic new requests disabled (relying on real-time updates)
@@ -187,7 +152,7 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   const [currentOffset, setCurrentOffset] = useState(0) // Not used, but kept for compatibility
   const parentRef = useRef<HTMLDivElement>(null)
   // Buffer initial empty render with skeleton (no longer needed for filters, but kept for compatibility)
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
+  const [isBootstrapping, _setIsBootstrapping] = useState<boolean>(false)
   const [_isSearching, _setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
@@ -237,6 +202,58 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   // Comments map keyed by requestId for instant lookup
   // Initialize with server-fetched comments for instant availability
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments)
+  
+  // Local state for modal (like ProfileCard pattern)
+  const [selectedRequest, setSelectedRequest] = useState<ModalRequest | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isNewModalOpen, setIsNewModalOpen] = useState(false)
+  const [selectedRequestComments, setSelectedRequestComments] = useState<Array<{
+    id: string
+    userId: string
+    userName: string
+    userAvatar?: string
+    createdAt: Date
+    text: string
+  }>>([])
+  const [convertRequest, setConvertRequest] = useState<ModalRequest | null>(null)
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
+  const [isConverting, setIsConverting] = useState(false)
+  
+  // Defensive guards for critical props (after ALL hooks)
+  if (!connectionId) {
+    console.error('[RequestsPageClient] Missing connectionId prop');
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+          Missing connection ID
+        </p>
+      </div>
+    );
+  }
+
+  if (!agencyMembers || !Array.isArray(agencyMembers)) {
+    console.error('[RequestsPageClient] Missing or invalid agencyMembers prop');
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+          Missing agency members data
+        </p>
+      </div>
+    );
+  }
+
+  if (!projects || !Array.isArray(projects)) {
+    console.error('[RequestsPageClient] Missing or invalid projects prop');
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
+          Missing projects data
+        </p>
+      </div>
+    );
+  }
+  
+  const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
   // Get user avatar and organization from context (after all hooks)
   const userAvatar = context.user?.avatarUrl || '';
@@ -654,22 +671,6 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
     // For now, real-time updates handle deletions
   }, [])
 
-  // Local state for modal (like ProfileCard pattern)
-  const [selectedRequest, setSelectedRequest] = useState<ModalRequest | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [isNewModalOpen, setIsNewModalOpen] = useState(false)
-  const [selectedRequestComments, setSelectedRequestComments] = useState<Array<{
-    id: string
-    userId: string
-    userName: string
-    userAvatar?: string
-    createdAt: Date
-    text: string
-  }>>([])
-  const [convertRequest, setConvertRequest] = useState<ModalRequest | null>(null)
-  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
-  const [isConverting, setIsConverting] = useState(false)
-
   function getRequestById(requestId: string) {
     return allRequests.find(r => r.id === requestId)
   }
@@ -922,7 +923,6 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
       if (!req) return
       // Replace temp row if present; otherwise prepend and increment count
       setAllRequests(prev => {
-        const hadTemp = tempId ? prev.some(r => r.id === tempId) : false
         const optimisticEntry = tempId ? prev.find(r => r.id === tempId) : null
         
         // If replacing optimistic entry, preserve its ISO timestamp for proper sorting

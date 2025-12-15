@@ -123,7 +123,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   const [currentOffset, setCurrentOffset] = useState(0) // Not used, but kept for compatibility
   const parentRef = useRef<HTMLDivElement>(null)
   // Buffer initial empty render with skeleton (no longer needed for filters, but kept for compatibility)
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false)
+  const [isBootstrapping, _setIsBootstrapping] = useState<boolean>(false)
   const [_isSearching, _setIsSearching] = useState<boolean>(false)
   
   // useTransition for non-urgent state updates (improves UI responsiveness)
@@ -238,15 +238,15 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // This useEffect was causing task rows to not render initially, then all render at once
   // Re-sorting only happens when tasks actually change via other useEffects (refreshFirstPage, loadMore, etc.)
   
+  // Throttle realtime refresh calls to prevent POST storms (must be declared before useEffect that uses it)
+  const lastRealtimeRefreshRef = useRef<number>(0)
+  const REALTIME_REFRESH_THROTTLE_MS = 1000 // 1 second throttle
+  
   // Update isEmpty in context when unfilteredTotalCount changes
   // Note: unfilteredTotalCount is initialized from initialTotalCount (server-side), no need to refetch on mount
   useEffect(() => {
     setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
   }, [unfilteredTotalCount, isBootstrapping, setIsEmpty])
-  
-  // Throttle realtime refresh calls to prevent POST storms
-  const lastRealtimeRefreshRef = useRef<number>(0)
-  const REALTIME_REFRESH_THROTTLE_MS = 1000 // 1 second throttle
   
   // DRY: refresh all tasks (used by realtime fallback only - no filters)
   // Fetch ALL tasks upfront for connection tables (no pagination, no filters)
@@ -676,14 +676,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
             loadMore()
   }, [loadMore])
 
-  // Handle optimistic deletion from query params (when navigating from detail page)
-  useEffect(() => {
-    // Note: This effect is kept for backward compatibility but URL params are no longer synced
-    // If we need to handle deleted param in the future, we can read it from window.location.search
-    // For now, real-time updates handle deletions
-  }, [])
-
-  // Local state for modal (like ProfileCard pattern)
+  // Local state for modal (like ProfileCard pattern) - must be declared before useEffect
   const [selectedTask, setSelectedTask] = useState<{
     taskId: string
     title: string
