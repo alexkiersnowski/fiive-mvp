@@ -8,7 +8,7 @@ import type { InlineEditRef } from '@/components/ui/inline-edit'
 
 interface ClientBlockProps {
   status: RequestStatus
-  clientId: string
+  clientId?: string
   clientName?: string
   clientLogoUrl?: string
   agencyId?: string

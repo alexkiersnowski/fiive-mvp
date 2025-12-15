@@ -4,7 +4,7 @@ import { CaretDown } from '@phosphor-icons/react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 interface ClientGroupHeaderProps {
-  clientId: string
+  clientId?: string
   clientName?: string
   clientLogoUrl?: string
   agencyId?: string
