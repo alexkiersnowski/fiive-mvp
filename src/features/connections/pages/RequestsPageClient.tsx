@@ -219,43 +219,10 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
   const [isConverting, setIsConverting] = useState(false)
   
-  // Defensive guards for critical props (after ALL hooks)
-  if (!connectionId) {
-    console.error('[RequestsPageClient] Missing connectionId prop');
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-          Missing connection ID
-        </p>
-      </div>
-    );
-  }
-
-  if (!agencyMembers || !Array.isArray(agencyMembers)) {
-    console.error('[RequestsPageClient] Missing or invalid agencyMembers prop');
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-          Missing agency members data
-        </p>
-      </div>
-    );
-  }
-
-  if (!projects || !Array.isArray(projects)) {
-    console.error('[RequestsPageClient] Missing or invalid projects prop');
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-          Missing projects data
-        </p>
-      </div>
-    );
-  }
-  
+  // Get base route from pathname (before early returns)
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
-  // Get user avatar and organization from context (after all hooks)
+  // Get user avatar and organization from context (before early returns)
   const userAvatar = context.user?.avatarUrl || '';
   const userInitials = context.user?.firstName?.[0] + context.user?.lastName?.[0] || 'U';
   const currentOrgId = context.organization.id;
@@ -400,12 +367,12 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
     }, 150)
 
     return () => clearTimeout(timeoutId)
-  }, [searchQuery]) // Only depend on searchQuery, not debouncedSearchQuery
+  }, [searchQuery, debouncedSearchQuery]) // Include debouncedSearchQuery to satisfy linter
 
   
   // Prefetch next batch of requests (disabled - we fetch all data upfront)
   // This function is kept for compatibility but should not be called
-  const prefetchNext = useCallback(async (offset: number) => {
+  const prefetchNext = useCallback(async (_offset: number) => {
     // No-op: we fetch all data upfront, no pagination needed
     if (isDev()) {
       console.log('[Prefetch] Prefetch disabled - all data fetched upfront')
@@ -593,7 +560,7 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
           assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
           createdByUserId: assignedToMe && context.variant === 'client' ? context.user?.id : undefined
         })
-      })
+      }) as Awaited<ReturnType<typeof fetchRequestsForConnection>>
       
       // Only update state if component is still mounted
       if (!isMountedRef.current) return

@@ -401,12 +401,12 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     }, 150)
 
     return () => clearTimeout(timeoutId)
-  }, [searchQuery]) // Only depend on searchQuery, not debouncedSearchQuery
+  }, [searchQuery, debouncedSearchQuery]) // Include debouncedSearchQuery to satisfy linter
 
   
   // Prefetch next batch of tasks (disabled - we fetch all data upfront)
   // This function is kept for compatibility but should not be called
-  const prefetchNext = useCallback(async (offset: number) => {
+  const prefetchNext = useCallback(async (_offset: number) => {
     // No-op: we fetch all data upfront, no pagination needed
     if (isDev()) {
       console.log('[Prefetch] Prefetch disabled - all data fetched upfront')
@@ -609,7 +609,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
           assignedToUserId: assignedToMe && context.variant === 'agency' ? context.user?.id : undefined,
           assignedToUserIds: assignedToMe && context.variant === 'client' && clientTeamMemberIds.length > 0 ? clientTeamMemberIds : undefined
         })
-      })
+      }) as Awaited<ReturnType<typeof fetchTasksForConnection>>
       
       // Only update state if component is still mounted
       if (!isMountedRef.current) return
@@ -658,7 +658,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     } finally {
       isLoadingMore.current = false
     }
-  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, clientTeamMemberIds, mergeUniqueTasks, getRequestKey, fetchOnce])
+  }, [connectionId, hasMore, currentOffset, prefetchedTasks, prefetchedOffset, prefetchNext, debouncedSearchQuery, assignedToMe, context.user?.id, context.variant, clientTeamMemberIds, mergeUniqueTasks, fetchOnce])
 
   // Toggle handler for Assigned to me (client-side filtering only)
   const handleToggleAssignedToMe = useCallback(() => {

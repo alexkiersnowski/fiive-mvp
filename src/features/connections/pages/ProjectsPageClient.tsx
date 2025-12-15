@@ -95,8 +95,8 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
   
   // Update isEmpty in context when unfilteredTotalCount changes
   useEffect(() => {
-    setIsEmpty(unfilteredTotalCount === 0 && !isBootstrapping)
-  }, [unfilteredTotalCount, setIsEmpty])
+    setIsEmpty(unfilteredTotalCount === 0 && !_isBootstrapping)
+  }, [unfilteredTotalCount, _isBootstrapping, setIsEmpty])
   
   // DRY: refresh all projects (used by realtime fallback only - no filters)
   // Fetch ALL projects upfront for connection tables (no pagination, no filters)

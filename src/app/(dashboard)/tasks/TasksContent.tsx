@@ -1121,7 +1121,7 @@ export function TasksContent({
     if (selectedTask && selectedTask.id === taskId) {
       setSelectedTask(prev => prev ? { ...prev, ...updates } : null);
     }
-  }, [selectedTask, findTaskInCache, context, assignedToMe, clientTeamMemberIds, collapsedClients, handleFetchTasksForClientStatus, tasksByClientStatus]);
+  }, [selectedTask, findTaskInCache, context, assignedToMe, clientTeamMemberIds, collapsedClients, tasksByClientStatus]);
 
   const handleTaskDeleted = useCallback(async (taskId: string) => {
     // Find task in cache

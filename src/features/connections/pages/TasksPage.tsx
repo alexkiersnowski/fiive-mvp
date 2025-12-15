@@ -1,5 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { getTasksForConnection, getTasksCountsForConnection, getConnectionMembers, getProjectOptionsForConnection, getCommentsForTasks } from '../server';
+import type { Task } from '../server';
 import TasksPageClient from './TasksPageClient';
 // PAGE_SIZE imported but not used - kept for potential future use
 
@@ -40,7 +41,7 @@ export async function TasksPage({ connectionId }: TasksPageProps) {
   ])
   
   // Combine ALL tasks from all statuses
-  const allTasks: typeof tasksByStatusResults[0]['tasks'] = []
+  const allTasks: Task[] = []
   const statusOrder: typeof statuses = ['to_do', 'in_progress', 'on_hold', 'done']
   for (const status of statusOrder) {
     const result = tasksByStatusResults.find(r => r.status === status)

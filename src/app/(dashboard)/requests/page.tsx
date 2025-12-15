@@ -3,7 +3,7 @@ import { validateOrgContext } from '@/lib/mode/validateContext';
 import { notFound } from 'next/navigation';
 import { getRequestsSnapshot, getAgencyMembersForActiveOrg, getConnectionsForGlobalView, getGlobalNewRequestsCount, getConnectionIdsForContext, getRequestsCounts } from '@/features/requests/server';
 import { createClient } from '@/lib/supabase/server';
-import type { Request } from '@/features/requests/types';
+import type { Request, RequestsSnapshot } from '@/features/requests/types';
 import { getCommentsForRequests } from '@/features/connections/server';
 import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { RequestsContent } from './RequestsContent';
@@ -146,8 +146,11 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
 
   // Merge counts into snapshot for accordion mode
   if (!hasActiveSearch && countsData) {
-    (snapshot as { statusCounts?: Record<string, number>; clientCounts?: Record<string, number> }).statusCounts = countsData.statusCounts;
-    (snapshot as { statusCounts?: Record<string, number>; clientCounts?: Record<string, number> }).clientCounts = countsData.clientCounts;
+    // Type assertion needed because we're dynamically adding properties
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (snapshot as any).statusCounts = countsData.statusCounts;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (snapshot as any).clientCounts = countsData.clientCounts;
   }
 
   // Fetch all independent data in parallel
@@ -172,7 +175,7 @@ export default async function RequestsPage({ searchParams }: RequestsPageProps) 
 
   return (
     <RequestsContent 
-      snapshot={snapshot} 
+      snapshot={snapshot as RequestsSnapshot} 
       context={context}
       initialSearchValue={resolvedSearchParams.search || ''}
       initialComments={initialComments}

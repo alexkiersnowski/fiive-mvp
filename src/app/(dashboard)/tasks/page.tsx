@@ -5,6 +5,8 @@ import { getAgencyMembersForActiveOrg, getClientMembersForActiveOrg, getConnecti
 import { createClient } from '@/lib/supabase/server';
 import { getCommentsForTasks } from '@/features/connections/server';
 import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
+import { getConnectionIdsForContext } from '@/features/requests/server';
+import type { TasksSnapshot, Task } from '@/features/tasks/types';
 import { TasksContent } from './TasksContent';
 
 interface TasksPageProps {
@@ -63,7 +65,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           });
           
           // Convert SearchResults to TasksSnapshot format for compatibility
-          const allTasks = searchResults.clients.flatMap(client => client.tasks);
+          const allTasks: Task[] = searchResults.clients.flatMap(client => client.tasks);
           
           // Fetch all connections metadata
           const allConnectionsMetadataQuery = context.variant === 'agency'
@@ -209,23 +211,23 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           }
           
           return {
-            tasks: [],
+            tasks: [] as Task[],
             total: 0,
             unfilteredTotalCount: 0,
             cursor: null,
             hasNextPage: false,
-            loadedConnectionIds: [],
+            loadedConnectionIds: [] as string[],
             allConnectionsMetadata,
             statusCounts: {},
             clientCounts: {},
             totalClientCount: allConnectionsMetadata.size,
           } as {
-            tasks: never[];
+            tasks: Task[];
             total: number;
             unfilteredTotalCount: number;
             cursor: null;
             hasNextPage: boolean;
-            loadedConnectionIds: never[];
+            loadedConnectionIds: string[];
             allConnectionsMetadata: Map<string, { name: string; logoUrl?: string }>;
             statusCounts: Record<string, number>;
             clientCounts: Record<string, number>;
@@ -275,7 +277,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
   return (
     <TasksContent 
-      snapshot={snapshot} 
+      snapshot={snapshot as unknown as TasksSnapshot} 
       context={context}
       initialSearchValue={resolvedSearchParams.search || ''}
       initialComments={initialComments}
