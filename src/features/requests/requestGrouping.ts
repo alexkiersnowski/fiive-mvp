@@ -317,7 +317,7 @@ export function flattenGroupedRequestsFromFlatList(
     items.push({
       type: 'client-block',
       status,
-      clientId: isAgency ? groupId : undefined,
+      clientId: isAgency ? groupId : (groupId || ''),
       clientName: isAgency ? (request.client.name || groupInfo?.name) : undefined,
       clientLogoUrl: isAgency ? (request.client.logoUrl || groupInfo?.logoUrl) : undefined,
       agencyId: !isAgency ? groupId : undefined,
