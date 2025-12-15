@@ -161,7 +161,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // Key format: connectionId + tab + status? + query + offset + filters
   // Must uniquely represent the dataset slice to prevent "stuck data" bugs
   // Never reuse a key across different lifecycle intents (refresh vs search vs filter change)
-  const getRequestKey = useCallback((intent: string, offset: number, searchQuery?: string, assignedToMe?: boolean) => {
+  const _getRequestKey = useCallback((intent: string, offset: number, searchQuery?: string, assignedToMe?: boolean) => {
     // Include connectionId, intent, offset, searchQuery, and assignedToMe in key
     // Intent distinguishes: 'refresh', 'search', 'prefetch', 'loadMore'
     return `tasks:${connectionId}:${intent}:${offset}:${searchQuery || ''}:${assignedToMe ? 'assigned' : 'all'}`
@@ -670,7 +670,7 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
   // This prevents ~80% of request spam
 
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
+  const handleLoadMore = useCallback((_virtualRows: Array<{ index: number; start: number; end: number; size: number }>) => {
     // Virtual scroll triggers loadMore in TasksTable based on scroll position
     // This handler is called when user scrolls near the end
             loadMore()

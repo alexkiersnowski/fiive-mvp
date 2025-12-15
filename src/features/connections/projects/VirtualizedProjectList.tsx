@@ -51,7 +51,7 @@ export function VirtualizedProjectList({
   // Virtualizer instance (only created when shouldVirtualize is true)
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualize ? projects.length : 0,
-    getScrollElement: () => parentRef?.current || containerRef.current || (typeof window !== 'undefined' ? window : null),
+    getScrollElement: () => (parentRef?.current || containerRef.current) as Element | null,
     estimateSize: () => ROW_HEIGHT,
     overscan: projects.length > 100 ? 5 : VIRTUAL_OVERSCAN,
     enabled: shouldVirtualize
@@ -111,16 +111,22 @@ export function VirtualizedProjectList({
         const existingProps = (rowElement as React.ReactElement)?.props || {}
         return (
           <React.Fragment key={project.id}>
-            {React.cloneElement(rowElement as React.ReactElement, {
-              ...existingProps,
-              ref: (node: HTMLTableRowElement | null) => {
-                if (node) {
-                  rowVirtualizer.measureElement(node)
-                }
-              },
-              'data-index': virtualRow.index,
-              style: { ...existingProps.style, height: `${virtualRow.size}px` }
-            })}
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            {React.cloneElement(
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              rowElement as React.ReactElement<any>,
+              {
+                ...existingProps,
+                ref: (node: HTMLTableRowElement | null) => {
+                  if (node) {
+                    rowVirtualizer.measureElement(node)
+                  }
+                },
+                'data-index': virtualRow.index,
+                style: { ...existingProps.style, height: `${virtualRow.size}px` }
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              } as any
+            )}
           </React.Fragment>
         )
       })}
