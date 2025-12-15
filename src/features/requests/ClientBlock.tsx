@@ -102,10 +102,9 @@ export function ClientBlock({
         agencyName={agencyName}
         agencyLogoUrl={agencyLogoUrl}
         count={requests.length}
-        isExpanded={isExpanded}
+        isCollapsed={!isExpanded}
         onToggle={onToggle}
         isAgency={isAgency}
-        isFirstClient={isFirstClient}
       />
       
       {/* Requests - rendered directly when expanded (NOT virtualized) */}
