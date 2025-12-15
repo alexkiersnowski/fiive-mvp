@@ -434,7 +434,7 @@ export default function TasksCardClient({
       // Fetch starting from cursor 5 with limit 1
       fetchTasksSnapshot(context, {
         limit: 1,
-        cursor: '5',
+        offset: 5,
       }).then(nextSnapshot => {
         if (nextSnapshot.tasks.length > 0) {
           const newPrefetched = nextSnapshot.tasks[0];

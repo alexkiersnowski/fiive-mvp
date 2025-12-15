@@ -415,7 +415,7 @@ export default function RequestsCardClient({
       // Fetch starting from cursor 5 with limit 1
       fetchRequestsSnapshot(context, {
         limit: 1,
-        cursor: '5',
+        offset: 5,
       }).then(nextSnapshot => {
         if (nextSnapshot.requests.length > 0) {
           const newPrefetched = nextSnapshot.requests[0];
