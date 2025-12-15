@@ -59,7 +59,8 @@ export const getTasksSnapshot = cache(async (
   context: EnhancedModeContext,
   options: TasksPaginationOptions = {}
 ): Promise<TasksSnapshot> => {
-  const { search = '', offset, limit = 20, loadedConnectionIds = [] } = options;
+  const { search = '', offset, limit = 20 } = options;
+  const loadedConnectionIds: string[] = [];
   
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {
@@ -1747,7 +1748,7 @@ export const searchTasksGlobal = cache(async (
   context: EnhancedModeContext,
   options: TasksPaginationOptions = {}
 ): Promise<TasksSnapshot> => {
-  const { search = '', cursor, limit = 50, assignedToUserId, assignedToUserIds } = options;
+  const { search = '', offset, limit = 50, assignedToUserId, assignedToUserIds } = options;
   
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {
@@ -1885,8 +1886,8 @@ export const searchTasksGlobal = cache(async (
   const searchTerms = trimmedQuery.split(/\s+/).filter(t => t.length > 0);
   const tsQuery = searchTerms.map(term => term.replace(/[():&|!]/g, '')).join(' & '); // AND all terms
 
-  // Parse cursor (offset-based for search pagination)
-  const offset = cursor ? parseInt(cursor, 10) : 0;
+  // Use offset directly (offset-based for search pagination)
+  const searchOffset = (offset || 0);
   const searchLimit = limit || 50;
 
   // Build search query using RPC or raw SQL
@@ -1932,7 +1933,7 @@ export const searchTasksGlobal = cache(async (
   // Apply pagination (offset-based for search)
   tasksQuery = tasksQuery
     .order('created_at', { ascending: false })
-    .range(offset, offset + searchLimit - 1);
+    .range(searchOffset, searchOffset + searchLimit - 1);
 
   // Execute query
   const { data: tasksData, error: tasksError } = await tasksQuery;
