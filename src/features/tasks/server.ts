@@ -59,7 +59,7 @@ export const getTasksSnapshot = cache(async (
   context: EnhancedModeContext,
   options: TasksPaginationOptions = {}
 ): Promise<TasksSnapshot> => {
-  const { search = '', cursor, limit = 20, loadedConnectionIds = [] } = options;
+  const { search = '', offset, limit = 20, loadedConnectionIds = [] } = options;
   
   // Validate context before proceeding
   if (!context || !context.orgId || !context.userId) {
