@@ -207,7 +207,7 @@ export const getTasksSnapshot = cache(async (
     : allConnections;
   
   // Apply pagination to remaining connections (already sorted A-Z)
-  const connectionStartIndex = cursor ? parseInt(cursor, 10) : 0;
+  const connectionStartIndex = offset || 0;
   const connections = remainingConnections.slice(connectionStartIndex, connectionStartIndex + limit);
   const totalConnectionsCount = remainingConnections.length;
   const connectionIds = connections.map(c => c.id);
@@ -1209,7 +1209,7 @@ export const getTasksSnapshotForStatus = cache(async (
     : sortedConnections;
 
   // Apply pagination to remaining connections
-  const connectionStartIndex = cursor ? parseInt(cursor, 10) : 0;
+  const connectionStartIndex = offset || 0;
   const paginatedConnectionIds = remainingConnections.slice(connectionStartIndex, connectionStartIndex + limit);
   const newLoadedConnectionIds = [...loadedConnectionIds, ...paginatedConnectionIds];
   const hasMoreConnections = remainingConnections.length > connectionStartIndex + limit;
