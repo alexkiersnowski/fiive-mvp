@@ -4,6 +4,7 @@ import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalRequestRow } from './GlobalRequestRow'
 import type { Request } from './types'
 import type { RequestStatus } from './requestGrouping'
+import type { InlineEditRef } from '@/components/ui/inline-edit'
 
 interface ClientBlockProps {
   status: RequestStatus
@@ -32,7 +33,7 @@ interface ClientBlockProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  statusInlineRefs: React.MutableRefObject<Record<string, HTMLButtonElement | null>>
+  statusInlineRefs: React.MutableRefObject<Record<string, InlineEditRef | null>>
   onStatusChange: (requestId: string, newStatus: string) => void
   onAssigneeSelect: (requestId: string, memberId: string) => void
   onClearAssignee: (requestId: string) => void
