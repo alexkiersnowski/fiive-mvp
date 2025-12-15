@@ -409,38 +409,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
 
   // Derived from current filter state — prevents flicker during search clear
   const hasActiveFilters = (searchQuery?.trim().length ?? 0) > 0 || assignedToMe;
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters;
-
-  // Empty state component matching ClientsTable design
-  const emptyState = isEmptyState ? (
-    <div 
-      className="text-left" 
-      style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
-    >
-      <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-        <div className="flex flex-col items-start gap-2">
-          <h2 className="display-8-medium">Your best work starts here</h2>
-          <span className="text-sm-regular text-neutral-11">
-            {isAgency 
-              ? 'Add action items for your team or client, and choose what stays client-visible.'
-              : 'Your agency manages all tasks. Submit a request to kick things off or share what you need next.'
-            }
-          </span>
-        </div>
-        {onNewTask && !isDisconnected && isAgency && (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-            onClick={onNewTask}
-          >
-            <Plus size={16} weight="regular" />
-            New task
-          </Button>
-        )}
-      </div>
-    </div>
-  ) : null
 
   // Scroll to top when search/filter changes
   useEffect(() => {
@@ -628,53 +596,49 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
             </div>
           ) : (
             // Always render StatusSection components (grouped by status, even when filtering)
-            isEmptyState ? (
-              emptyState
-            ) : (
-              <>
-                {TASK_STATUS_ORDER.map((status: TaskStatus) => {
-                  // Use filtered counts when filtering, otherwise use server counts
-                  const count = hasActiveFilters 
-                    ? filteredStatusCounts[status] || 0
-                    : (statusCountsProp?.[status] || tasksByStatus[status]?.length || 0)
-                  
-                  return (
-                    <StatusSection
-                      key={status}
-                      status={status}
-                      tasks={tasksByStatus[status] || []}
-                      count={count}
-                      // NO isExpanded prop - StatusSection owns this
-                      // NO onToggle prop - StatusSection handles toggle internally
-                      onDrop={(taskId) => handleStatusChange(taskId, status)}
-                      isAgency={isAgency}
-                      isDisconnected={isDisconnected}
-                      clientEditableMembers={clientEditableMembers}
-                      comboboxOptions={comboboxOptions}
-                      agencyMembers={agencyMembers}
-                      agencyOrganization={agencyOrganization}
-                      statusInlineRefs={statusInlineRefs}
-                      onStatusChange={handleStatusChange}
-                      onAssigneeSelect={handleAssigneeSelect}
-                      onClearAssignee={handleClearAssignee}
-                      onRowClick={handleRowClickWithDragCheck}
-                      onCopyLink={handleCopyLink}
-                      onDeleteTask={handleDeleteTask}
-                      onContactClick={handleContactClick}
-                      openActionsDropdown={openActionsDropdown}
-                      setOpenActionsDropdown={setOpenActionsDropdown}
-                      baseRoute={baseRoute}
-                      draggedTaskId={draggedTaskId}
-                      onDragStart={handleDragStart}
-                      canDragTask={canDragTask}
-                      isDraggingActive={draggedTaskId !== null}
-                      hoveredGroupStatus={hoveredGroupStatus}
-                      parentRef={parentRef}
-                    />
-                  )
-                })}
-              </>
-            )
+            <>
+              {TASK_STATUS_ORDER.map((status: TaskStatus) => {
+                // Use filtered counts when filtering, otherwise use server counts
+                const count = hasActiveFilters 
+                  ? filteredStatusCounts[status] || 0
+                  : (statusCountsProp?.[status] || tasksByStatus[status]?.length || 0)
+                
+                return (
+                  <StatusSection
+                    key={status}
+                    status={status}
+                    tasks={tasksByStatus[status] || []}
+                    count={count}
+                    // NO isExpanded prop - StatusSection owns this
+                    // NO onToggle prop - StatusSection handles toggle internally
+                    onDrop={(taskId) => handleStatusChange(taskId, status)}
+                    isAgency={isAgency}
+                    isDisconnected={isDisconnected}
+                    clientEditableMembers={clientEditableMembers}
+                    comboboxOptions={comboboxOptions}
+                    agencyMembers={agencyMembers}
+                    agencyOrganization={agencyOrganization}
+                    statusInlineRefs={statusInlineRefs}
+                    onStatusChange={handleStatusChange}
+                    onAssigneeSelect={handleAssigneeSelect}
+                    onClearAssignee={handleClearAssignee}
+                    onRowClick={handleRowClickWithDragCheck}
+                    onCopyLink={handleCopyLink}
+                    onDeleteTask={handleDeleteTask}
+                    onContactClick={handleContactClick}
+                    openActionsDropdown={openActionsDropdown}
+                    setOpenActionsDropdown={setOpenActionsDropdown}
+                    baseRoute={baseRoute}
+                    draggedTaskId={draggedTaskId}
+                    onDragStart={handleDragStart}
+                    canDragTask={canDragTask}
+                    isDraggingActive={draggedTaskId !== null}
+                    hoveredGroupStatus={hoveredGroupStatus}
+                    parentRef={parentRef}
+                  />
+                )
+              })}
+            </>
           )}
         </div>
       </div>

@@ -1241,11 +1241,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                               )}
                               
                               {/* CASE 2: We fetched, and it's truly empty (no optimistic tasks either). */}
-                              {hasData && isEmpty && optimisticTasks.length === 0 && (
-                                <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
-                                  No tasks found
-                                </div>
-                              )}
+                              {/* No message shown - status header shows 0 tasks */}
                               
                               {/* CASE 3: We have data (optimistic or real). Render optimistic tasks first, then real tasks. */}
                               {hasData && !isEmpty && !(optimisticTasks.length > 0 && realTasks.length === 0 && isLoading) && (
@@ -1302,11 +1298,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                         </React.Fragment>
                       )
                     })}
-                    {!isStatusCollapsed && clients.length === 0 && (
-                      <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
-                        No clients found
-                      </div>
-                    )}
+                    {/* No message shown when no clients - status header shows 0 tasks */}
                   </React.Fragment>
                 )
               })}

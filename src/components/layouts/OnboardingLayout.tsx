@@ -821,8 +821,8 @@ export default function OnboardingLayout({
           </div>
         </div>
 
-      {/* Right side - Graphic container (1/3 width) - Fixed height, no scroll */}
-      <div className="flex items-center justify-center overflow-hidden" style={{ width: '33.33%', height: '100vh' }}>
+      {/* Right side - Graphic container (1/3 width) */}
+      <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
         <div className="w-full h-full p-2">
           <div 
             className="w-full h-full rounded-sm flex items-center justify-center relative overflow-hidden"
@@ -837,10 +837,11 @@ export default function OnboardingLayout({
                 borderRadius: '50%',
                 width: '250%',
                 height: '150%',
-                filter: 'blur(125px)',
+                
+                filter: 'blur(100px)',
                 right: '-125%',
                 top: '-5%',
-                opacity: 0.9,
+                opacity: 1,
               }}
             />
             {/* Watermark image on top */}
@@ -850,9 +851,10 @@ export default function OnboardingLayout({
               width={240}
               height={240}
               className="max-w-full h-60 object-contain relative z-10"
-              style={{ opacity: 0.6 }}
+              style={{ opacity: 0.78 }}
               draggable={false}
-              priority
+              loading="eager"
+              suppressHydrationWarning
             />
           </div>
         </div>
