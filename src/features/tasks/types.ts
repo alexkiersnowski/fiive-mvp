@@ -96,6 +96,7 @@ export type TasksPaginationOptions = {
   assignedToUserIds?: string[]; // For filtering by multiple user IDs (e.g., all client team members)
   // Status-specific pagination
   status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; // Filter by status for status-specific pagination
+  loadedConnectionIds?: string[]; // Connection IDs that have already been loaded (for pagination)
 };
 
 // Search results types for server-side search mode

@@ -569,8 +569,6 @@ export const getTasksSnapshot = cache(async (
         offset: 0,
         hasMore: false,
         fetchedConnectionIds: [],
-        loadedConnectionCount: 0,
-        totalConnectionCount: 0,
         allConnectionsMetadata: allConnectionsMetadata,
         statusCounts, // Include status counts even on error
         loadedStatusCounts: { to_do: 0, in_progress: 0, on_hold: 0, done: 0 }, // No loaded tasks
@@ -586,9 +584,7 @@ export const getTasksSnapshot = cache(async (
       unfilteredTotalCount: unfilteredTotalCount || 0,
       offset: 0,
       hasMore: false,
-      loadedConnectionIds: newLoadedConnectionIds,
-      loadedConnectionCount: newLoadedConnectionIds.length,
-      totalConnectionCount: allConnections.length,
+      fetchedConnectionIds: newLoadedConnectionIds,
       allConnectionsMetadata: allConnectionsMetadata,
       statusCounts, // Include status counts even with no loaded tasks
       loadedStatusCounts: { to_do: 0, in_progress: 0, on_hold: 0, done: 0 }, // No loaded tasks
@@ -682,6 +678,7 @@ export const getTasksSnapshot = cache(async (
       unfilteredTotalCount: unfilteredTotalCount || 0,
       offset: 0,
       hasMore: false,
+      fetchedConnectionIds: [],
       allConnectionsMetadata: allConnectionsMetadata,
     };
   }
@@ -915,11 +912,7 @@ export const getTasksSnapshot = cache(async (
   // Calculate pagination info based on connections, not tasks
   // hasMoreConnections indicates if there are more connections to load
   // Total count should reflect total tasks across ALL connections (for display purposes)
-  const nextCursor = hasMoreConnections ? String(connectionStartIndex + limit) : null;
-  
-  // Calculate connection counts for partial data indication
-  const loadedConnectionCount = newLoadedConnectionIds.length
-  const totalConnectionCount = allConnections.length
+  const nextOffset = hasMoreConnections ? connectionStartIndex + limit : connectionStartIndex;
 
   // Calculate total unique client count (agnostic to pagination)
   // This is the count of unique orgIds in allConnectionsMetadata (all clients user has access to)
@@ -929,11 +922,9 @@ export const getTasksSnapshot = cache(async (
     tasks: sortedTasks,
     total: total || 0, // Total count from filtered query across all connections
     unfilteredTotalCount: unfilteredTotalCount || 0,
-    cursor: nextCursor,
-    hasNextPage: hasMoreConnections,
-    loadedConnectionIds: newLoadedConnectionIds,
-    loadedConnectionCount,
-    totalConnectionCount,
+    offset: nextOffset,
+    hasMore: hasMoreConnections,
+    fetchedConnectionIds: newLoadedConnectionIds,
     allConnectionsMetadata: allConnectionsMetadata,
     statusCounts, // Status counts across ALL connections
     loadedStatusCounts, // Status counts from loaded connections only
@@ -1370,6 +1361,7 @@ export const getTasksSnapshotForStatus = cache(async (
       unfilteredTotalCount: unfilteredTotalCount || 0,
       offset: 0,
       hasMore: false,
+      fetchedConnectionIds: [],
       allConnectionsMetadata: allConnectionsMetadata,
       statusCounts,
       loadedStatusCounts: { to_do: 0, in_progress: 0, on_hold: 0, done: 0 },
@@ -1457,6 +1449,7 @@ export const getTasksSnapshotForStatus = cache(async (
       unfilteredTotalCount: unfilteredTotalCount || 0,
       offset: 0,
       hasMore: false,
+      fetchedConnectionIds: [],
       allConnectionsMetadata: allConnectionsMetadata,
       statusCounts,
       loadedStatusCounts: { to_do: 0, in_progress: 0, on_hold: 0, done: 0 },
@@ -1663,20 +1656,15 @@ export const getTasksSnapshotForStatus = cache(async (
     done: sortedTasks.filter(t => t.status === 'done').length,
   };
 
-  const nextCursor = hasMoreConnections ? String(connectionStartIndex + limit) : null;
+  const nextOffset = hasMoreConnections ? connectionStartIndex + limit : connectionStartIndex;
   
-  const loadedConnectionCount = newLoadedConnectionIds.length;
-  const totalConnectionCount = sortedConnections.length;
-
   return {
     tasks: sortedTasks,
     total: sortedTasks.length,
     unfilteredTotalCount: unfilteredTotalCount || 0,
-    cursor: nextCursor,
-    hasNextPage: hasMoreConnections,
-    loadedConnectionIds: newLoadedConnectionIds,
-    loadedConnectionCount,
-    totalConnectionCount,
+    offset: nextOffset,
+    hasMore: hasMoreConnections,
+    fetchedConnectionIds: newLoadedConnectionIds,
     allConnectionsMetadata: allConnectionsMetadata,
     statusCounts, // Global truth across ALL connections
     loadedStatusCounts, // Local truth from loaded connections
@@ -2296,15 +2284,15 @@ export const searchTasksGlobal = cache(async (
   const sortedTasks = tasksWithTimestamps.map(item => item.task);
 
   // Calculate pagination info (offset-based for search)
-  const hasMoreResults = (total || 0) > offset + searchLimit;
-  const nextCursor = hasMoreResults ? String(offset + searchLimit) : null;
+  const hasMoreResults = (total || 0) > searchOffset + searchLimit;
+  const nextOffset = hasMoreResults ? searchOffset + searchLimit : searchOffset;
 
   return {
     tasks: sortedTasks,
     total: total || 0,
     unfilteredTotalCount: unfilteredTotalCount || 0,
-    offset: nextCursor, // Offset-based pagination for search
-    hasNextPage: hasMoreResults,
+    offset: nextOffset, // Offset-based pagination for search
+    hasMore: hasMoreResults,
     fetchedConnectionIds: [], // Not used for search mode
     allConnectionsMetadata: allConnectionsMetadata,
   };
