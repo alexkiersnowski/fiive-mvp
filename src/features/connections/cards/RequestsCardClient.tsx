@@ -15,7 +15,7 @@ import { RequestDetailModal } from '../requests/RequestDetailModal';
 import { NewRequestModal } from '../requests/NewRequestModal';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal';
 import { convertRequestToTask } from '../tasks/actions';
-import { fetchRequestById } from '../requests/actions';
+import { deleteRequest } from '../requests/actions';
 import type { Request } from '../server';
 
 type PrefetchedComment = {
@@ -50,7 +50,7 @@ type RequestDetailPayload = {
   submittedBy?: { id: string; name: string; email: string; avatarUrl?: string };
   assignee?: { id: string; name: string; email: string; avatarUrl?: string } | null;
   project?: { id: string; name: string } | null;
-  status?: 'new' | 'in_review' | 'accepted' | 'canceled';
+  status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed';
   createdAt?: string;
   createdByOrgId?: string;
   createdByOrgType?: 'agency' | 'client';
@@ -67,6 +67,7 @@ type PrefetchedRequest = {
 interface RequestsCardClientProps {
   connectionId: string;
   requests: PrefetchedRequest[];
+  prefetchedNextRequest?: PrefetchedRequest | null;
   projects: ProjectOption[];
 }
 
@@ -84,12 +85,16 @@ const formatRequestDate = (isoDate: string | null | undefined) => {
   }).format(parsedDate);
 };
 
-export function RequestsCardClient({ connectionId, requests, projects }: RequestsCardClientProps) {
-  const { snapshot, context, setNewRequestsCount } = useConnection();
+export function RequestsCardClient({ connectionId, requests, prefetchedNextRequest = null, projects: initialProjects }: RequestsCardClientProps) {
+  const { snapshot, context, setNewRequestsCount, isDisconnected } = useConnection();
   const router = useRouter();
   const pathname = usePathname();
 
   const [prefetchedRequests, setPrefetchedRequests] = useState<PrefetchedRequest[]>(requests);
+  // Store prefetched next request for instant replacement on delete
+  const [prefetchedRequest, setPrefetchedRequest] = useState<PrefetchedRequest | null>(prefetchedNextRequest);
+  // Maintain projects in state to keep in sync with events
+  const [projects, setProjects] = useState<ProjectOption[]>(initialProjects);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<RequestDetailPayload | null>(null);
   const [selectedComments, setSelectedComments] = useState<CommentItem[]>([]);
@@ -103,10 +108,111 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     setPrefetchedRequests(requests);
   }, [requests]);
 
+  // Sync prefetched request when prop changes
+  useEffect(() => {
+    setPrefetchedRequest(prefetchedNextRequest);
+  }, [prefetchedNextRequest]);
+
+  // Sync projects when prop changes (e.g., on page refresh)
+  useEffect(() => {
+    setProjects(initialProjects);
+  }, [initialProjects]);
+
+  // Listen for project creation and updates to keep projects list in sync
+  useEffect(() => {
+    const handleProjectCreated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Add new project to projects list (avoid duplicates)
+      setProjects((prev) => {
+        if (prev.some(p => p.id === projectId)) {
+          return prev;
+        }
+        return [{ id: projectId, name: title }, ...prev];
+      });
+    };
+
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in projects list
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+    };
+
+    window.addEventListener('projectCreated', handleProjectCreated as EventListener);
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectCreated', handleProjectCreated as EventListener);
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId]);
+
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in all requests that reference this project
+      setPrefetchedRequests((prev) =>
+        prev.map((request) => {
+          const project = request.detail.project;
+          if (project && project.id === projectId) {
+            return {
+              ...request,
+              detail: {
+                ...request.detail,
+                project: {
+                  id: project.id,
+                  name: title,
+                },
+              },
+            };
+          }
+          return request;
+        })
+      );
+
+      // Update selected request if it references this project
+      setSelectedRequest((prev) => {
+        if (prev && prev.project && prev.project.id === projectId) {
+          return {
+            ...prev,
+            project: {
+              id: prev.project.id,
+              name: title,
+            },
+          };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId]);
+
   const isAgency = context.variant === 'agency';
   const title = 'Requests';
   const buttonText = isAgency ? 'Add request' : 'Submit request';
-  const linkText = 'View all requests';
   const description = isAgency
     ? 'Clients can submit requests from their portal, or you can add one for them.'
     : 'Ask questions, share updates, or request new work from your agency.';
@@ -123,7 +229,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     return context.variant === 'agency' ? 'agencies' : 'clients';
   }, [pathname, context.variant]);
 
-  const handleRowClick = useCallback(async (requestId: string) => {
+  const handleRowClick = useCallback((requestId: string) => {
     const target = prefetchedRequests.find((item) => item.id === requestId);
     if (!target) {
       toast.error('Unable to load request details.');
@@ -144,11 +250,11 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
   const handleRequestUpdate = useCallback((requestId: string, updates: {
     title?: string;
     description?: string;
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled';
-    assignee?: any;
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed';
+    assignee?: Request['assignee'];
     project?: { id: string; name: string } | null;
   }) => {
-    let previousStatus: 'new' | 'in_review' | 'accepted' | 'canceled' | undefined;
+    let previousStatus: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed' | undefined;
 
     setPrefetchedRequests((prev) => prev.map((item) => {
       if (item.id !== requestId) {
@@ -191,15 +297,14 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     ));
   }, [context.variant, setNewRequestsCount]);
 
-  const handleRequestDeleted = useCallback((requestId: string) => {
-    let wasNew = false;
+  const handleRequestDeleted = useCallback(async (requestId: string) => {
+    // Store the deleted request for potential rollback
+    const deletedRequest = prefetchedRequests.find((item) => item.id === requestId);
+    const deletedIndex = prefetchedRequests.findIndex((item) => item.id === requestId);
+    const wasNew = deletedRequest?.detail.status === 'new';
 
-    setPrefetchedRequests((prev) => prev.filter((item) => {
-      if (item.id === requestId) {
-        wasNew = item.detail.status === 'new';
-      }
-      return item.id !== requestId;
-    }));
+    // Optimistically remove from UI immediately
+    setPrefetchedRequests((prev) => prev.filter((item) => item.id !== requestId));
 
     if (context.variant === 'agency' && wasNew) {
       setNewRequestsCount((prev) => Math.max(0, (prev || 0) - 1));
@@ -211,7 +316,116 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       setSelectedComments([]);
       setIsModalOpen(false);
     }
-  }, [context.variant, selectedRequestId, setNewRequestsCount]);
+
+    // Instantly display prefetched next request if available
+    let nextRequest: PrefetchedRequest | null = null;
+    const previousPrefetchedRequest = prefetchedRequest; // Store for potential rollback
+    if (prefetchedRequest) {
+      nextRequest = prefetchedRequest;
+      setPrefetchedRequests((prev) => {
+        // Only add if we don't already have it (avoid duplicates)
+        if (!prev.find(r => r.id === nextRequest!.id)) {
+          return [...prev, nextRequest!];
+        }
+        return prev;
+      });
+      // Clear the prefetched request since we've used it
+      setPrefetchedRequest(null);
+
+      // Prefetch the next request (6th one) for future deletions
+      // Fetch starting from offset 5 with limit 1
+      const { fetchRequestsForConnection, fetchCommentsForRequests } = await import('../requests/actions');
+      fetchRequestsForConnection(connectionId, {
+        limit: 1,
+        offset: 5,
+      }).then(result => {
+        if (result.requests.length > 0) {
+          const fetchedRequest = result.requests[0];
+          // Map to PrefetchedRequest format
+          const newPrefetched: PrefetchedRequest = {
+            id: fetchedRequest.id,
+            title: fetchedRequest.title,
+            createdAt: fetchedRequest.createdAt,
+            detail: {
+              requestId: fetchedRequest.id,
+              title: fetchedRequest.title,
+              description: fetchedRequest.description,
+              client: fetchedRequest.client,
+              agency: fetchedRequest.agency,
+              submittedBy: fetchedRequest.submittedBy,
+              assignee: fetchedRequest.assignee,
+              project: fetchedRequest.project,
+              status: fetchedRequest.status,
+              createdAt: fetchedRequest.createdAt,
+              createdByOrgId: fetchedRequest.createdByOrgId,
+              createdByOrgType: fetchedRequest.createdByOrgType,
+            },
+            comments: [],
+          };
+          setPrefetchedRequest(newPrefetched);
+
+          // Prefetch comments for the new prefetched request
+          fetchCommentsForRequests([newPrefetched.id]).then(commentsRecord => {
+            const rawComments = commentsRecord[newPrefetched.id] || [];
+            const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+              id: comment.id,
+              userId: comment.userId,
+              userName: comment.userName,
+              userAvatar: comment.userAvatar,
+              createdAt: comment.createdAt instanceof Date
+                ? comment.createdAt.toISOString()
+                : new Date(comment.createdAt).toISOString(),
+              text: comment.text,
+            }));
+            setPrefetchedRequest(prev => prev ? {
+              ...prev,
+              comments: serializedComments,
+            } : null);
+          }).catch(error => {
+            console.error('Error fetching comments for prefetched request:', error);
+          });
+        }
+      }).catch(error => {
+        console.error('Error prefetching next request:', error);
+      });
+    }
+
+    // Call API to delete from database
+    try {
+      await deleteRequest(requestId);
+      toast.success('Request deleted');
+    } catch (_error) {
+      // Rollback optimistic update on error
+      if (deletedRequest) {
+        setPrefetchedRequests((prev) => {
+          // Remove the optimistically added next request if it was added
+          const withoutNext = nextRequest 
+            ? prev.filter(r => r.id !== nextRequest!.id)
+            : prev;
+          // Insert deleted request back in the same position
+          if (deletedIndex >= 0 && deletedIndex < withoutNext.length) {
+            return [
+              ...withoutNext.slice(0, deletedIndex),
+              deletedRequest,
+              ...withoutNext.slice(deletedIndex),
+            ];
+          } else {
+            return [...withoutNext, deletedRequest];
+          }
+        });
+
+        // Restore prefetched request if we used it
+        if (nextRequest && previousPrefetchedRequest) {
+          setPrefetchedRequest(previousPrefetchedRequest);
+        }
+      }
+
+      if (context.variant === 'agency' && wasNew) {
+        setNewRequestsCount((prev) => (prev || 0) + 1);
+      }
+      toast.error('Failed to delete request');
+    }
+  }, [connectionId, context.variant, prefetchedRequests, prefetchedRequest, selectedRequestId, setNewRequestsCount]);
 
   const handleModalClose = useCallback(() => {
     setIsModalOpen(false);
@@ -244,8 +458,9 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       toast.error('Request unavailable for conversion');
       return;
     }
+    setIsConverting(true);
     try {
-      await convertRequestToTask(requestId, {
+      const result = await convertRequestToTask(requestId, {
         connectionId,
         title,
         description,
@@ -259,14 +474,31 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       toast.success('Task created from request');
       handleConvertModalClose();
       handleRequestUpdate(requestId, { status: 'accepted' });
-      // Real-time subscription will handle UI updates
+      
+      // Notify TasksCardClient to update optimistically
+      // Dispatch a custom event that TasksCardClient can listen to
+      window.dispatchEvent(new CustomEvent('taskCreated', {
+        detail: {
+          taskId: result.taskId,
+          connectionId,
+          title,
+          description,
+          status,
+          project,
+          assignee,
+          dueDateRaw,
+          clientVisible,
+        }
+      }));
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to convert request to task:', error);
       }
       toast.error('Failed to convert request');
+    } finally {
+      setIsConverting(false);
     }
-  }, [convertRequest, connectionId, handleConvertModalClose, handleRequestUpdate, router]);
+  }, [connectionId, handleConvertModalClose, handleRequestUpdate]);
 
   const handleModalExpand = useCallback(() => {
     if (!selectedRequestId) {
@@ -378,8 +610,16 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
     };
 
     setPrefetchedRequests((prev) => {
-      const next = [optimisticEntry, ...prev.filter((item) => item.id !== payload.tempId)];
-      return next.slice(0, 4);
+      const filtered = prev.filter((item) => item.id !== payload.tempId);
+      const next = [optimisticEntry, ...filtered];
+      const displayed = next.slice(0, 4);
+      
+      // If we had 4 displayed and now have 5+, push the 5th to prefetched
+      if (next.length > 4) {
+        setPrefetchedRequest(next[4]);
+      }
+      
+      return displayed;
     });
 
     if (context.variant === 'agency') {
@@ -389,25 +629,52 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
 
   const handleNewRequestCreated = useCallback(async ({ requestId, tempId }: { requestId: string; tempId?: string }) => {
     try {
-      const fetched = await fetchRequestById(connectionId, requestId);
+      const { fetchRequestById, fetchCommentsForRequests } = await import('../requests/actions');
+      const [fetched, commentsRecord] = await Promise.all([
+        fetchRequestById(connectionId, requestId),
+        fetchCommentsForRequests([requestId]),
+      ]);
+
       if (!fetched) {
         return;
       }
 
-      const mapped = mapRequestToPrefetched(fetched);
+      const rawComments = commentsRecord[requestId] || [];
+      const serializedComments: PrefetchedComment[] = rawComments.map((comment) => ({
+        id: comment.id,
+        userId: comment.userId,
+        userName: comment.userName,
+        userAvatar: comment.userAvatar,
+        createdAt: comment.createdAt instanceof Date
+          ? comment.createdAt.toISOString()
+          : new Date(comment.createdAt).toISOString(),
+        text: comment.text,
+      }));
+
+      const mapped: PrefetchedRequest = {
+        ...mapRequestToPrefetched(fetched),
+        comments: serializedComments,
+      };
 
       setPrefetchedRequests((prev) => {
         const filtered = prev.filter((item) => item.id !== tempId && item.id !== mapped.id);
         const next = [mapped, ...filtered];
-        return next.slice(0, 4);
+        const displayed = next.slice(0, 4);
+        
+        // If we had 4 displayed and now have 5+, push the 5th to prefetched
+        if (next.length > 4) {
+          setPrefetchedRequest(next[4]);
+        }
+        
+        return displayed;
       });
 
       if (!tempId && context.variant === 'agency' && fetched.status === 'new') {
         setNewRequestsCount((prev) => (prev || 0) + 1);
       }
-    } catch (error) {
-      console.error('Failed to reconcile new request:', error);
-    }
+      } catch {
+        // Error already logged, continue silently
+      }
   }, [connectionId, context.variant, mapRequestToPrefetched, setNewRequestsCount]);
 
   const handleNewRequestButtonClick = useCallback(() => {
@@ -482,17 +749,17 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasRequests ? (
+        {isDisconnected && !isAgency ? (
           <Button
             variant="ghost"
             size="sm"
             className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
             onClick={() => router.push(`/${baseRoute}/${connectionId}/requests`)}
           >
-            <span className="mr-1">{linkText}</span>
+            <span className="mr-1">View all requests</span>
             <ArrowRight size={16} weight="regular" />
           </Button>
-        ) : (
+        ) : !isDisconnected ? (
           <Button
             variant="outline"
             size="sm"
@@ -502,7 +769,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
             <Plus size={16} weight="regular" />
             {buttonText}
           </Button>
-        )}
+        ) : null}
       </div>
 
       <RequestDetailModal
@@ -550,6 +817,7 @@ export function RequestsCardClient({ connectionId, requests, projects }: Request
         isOpen={isConvertModalOpen}
         onClose={handleConvertModalClose}
         onSubmit={handleConvertSubmit}
+        isSubmitting={isConverting}
         connectionId={connectionId}
         request={convertRequest}
         agencyMembers={snapshot.agencyMembers ?? []}

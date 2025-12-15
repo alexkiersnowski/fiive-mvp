@@ -8,6 +8,7 @@ import { ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { StatsCardProps } from '../../types'
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext'
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
 // Custom event types for cross-component communication
 const TASK_ASSIGNED_CHANGED_EVENT = 'task-assigned-changed'
@@ -121,14 +122,14 @@ function TasksAssignedCardClient({ initialCount, context }: TasksAssignedCardCli
     }
 
     // Use window.addEventListener for custom events
-    window.addEventListener(TASK_ASSIGNED_CHANGED_EVENT as any, handleAssignedChanged as EventListener)
-    window.addEventListener(TASK_ASSIGNED_DELETED_EVENT as any, handleDeleted as EventListener)
-    window.addEventListener(TASK_ASSIGNED_CREATED_EVENT as any, handleCreated as EventListener)
+    window.addEventListener(TASK_ASSIGNED_CHANGED_EVENT, handleAssignedChanged as EventListener)
+    window.addEventListener(TASK_ASSIGNED_DELETED_EVENT, handleDeleted as EventListener)
+    window.addEventListener(TASK_ASSIGNED_CREATED_EVENT, handleCreated as EventListener)
 
     return () => {
-      window.removeEventListener(TASK_ASSIGNED_CHANGED_EVENT as any, handleAssignedChanged as EventListener)
-      window.removeEventListener(TASK_ASSIGNED_DELETED_EVENT as any, handleDeleted as EventListener)
-      window.removeEventListener(TASK_ASSIGNED_CREATED_EVENT as any, handleCreated as EventListener)
+      window.removeEventListener(TASK_ASSIGNED_CHANGED_EVENT, handleAssignedChanged as EventListener)
+      window.removeEventListener(TASK_ASSIGNED_DELETED_EVENT, handleDeleted as EventListener)
+      window.removeEventListener(TASK_ASSIGNED_CREATED_EVENT, handleCreated as EventListener)
     }
   }, [applyOptimisticUpdate])
 
@@ -206,8 +207,8 @@ function TasksAssignedCardClient({ initialCount, context }: TasksAssignedCardCli
             schema: 'public',
             table: 'tasks',
           },
-          (payload: any) => {
-            const newTask = payload?.new
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; assignee_user_id: string | null; completed_at: string | null; deleted_at: string | null }>) => {
+            const newTask = payload?.new as { id: string; connection_id: string; assignee_user_id: string | null; completed_at: string | null; deleted_at: string | null } | undefined
             if (!newTask || newTask.deleted_at) return
 
             // Filter by connection ID client-side
@@ -233,9 +234,9 @@ function TasksAssignedCardClient({ initialCount, context }: TasksAssignedCardCli
             schema: 'public',
             table: 'tasks',
           },
-          (payload: any) => {
-            const oldTask = payload?.old
-            const newTask = payload?.new
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; assignee_user_id: string | null; completed_at: string | null; deleted_at: string | null }>) => {
+            const oldTask = payload?.old as { id: string; assignee_user_id: string | null; completed_at: string | null; deleted_at: string | null } | undefined
+            const newTask = payload?.new as { id: string; connection_id: string; assignee_user_id: string | null; completed_at: string | null; deleted_at: string | null } | undefined
 
             if (!oldTask || !newTask) return
 
@@ -294,8 +295,8 @@ function TasksAssignedCardClient({ initialCount, context }: TasksAssignedCardCli
             schema: 'public',
             table: 'tasks',
           },
-          (payload: any) => {
-            const deletedTask = payload?.old
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; assignee_user_id: string | null; completed_at: string | null; deleted_at: string | null }>) => {
+            const deletedTask = payload?.old as { id: string; connection_id: string; assignee_user_id: string | null; completed_at: string | null } | undefined
             if (!deletedTask) return
 
             // Filter by connection ID client-side

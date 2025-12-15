@@ -2,12 +2,13 @@
 
 import { Table, TableBody, TableRow } from '@/components/ui/table'
 import { VIRTUAL_ROW_HEIGHT } from './constants'
+import type { VirtualItem } from '@tanstack/react-virtual'
 
 interface VirtualTableBodyProps<T> {
   items: T[]
-  virtualItems: { index: number; start: number; end: number; size: number; measureElement: (el: HTMLElement | null) => void }[]
+  virtualItems: VirtualItem[]
   rowVirtualizer: { measureElement: (el: HTMLElement | null) => void; getTotalSize: () => number }
-  renderRow: (item: T, index: number, virtualRow: any) => React.ReactNode
+  renderRow: (item: T, index: number, virtualRow: VirtualItem) => React.ReactNode
   emptyState?: React.ReactNode
   rowClassName?: string
   onRowClick?: (item: T) => void
@@ -52,7 +53,12 @@ export function VirtualTableBody<T extends { id: string }>({
     return (
       <Table noWrapper className="table-fixed w-full border-collapse">
         <TableBody>
-          <TableRow className="hover:bg-transparent">
+          <TableRow 
+            className="hover:bg-transparent"
+            style={{
+              backgroundColor: 'var(--color-base-surface-page-background)',
+            }}
+          >
             <td 
               colSpan={1000} 
               className="text-center py-8"

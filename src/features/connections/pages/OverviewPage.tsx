@@ -5,7 +5,6 @@ import { useConnection } from '../ConnectionContext';
 import AboutCard from '../cards/AboutCard';
 import DetailsCard from '../cards/DetailsCard';
 import ContactsCard from '../cards/ContactsCard';
-import ResourcesCard from '../cards/ResourcesCard';
 
 interface OverviewPageProps {
   requestsCard: ReactNode;

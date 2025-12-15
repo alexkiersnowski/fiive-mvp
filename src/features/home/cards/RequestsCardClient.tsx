@@ -6,7 +6,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RequestBadge } from "@/components/ui/request-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowRight, Plus } from "@phosphor-icons/react/dist/ssr";
+import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import {
   Table,
   TableBody,
@@ -16,6 +16,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RequestDetailModal } from "@/features/connections/requests/RequestDetailModal";
+import { ConvertToTaskModal, type ConvertToTaskModalValues } from "@/features/connections/tasks/ConvertToTaskModal";
+import { PaywallModal } from "@/components/ui/paywall-modal";
+import { convertRequestToTask } from "@/features/connections/tasks/actions";
 import { fetchRequestByIdGlobal, fetchCommentsForRequestGlobal, fetchRequestsSnapshot } from "@/features/requests/actions";
 import { toast } from "sonner";
 import type { Request } from "@/features/requests/types";
@@ -23,6 +26,8 @@ import type { StatsCardProps } from "../types";
 import type { Comment } from "@/features/connections/server";
 import { dispatchRequestStatusChanged, dispatchRequestDeleted } from "./stats/NewRequestsCard";
 import { dispatchRequestInReviewStatusChanged, dispatchRequestInReviewDeleted } from "./stats/RequestsInReviewCard";
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
+import { formatRequestDateFullMonth } from '@/features/connections/formatters';
 
 interface RequestsCardClientProps extends StatsCardProps {
   requests: Request[];
@@ -36,22 +41,24 @@ interface RequestsCardClientProps extends StatsCardProps {
     jobTitle?: string;
   }>;
   initialComments?: Record<string, Comment[]>;
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
 }
 
 export default function RequestsCardClient({
   requests,
   prefetchedNextRequest = null,
-  snapshot,
+  snapshot: _snapshot,
   context,
   agencyMembers = [],
   initialComments = {},
+  allowedConnectionIds = null,
 }: RequestsCardClientProps) {
   const router = useRouter();
   const isAgency = context.variant === "agency";
   const title = "Requests";
   const description = isAgency
-    ? "No requests yet. Clients can submit requests from their portal, or you can add one on their behalf."
-    : "No requests yet. Ask questions, share updates, or request new work directly from your agency.";
+    ? "Clients can submit requests from their portal, or you can add one for them."
+    : "Ask questions, share updates, or request new work from your agency.";
   const linkText = "View all requests";
 
   // Local state for requests (to allow optimistic updates)
@@ -66,6 +73,39 @@ export default function RequestsCardClient({
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   // Initialize comments with prefetched data
   const [commentsByRequest, setCommentsByRequest] = useState<Record<string, Comment[]>>(initialComments);
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
+  
+  // Convert to task modal state
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [convertRequest, setConvertRequest] = useState<{
+    requestId: string;
+    title: string;
+    description: string;
+    client?: { id: string; name: string; logoUrl?: string };
+    agency?: { id: string; name: string; logoUrl?: string };
+    submittedBy?: { id: string; name: string; email: string; avatarUrl?: string };
+    assignee?: { id: string; name: string; email: string; avatarUrl?: string } | null;
+    project?: { id: string; name: string } | null;
+    createdAt?: string;
+    createdByOrgId?: string;
+    createdByOrgType?: 'agency' | 'client';
+  } | null>(null);
+  const [convertConnectionId, setConvertConnectionId] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [members, setMembers] = useState<Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    avatarUrl?: string;
+    jobTitle?: string;
+    orgId?: string;
+    orgName?: string;
+    orgType?: 'agency' | 'client';
+  }>>(agencyMembers);
 
   // Sync local requests when props change
   useEffect(() => {
@@ -89,31 +129,17 @@ export default function RequestsCardClient({
     // Try to get request from local state first
     const localRequest = localRequests.find(r => r.id === requestId);
     
-    if (localRequest) {
-      // Use local request data
-      setSelectedRequest(localRequest);
-      setIsRequestDetailModalOpen(true);
-      
-      // Use prefetched comments if available, otherwise fetch
-      if (commentsByRequest[requestId]) {
-        // Comments already available, no need to fetch
-      } else {
-        // Fetch comments if not prefetched
-        try {
-          const comments = await fetchCommentsForRequestGlobal(requestId);
-          setCommentsByRequest(prev => ({
-            ...prev,
-            [requestId]: comments
-          }));
-        } catch (error) {
-          console.error('Error fetching comments:', error);
-        }
-      }
-    } else {
-      // Fetch request if not in local state
-      try {
-        const request = await fetchRequestByIdGlobal(requestId, context);
-        if (request) {
+    if (!localRequest) {
+      // If not in local state, fetch from server (will trigger paywall check)
+      await runWithPaywallCheck(
+        async () => {
+          const request = await fetchRequestByIdGlobal(requestId, context);
+          if (!request) {
+            throw new Error('Request not found');
+          }
+          return request;
+        },
+        (request) => {
           setSelectedRequest(request);
           setIsRequestDetailModalOpen(true);
           
@@ -122,25 +148,59 @@ export default function RequestsCardClient({
             // Comments already available, no need to fetch
           } else {
             // Fetch comments if not prefetched
-            const comments = await fetchCommentsForRequestGlobal(requestId);
-            setCommentsByRequest(prev => ({
-              ...prev,
-              [requestId]: comments
-            }));
+            fetchCommentsForRequestGlobal(requestId).then(comments => {
+              setCommentsByRequest(prev => ({
+                ...prev,
+                [requestId]: comments
+              }));
+            }).catch(error => {
+              console.error('Error fetching comments:', error);
+            });
           }
-        } else {
-          toast.error('Request not found');
+        },
+        () => {
+          setIsPaywallModalOpen(true);
         }
-      } catch (error) {
-        console.error('Error fetching request:', error);
-        toast.error('Failed to load request');
+      );
+      return;
+    }
+
+    // Check paywall client-side using prefetched allowedConnectionIds
+    const billingStatus = context.organization.billing_status || 'free';
+    if (context.variant === 'agency' && billingStatus === 'free' && allowedConnectionIds != null) {
+      if (!allowedConnectionIds.includes(localRequest.connectionId)) {
+        // Restricted connection - show paywall immediately
+        setIsPaywallModalOpen(true);
+        return;
       }
     }
-  }, [localRequests, context, commentsByRequest]);
+
+    // Allowed - open modal instantly with local data
+    setSelectedRequest(localRequest);
+    setIsRequestDetailModalOpen(true);
+    
+    // Use prefetched comments if available, otherwise fetch
+    if (commentsByRequest[requestId]) {
+      // Comments already available, no need to fetch
+    } else {
+      // Fetch comments if not prefetched
+      fetchCommentsForRequestGlobal(requestId).then(comments => {
+        setCommentsByRequest(prev => ({
+          ...prev,
+          [requestId]: comments
+        }));
+      }).catch(error => {
+        console.error('Error fetching comments:', error);
+      });
+    }
+  }, [localRequests, context, commentsByRequest, allowedConnectionIds]);
 
   const handleRequestDetailModalClose = useCallback(() => {
     setIsRequestDetailModalOpen(false);
-    setSelectedRequest(null);
+    // Allow modal exit animation before clearing data
+    setTimeout(() => {
+      setSelectedRequest(null);
+    }, 300);
   }, []);
 
   const handleExpandRequest = useCallback(() => {
@@ -153,7 +213,7 @@ export default function RequestsCardClient({
     }
   }, [selectedRequest, context.variant]);
 
-  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => {
+  const handleRequestUpdate = useCallback((requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => {
     // Find the original request to check status change
     const originalRequest = localRequests.find(r => r.id === requestId);
     const oldStatus = originalRequest?.status;
@@ -185,6 +245,128 @@ export default function RequestsCardClient({
       });
     }
   }, [selectedRequest, localRequests]);
+
+  const handleRequestConvertToTask = useCallback((request: Request) => {
+    if (!request.connectionId) {
+      toast.error('Unable to convert request: connection not found');
+      return;
+    }
+    
+    // Set the request data and connection ID
+    // The RequestDetailModal already handles closing itself with a 175ms delay
+    // before calling onConvertToTask, so this will be called after it starts closing
+    setConvertConnectionId(request.connectionId);
+    setConvertRequest({
+      requestId: request.id,
+      title: request.title,
+      description: request.description || '',
+      client: request.client,
+      agency: request.agency,
+      submittedBy: request.submittedBy,
+      assignee: request.assignee ?? null,
+      project: request.project ?? null,
+      createdAt: request.createdAt,
+      createdByOrgId: request.createdByOrgId,
+      createdByOrgType: request.createdByOrgType,
+    });
+    
+    // Include the request's project in the initial projects array to prevent flicker
+    // ConvertToTaskModal will fetch the full projects list in the background
+    if (request.project) {
+      setProjects([{ id: request.project.id, name: request.project.name }]);
+    } else {
+      setProjects([]);
+    }
+    
+    // Open the convert modal immediately (matching connections implementation)
+    // ConvertToTaskModal will handle fetching projects/members if needed
+    setIsConvertModalOpen(true);
+    
+    // Fetch projects and members in the background (ConvertToTaskModal also does this, but we do it here too for members)
+    Promise.all([
+      import('@/features/connections/tasks/actions').then(m => m.fetchProjectsForConnection(request.connectionId)),
+      import('@/features/connections/tasks/actions').then(m => m.fetchMembersForConnection(request.connectionId)),
+    ]).then(([projectsData, membersData]) => {
+      // Update projects list (ensuring request's project is included)
+      const mappedProjects = projectsData.map(p => ({ id: p.id, name: p.name }));
+      if (request.project) {
+        const hasProject = mappedProjects.some(p => p.id === request.project!.id);
+        if (!hasProject) {
+          mappedProjects.unshift({ id: request.project.id, name: request.project.name });
+        }
+      }
+      setProjects(mappedProjects);
+      
+      // Combine agency and client members, deduplicate by id
+      const combined = [...membersData.agencyMembers, ...membersData.clientMembers];
+      const dedupedMap = new Map<string, typeof combined[0]>();
+      combined.forEach(member => {
+        if (!dedupedMap.has(member.id)) {
+          dedupedMap.set(member.id, member);
+        }
+      });
+      setMembers(Array.from(dedupedMap.values()));
+    }).catch(error => {
+      console.error('Error fetching projects/members for convert modal:', error);
+    });
+  }, []);
+
+  const handleConvertModalClose = useCallback(() => {
+    setIsConvertModalOpen(false);
+    setTimeout(() => {
+      setConvertRequest(null);
+      setConvertConnectionId(null);
+    }, 300);
+  }, []);
+
+  const handleConvertSubmit = useCallback(async (values: ConvertToTaskModalValues) => {
+    if (!convertRequest?.requestId || !convertConnectionId) {
+      toast.error('Request unavailable for conversion');
+      return;
+    }
+    
+    setIsConverting(true);
+    try {
+      const result = await convertRequestToTask(convertRequest.requestId, {
+        connectionId: convertConnectionId,
+        title: values.title,
+        description: values.description,
+        status: values.status,
+        projectId: values.project?.id ?? null,
+        assigneeUserId: values.assignee?.id ?? null,
+        dueDateRaw: values.dueDateRaw,
+        clientVisible: values.clientVisible,
+      });
+
+      toast.success('Task created from request');
+      handleConvertModalClose();
+      handleRequestUpdate(convertRequest.requestId, { status: 'accepted' });
+      
+      // Dispatch taskCreated event for TasksCardClient to handle optimistically
+      window.dispatchEvent(new CustomEvent('taskCreated', {
+        detail: {
+          taskId: result.taskId,
+          connectionId: convertConnectionId,
+          title: values.title,
+          description: values.description,
+          status: values.status,
+          project: values.project,
+          assignee: values.assignee,
+          dueDateRaw: values.dueDateRaw,
+          clientVisible: values.clientVisible,
+          client: convertRequest.client,
+          agency: convertRequest.agency,
+        }
+      }));
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to convert request to task:', error);
+      }
+      toast.error('Failed to convert request');
+    } finally {
+      setIsConverting(false);
+    }
+  }, [convertRequest, convertConnectionId, handleConvertModalClose, handleRequestUpdate]);
 
   const handleRequestDeleted = useCallback(async (requestId: string) => {
     // Store the deleted request for potential rollback
@@ -233,8 +415,7 @@ export default function RequestsCardClient({
       // Fetch starting from cursor 5 with limit 1
       fetchRequestsSnapshot(context, {
         limit: 1,
-        cursor: '5',
-        sort: 'created',
+        offset: 5,
       }).then(nextSnapshot => {
         if (nextSnapshot.requests.length > 0) {
           const newPrefetched = nextSnapshot.requests[0];
@@ -398,7 +579,7 @@ export default function RequestsCardClient({
                       className="text-sm-regular"
                       style={{ color: "var(--color-base-text-primary)" }}
                     >
-                      {request.createdAt}
+                      {formatRequestDateFullMonth(request.createdAt)}
                     </span>
                   </TableCell>
                 </TableRow>
@@ -411,27 +592,15 @@ export default function RequestsCardClient({
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasRequests ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
-            onClick={() => router.push("/requests")}
-          >
-            <span className="mr-1">{linkText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-            onClick={() => router.push("/requests")}
-          >
-            <Plus size={16} weight="regular" />
-            {isAgency ? "Add request" : "Submit request"}
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
+          onClick={() => router.push("/requests")}
+        >
+          <span className="mr-1">{linkText}</span>
+          <ArrowRight size={16} weight="regular" />
+        </Button>
       </div>
 
       {/* Request Detail Modal */}
@@ -460,6 +629,13 @@ export default function RequestsCardClient({
             handleRequestUpdate(requestId, updates);
           }}
           onRequestDeleted={handleRequestDeleted}
+          onConvertToTask={(request) => {
+            if (!request) return;
+            const fullRequest = localRequests.find(r => r.id === request.requestId);
+            if (fullRequest) {
+              handleRequestConvertToTask(fullRequest);
+            }
+          }}
           connectionId={selectedRequest.connectionId}
           currentOrgId={context.orgId}
           variant={context.variant}
@@ -479,6 +655,27 @@ export default function RequestsCardClient({
           isGlobalView={true}
         />
       )}
+
+      {/* Convert to Task Modal */}
+      {convertRequest && convertConnectionId && (
+        <ConvertToTaskModal
+          isOpen={isConvertModalOpen}
+          onClose={handleConvertModalClose}
+          onSubmit={handleConvertSubmit}
+          isSubmitting={isConverting}
+          connectionId={convertConnectionId}
+          request={convertRequest}
+          agencyMembers={members}
+          projects={projects}
+          variant={context.variant}
+        />
+      )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </Card>
   );
 }

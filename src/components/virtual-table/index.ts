@@ -7,6 +7,7 @@
 
 export { useVirtualTable } from './useVirtualTable'
 export { VirtualTableBody } from './VirtualTableBody'
+export { VirtualListBody } from './VirtualListBody'
 export { 
   VIRTUAL_ROW_HEIGHT, 
   VIRTUAL_OVERSCAN, 

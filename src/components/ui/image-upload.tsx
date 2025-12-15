@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { Dropzone, DropzoneContent, DropzoneEmptyState } from '@/components/ui/shadcn-io/dropzone'
 import { UploadIcon } from 'lucide-react'
 
@@ -22,7 +23,7 @@ export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl
   const [files, setFiles] = useState<File[] | undefined>()
   const [logoPreview, setLogoPreview] = useState<string | undefined>(currentLogo || initialLogoUrl)
   const [error, setError] = useState<string | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
+  const [_isUploading, setIsUploading] = useState(false)
   
   // Store base64 data for instant preview
   const [base64Preview, setBase64Preview] = useState<string | null>(null)
@@ -139,14 +140,18 @@ export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl
         <div className="flex items-center gap-6">
           {/* Read-only Logo Preview */}
           <div className="flex-shrink-0">
-            <div className="relative">
+            <div className="relative" style={sizeStyle}>
               <div className="rounded-full border border-gray-200 bg-[var(--color-base-surface-page-background)] flex items-center justify-center overflow-hidden" style={sizeStyle}>
                 {logoPreview ? (
-                  <img
-                    src={logoPreview}
-                    alt="Organization logo"
-                    className="h-full w-full object-cover"
-                  />
+                  <div className="absolute inset-0 rounded-full overflow-hidden">
+                    <Image
+                      src={logoPreview}
+                      alt="Organization logo"
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center">
                     <UploadIcon style={{ width: `${calculatedIconSize}px`, height: `${calculatedIconSize}px` }} className="text-gray-400" />
@@ -200,10 +205,12 @@ export function ImageUpload({ onLogoChange, onError, currentLogo, initialLogoUrl
             {/* Image Preview Overlay */}
             {logoPreview && (
               <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none">
-                <img
+                <Image
                   src={logoPreview}
                   alt="Image preview"
-                  className="h-full w-full object-cover"
+                  fill
+                  className="object-cover"
+                  unoptimized
                 />
               </div>
             )}

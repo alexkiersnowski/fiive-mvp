@@ -42,14 +42,19 @@ export default async function MemberInviteClaimPage({ searchParams }: MemberInvi
   let userId: string
 
   if (emailExists === true) {
-    // User already exists - get their user ID
-    const { data: existingUser, error: getUserError } = await adminSupabase.auth.admin.getUserByEmail(invitedEmail)
+    // User already exists - get their user ID from profiles table
+    const { data: existingProfile, error: getUserError } = await adminSupabase
+      .from('profiles')
+      .select('id')
+      .eq('email', invitedEmail)
+      .is('deleted_at', null)
+      .single()
     
-    if (getUserError || !existingUser?.user) {
+    if (getUserError || !existingProfile?.id) {
       redirect('/signin?error=user_lookup_failed')
     }
 
-    userId = existingUser.user.id
+    userId = existingProfile.id
 
     // Check if user is already a member of this organization
     const { data: existingMembership } = await adminSupabase

@@ -6,9 +6,8 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ListRow } from '@/components/ui/list-row';
-import { Plus, ArrowRight, EyeSlash } from '@phosphor-icons/react/dist/ssr';
+import { ArrowRight, EyeSlash } from '@phosphor-icons/react/dist/ssr';
 import type { StatsCardProps } from '../types';
 
 export default function HealthCard({ snapshot, context }: StatsCardProps) {
@@ -18,9 +17,6 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
   const description = isAgency 
     ? 'No clients yet. Add clients to start tracking their health and project status.'
     : 'No projects yet. Your agency manages projects. Add an agency to start collaborating on projects.';
-  
-  // Check if user has any connections (agencies have clients, clients have agencies)
-  const hasConnections = snapshot.clients.total > 0;
 
   const handleAgencyClick = (connectionId: string) => {
     console.log('Navigating to connection:', connectionId);
@@ -32,7 +28,7 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
   };
 
   return (
-    <Card className={`w-full h-full pt-5 px-5 flex flex-col gap-3 ${hasConnections ? 'pb-5' : 'pb-6'}`}>
+    <Card className="w-full h-full pt-5 px-5 flex flex-col gap-3 pb-5">
       <div className="flex items-center justify-between">
       <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
         {title}
@@ -134,29 +130,16 @@ export default function HealthCard({ snapshot, context }: StatsCardProps) {
       
       {/* Button */}
       <div className="mt-auto flex justify-end">
-        {hasConnections ? (
-          /* Ghost button with nav when there are connections */
-          <Link href={isAgency ? '/clients' : '/agencies'} className="ml-auto">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-auto p-2 text-xs-bold cursor-pointer back-button hover:bg-interactive-surface-hover transition-all duration-75"
-            >
-              <span className="mr-1">{isAgency ? 'View all clients' : 'View all agencies'}</span>
-              <ArrowRight size={16} weight="regular" />
-            </Button>
-          </Link>
-        ) : (
-          /* Outline button to add when no connections */
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
+        <Link href={isAgency ? '/clients' : '/agencies'} className="ml-auto">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto p-2 text-xs-bold cursor-pointer back-button hover:bg-interactive-surface-hover transition-all duration-75"
           >
-            <Plus size={16} weight="regular" />
-            {isAgency ? 'Add client' : 'Add agency'}
+            <span className="mr-1">{isAgency ? 'View all clients' : 'View all agencies'}</span>
+            <ArrowRight size={16} weight="regular" />
           </Button>
-        )}
+        </Link>
       </div>
     </Card>
   );

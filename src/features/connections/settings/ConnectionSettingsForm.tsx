@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Input } from '@/components/ui/input'
 import { ImageUpload } from '@/components/ui/image-upload'
-import { Combobox, ComboboxOption } from '@/components/ui/combobox'
+import { ComboboxOption } from '@/components/ui/combobox'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/connection-badge'
@@ -23,7 +23,7 @@ const reconnectSchema = z.object({
   connectionCode: z.string().min(1, "Connection code is required")
 })
 
-const agencyTypes: ComboboxOption[] = [
+const _agencyTypes: ComboboxOption[] = [
   { value: "Advertising Agency", label: "Advertising Agency" },
   { value: "Brand Agency", label: "Brand Agency" },
   { value: "Content & Social Media Agency", label: "Content & Social Media Agency" },
@@ -37,7 +37,7 @@ const agencyTypes: ComboboxOption[] = [
   { value: "Web & Digital Agency", label: "Web & Digital Agency" },
 ]
 
-const industryTypes: ComboboxOption[] = [
+const _industryTypes: ComboboxOption[] = [
   { value: "Education & Training", label: "Education & Training" },
   { value: "Finance & Insurance", label: "Finance & Insurance" },
   { value: "Healthcare & Wellness", label: "Healthcare & Wellness" },
@@ -272,7 +272,7 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
     switch (connectionStatus) {
       case 'connected':
         return {
-          title: 'Disconnect from client',
+          title: isAgency ? 'Disconnect from agency' : 'Disconnect from client',
           description: 'This will freeze the workspace. You\'ll still have access, but can\'t collaborate until reconnected.',
           buttonText: 'Disconnect',
           buttonVariant: 'outline' as const,
@@ -288,7 +288,9 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
           onConfirm: handleDisconnect,
           isProcessing: isDisconnecting,
           dialogTitle: `Disconnect from ${partnerOrganization.name}?`,
-          dialogDescription: 'You\'ll still have access to this workspace, but collaboration will be disabled until reconnected. You can reconnect anytime with your client\'s connection code.'
+          dialogDescription: isAgency 
+            ? 'You\'ll still have access to this workspace, but collaboration will be disabled until reconnected. You can reconnect anytime with your agency\'s connection code.'
+            : 'You\'ll still have access to this workspace, but collaboration will be disabled until reconnected. You can reconnect anytime with your client\'s connection code.'
         }
       case 'invited':
         return {
@@ -408,7 +410,7 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
         </label>
         <Textarea
           value={partnerOrganization.description || ""}
-          placeholder={isAgency ? "Tell clients about your agency..." : "Tell agencies about your company…"}
+          placeholder="No description added"
           className="h-[120px] resize-none"
           readOnly={true}
           style={readOnlyStyle}
@@ -421,15 +423,13 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
         <label className="text-sm font-medium block mb-2" style={{ color: 'var(--color-base-text-primary, #1C2024)' }}>
           {isAgency ? 'Agency type' : 'Industry'}
         </label>
-        <Combobox
-          options={isAgency ? agencyTypes : industryTypes}
+        <Input
           value={partnerOrganization.industry || ""}
-          onValueChange={() => {}} // No-op for read-only
-          placeholder={isAgency ? "Select agency type..." : "Select industry..."}
-          searchPlaceholder={isAgency ? "Search agency types..." : "Search industries..."}
-          emptyText={isAgency ? "No agency type found." : "No industry found."}
-          hasError={false}
+          placeholder="No industry selected"
+          className="h-10 px-4 py-2 text-sm"
           readOnly={true}
+          style={readOnlyStyle}
+          onFocus={handleReadOnlyFocus}
         />
       </div>
 
@@ -440,7 +440,7 @@ export default function ConnectionSettingsForm({ partnerOrganization, connection
         </label>
         <Input
           value={displayWebsite(partnerOrganization.website)}
-          placeholder={isAgency ? "exastudio.com" : "example.com"}
+          placeholder="No website added"
           className="h-10 px-4 py-2 text-sm"
           readOnly={true}
           style={readOnlyStyle}

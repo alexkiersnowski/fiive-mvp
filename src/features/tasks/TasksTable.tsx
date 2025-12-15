@@ -1,23 +1,25 @@
 "use client"
 
-import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
-import { TaskBadge } from '@/components/ui/task-badge'
-import { InlineEdit, type InlineEditRef } from '@/components/ui/inline-edit'
+import type { InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Plus, SortAscending, DotsThree, MagnifyingGlass, LinkSimple, Trash, User, Eye, EyeSlash, CaretDown, Check, LockSimple, ClipboardText } from '@phosphor-icons/react'
+import { Plus, SortAscending, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { PaywallModal } from '@/components/ui/paywall-modal'
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateTaskAssignee, updateTaskStatus } from '@/features/connections/tasks/actions'
-import type { Task } from './types'
-import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import type { Task, SearchResults } from './types'
+import { StatusGroupHeader } from './StatusGroupHeader'
+import { ClientGroupHeader } from './ClientGroupHeader'
+import { GlobalTaskRow } from './GlobalTaskRow'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { TaskStatus } from './taskGrouping'
 import { dispatchTaskAssignedChanged } from '@/features/home/cards/stats/TasksAssignedCard'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 
@@ -26,7 +28,10 @@ interface TasksTableProps {
   userInitials?: string
   onTaskClick?: (taskId: string) => void
   onNewTask?: () => void
-  tasks?: Task[]
+  tasks: Task[] // Flat array of tasks (only used in search mode)
+  tasksByClientStatus?: Map<string, Task[]> // Map<`${status}-${clientOrgId}`, Task[]> - accordion cache
+  isLoadingClientStatus?: Map<string, boolean> // Map<`${status}-${clientOrgId}`, boolean> - loading states
+  onFetchClientTasks?: (status: string, clientOrgId: string, forceFetch?: boolean) => void // Fetch-on-expand callback
   agencyMembers?: Array<{
     id: string
     firstName: string
@@ -46,9 +51,9 @@ interface TasksTableProps {
     orgName?: string
     orgType?: 'agency' | 'client'
   }>>
-  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; createdAtRaw?: string | null }) => void
+  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean; dueDate?: string | null; dueDateRaw?: string | null; completedAtRaw?: string | null; createdAtRaw?: string | null }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: () => void // Only used in search mode
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -59,22 +64,54 @@ interface TasksTableProps {
   isBootstrapping?: boolean
   isAgency?: boolean
   onTaskDeleted?: (taskId: string) => void
-  sortOptions?: Array<{
-    value: string
-    label: string
-    buttonLabel: string
-  }>
-  sortValue?: string
-  onSortChange?: (value: string) => void
+  allowedConnectionIds?: string[] | null
+  allConnectionsMetadata?: Map<string, { name: string; logoUrl?: string }>
+  statusCounts: Map<string, number> // From metadata fetch
+  clientCounts: Map<string, number> // From metadata fetch (clientOrgId -> count, keyed by `${status}-${clientOrgId}`)
+  collapsedStatuses: Set<string> // Client-side collapse state
+  collapsedClients: Map<string, Set<string>> // Map<status, Set<clientOrgId>>
+  onToggleStatus: (status: string) => void // Simple state update
+  onToggleClient: (status: string, clientOrgId: string) => void // Simple state update
+  hasOptimisticData?: (cacheKey: string) => boolean // Check if cache key has optimistic data
+  searchQuery?: string // Optional search query for client-side filtering (browse mode)
+  searchResults?: SearchResults | null // Server-side search results (search mode)
+  isSearching?: boolean // Search loading state
+  assignedFilterResults?: SearchResults | null // Server-side assigned filter results (assigned filter mode)
+  isLoadingAssignedFilter?: boolean // Assigned filter loading state
 }
 
-export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks = [], agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, sortOptions = [], sortValue: propSortValue = 'due_date', onSortChange }: TasksTableProps) {
-  const [searchQuery, setSearchQuery] = useState('')
-  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
+export default function TasksTable({ userAvatar = '', userInitials = 'U', onTaskClick, onNewTask, tasks, tasksByClientStatus = new Map(), isLoadingClientStatus = new Map(), onFetchClientTasks, agencyMembers = [], membersByConnection = {}, onTaskUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onTaskDeleted, allowedConnectionIds: _allowedConnectionIds = null, allConnectionsMetadata = new Map(), statusCounts, clientCounts, collapsedStatuses, collapsedClients, onToggleStatus, onToggleClient, hasOptimisticData, searchQuery: searchQueryProp, searchResults, isSearching = false, assignedFilterResults, isLoadingAssignedFilter = false }: TasksTableProps) {
+  const pathname = usePathname()
+  const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
   
   // Track client org user IDs for event dispatching (only for client context)
   const [clientOrgUserIds, setClientOrgUserIds] = useState<Set<string>>(new Set())
+  
+  const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
+  
+  // Loading guard refs to prevent rapid-fire mutations
+  const isMutingAssignee = useRef(false)
+  const isMutingStatus = useRef(false)
+  
+  // Profile Card state
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [selectedContact, setSelectedContact] = useState<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    avatar_url?: string;
+    job_title?: string;
+    organization: {
+      id: string;
+      name: string;
+      logo_url?: string;
+    };
+  } | null>(null)
 
   // Fetch client org user IDs on mount (only for client context)
   useEffect(() => {
@@ -99,12 +136,371 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
 
     fetchClientOrgUserIds();
   }, [currentOrgId, isAgency]);
+
+  // Calculate total task count from statusCounts (sum of all statuses)
+  // This gives us the accurate total across all connections, regardless of what's loaded
+  // In search mode, use the count from search results instead
+  const taskCount = useMemo(() => {
+    // If in search mode, calculate count from search results
+    if (searchResults) {
+      return searchResults.clients.reduce((sum, client) => sum + client.tasks.length, 0);
+    }
+    // If in assigned filter mode, calculate count from assigned filter results
+    if (assignedFilterResults) {
+      return assignedFilterResults.clients.reduce((sum, client) => sum + client.tasks.length, 0);
+    }
+    // Otherwise, use accordion mode: sum all status counts
+    let total = 0;
+    for (const count of statusCounts.values()) {
+      total += typeof count === 'number' ? count : 0;
+    }
+    return total;
+  }, [statusCounts, searchResults, assignedFilterResults])
   
-  const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
+  // Transform agency members to combobox options (memoized to prevent recreation)
+  const comboboxOptions = useMemo(() => 
+    agencyMembers.map(member => ({
+      value: member.id,
+      label: `${member.firstName} ${member.lastName}`,
+      avatar: member.avatarUrl,
+      email: member.email
+    })),
+    [agencyMembers]
+  )
+
+  // Sort is always "Created" for MVP
+  const currentSortLabel = 'Created'
+
+  // Assignee handlers with loading guard
+  const handleAssigneeSelect = async (taskId: string, memberId: string, connectionId: string) => {
+    // Prevent rapid-fire mutations
+    if (isMutingAssignee.current) return
+    
+    // Find member in the task's connection members (or fallback to agencyMembers)
+    const members = membersByConnection[connectionId] || agencyMembers;
+    const selectedMember = members.find(member => member.id === memberId)
+    if (selectedMember) {
+      // Check if this is a client member (for visibility logic)
+      const isClientMember = 'orgType' in selectedMember && selectedMember.orgType === 'client';
+      const newAssignee = {
+        id: memberId,
+        name: `${selectedMember.firstName} ${selectedMember.lastName}`,
+        email: selectedMember.email,
+        avatarUrl: selectedMember.avatarUrl
+      }
+      
+      // Get current task to check visibility state and old assignee
+      const currentTask = tasks.find(t => t.id === taskId);
+      const currentVisibility = currentTask?.clientVisible ?? false;
+      const oldAssigneeUserId = currentTask?.assignee?.id ?? null;
+      const oldCompletedAt = currentTask?.completedAtRaw ?? null;
+      
+      // Build update object
+      const updates: { assignee: Task['assignee']; clientVisible?: boolean; clientVisibilityLocked?: boolean } = {
+        assignee: newAssignee
+      };
+      
+      if (isClientMember) {
+        // Only change visibility to true if it's currently false
+        if (!currentVisibility) {
+          updates.clientVisible = true;
+        }
+        updates.clientVisibilityLocked = true;
+      }
+      // If assigning to agency member, don't change visibility (keep as-is)
+      
+      // Notify parent for bidirectional updates (table → modal)
+      if (onTaskUpdate) {
+        onTaskUpdate(taskId, updates)
+      }
+      
+      // Dispatch event if assignee changed (affects assigned count) - only for client context
+      if (!isAgency && clientOrgUserIds.size > 0) {
+        dispatchTaskAssignedChanged({
+          taskId,
+          oldAssigneeUserId,
+          newAssigneeUserId: memberId,
+          oldCompletedAt,
+          newCompletedAt: oldCompletedAt, // CompletedAt doesn't change on assignee change
+        });
+      }
+      
+      // Set loading guard
+      isMutingAssignee.current = true
+      
+      await runWithPaywallCheck(
+        async () => {
+          await updateTaskAssignee(taskId, memberId)
+        },
+        () => {
+          // Success - real-time subscription will handle UI updates
+        },
+        () => {
+          setIsPaywallModalOpen(true)
+          // Revert parent state on paywall
+          if (onTaskUpdate) {
+            const originalTask = tasks.find(t => t.id === taskId)
+            if (originalTask) {
+              onTaskUpdate(taskId, { assignee: originalTask.assignee })
+            }
+          }
+        }
+      ).catch((error) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to update assignee:', error)
+        }
+        toast.error('Failed to update assignee')
+        // Revert parent state on error
+        if (onTaskUpdate) {
+          const originalTask = tasks.find(t => t.id === taskId)
+          if (originalTask) {
+            onTaskUpdate(taskId, { assignee: originalTask.assignee })
+          }
+        }
+      }).finally(() => {
+        // Clear loading guard
+        isMutingAssignee.current = false
+      })
+    }
+  }
+
+  const handleClearAssignee = async (taskId: string) => {
+    // Prevent rapid-fire mutations
+    if (isMutingAssignee.current) return
+    
+    // Get current task to check old assignee
+    const currentTask = tasks.find(t => t.id === taskId);
+    const oldAssigneeUserId = currentTask?.assignee?.id ?? null;
+    const oldCompletedAt = currentTask?.completedAtRaw ?? null;
+    
+    // Notify parent for bidirectional updates (table → modal)
+    if (onTaskUpdate) {
+      onTaskUpdate(taskId, { assignee: null })
+    }
+    
+    // Dispatch event if assignee changed (affects assigned count) - only for client context
+    if (!isAgency && clientOrgUserIds.size > 0) {
+      dispatchTaskAssignedChanged({
+        taskId,
+        oldAssigneeUserId,
+        newAssigneeUserId: null,
+        oldCompletedAt,
+        newCompletedAt: oldCompletedAt, // CompletedAt doesn't change on assignee clear
+      });
+    }
+    
+    // Set loading guard
+    isMutingAssignee.current = true
+    
+    try {
+      await updateTaskAssignee(taskId, null)
+      // Real-time subscription will handle UI updates
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to clear assignee:', error)
+      }
+      toast.error('Failed to clear assignee')
+      // Revert parent state on error
+      if (onTaskUpdate) {
+        const originalTask = tasks.find(t => t.id === taskId)
+        if (originalTask) {
+          onTaskUpdate(taskId, { assignee: originalTask.assignee })
+        }
+      }
+    } finally {
+      // Clear loading guard
+      isMutingAssignee.current = false
+    }
+  }
+
+  // Status handler with loading guard
+  const handleStatusChange = async (taskId: string, newStatus: string) => {
+    // Prevent rapid-fire mutations
+    if (isMutingStatus.current) return
+    
+    const validStatuses = ['to_do', 'in_progress', 'on_hold', 'done'] as const
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Invalid status:', newStatus)
+      }
+      return
+    }
+    
+    const typedStatus = newStatus as 'to_do' | 'in_progress' | 'on_hold' | 'done'
+    
+    // Get current task to check old status and assignee
+    const currentTask = tasks.find(t => t.id === taskId);
+    const oldStatus = currentTask?.status ?? 'to_do';
+    const assigneeUserId = currentTask?.assignee?.id ?? null;
+    const oldCompletedAt = currentTask?.completedAtRaw ?? null;
+    
+    // When status changes to 'done', completed_at is set. When it changes from 'done', completed_at is cleared.
+    const newCompletedAt = typedStatus === 'done' ? new Date().toISOString() : null;
+    
+    // Notify parent for bidirectional updates (table → modal)
+    if (onTaskUpdate) {
+      onTaskUpdate(taskId, { 
+        status: typedStatus,
+        completedAtRaw: newCompletedAt
+      })
+    }
+    
+    // Dispatch event if status changed to/from 'done' (affects assigned count) - only for client context
+    if (!isAgency && clientOrgUserIds.size > 0 && assigneeUserId && clientOrgUserIds.has(assigneeUserId)) {
+      // Only dispatch if task is assigned to a client org member
+      const statusChangedToDone = oldStatus !== 'done' && typedStatus === 'done';
+      const statusChangedFromDone = oldStatus === 'done' && typedStatus !== 'done';
+      
+      if (statusChangedToDone || statusChangedFromDone) {
+        dispatchTaskAssignedChanged({
+          taskId,
+          oldAssigneeUserId: assigneeUserId,
+          newAssigneeUserId: assigneeUserId,
+          oldCompletedAt: statusChangedToDone ? null : oldCompletedAt,
+          newCompletedAt: statusChangedToDone ? newCompletedAt : null,
+        });
+      }
+    }
+    
+    // Set loading guard
+    isMutingStatus.current = true
+    
+    await runWithPaywallCheck(
+      async () => {
+        await updateTaskStatus(taskId, typedStatus)
+      },
+      () => {
+        // Success - real-time subscription will handle UI updates
+      },
+      () => {
+        setIsPaywallModalOpen(true)
+        // Revert parent state on paywall
+        if (onTaskUpdate) {
+          const originalTask = tasks.find(t => t.id === taskId)
+          if (originalTask) {
+            onTaskUpdate(taskId, { status: originalTask.status })
+          }
+        }
+      }
+    ).catch((error) => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to update status:', error)
+      }
+      toast.error('Failed to update status')
+      // Revert parent state on error
+      if (onTaskUpdate) {
+        const originalTask = tasks.find(t => t.id === taskId)
+        if (originalTask) {
+          onTaskUpdate(taskId, { status: originalTask.status })
+        }
+      }
+    }).finally(() => {
+      // Clear loading guard
+      isMutingStatus.current = false
+    })
+  }
+
+  // Profile Card handler
+  const handleContactClick = (contact: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    avatar_url?: string;
+    job_title?: string;
+    organization: {
+      id: string;
+      name: string;
+      logo_url?: string;
+    };
+  }) => {
+    setSelectedContact(contact);
+    setProfileDialogOpen(true);
+  };
+
+  // Navigation handler
+  const handleRowClick = (taskId: string) => {
+    onTaskClick?.(taskId)
+  }
+
+  const handleCopyLink = (taskId: string, connectionId: string) => {
+    const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/tasks/${taskId}`
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      toast.success('Link copied to clipboard')
+    }).catch(() => {
+      toast.error('Failed to copy link')
+    })
+  }
   
-  // Use total count from database, fallback to displayed tasks count if not provided
-  const taskCount = totalCount !== undefined ? totalCount : tasks.length
+  const handleDeleteTask = async (taskId: string) => {
+    // Parent handles optimistic update, toast, and server action
+    onTaskDeleted?.(taskId)
+  }
+
+  // Status order for accordion rendering
+  const statusOrder: TaskStatus[] = ['in_progress', 'to_do', 'on_hold', 'done']
+
+  // Build client groups by status from allConnectionsMetadata
+  // This gives us all client headers even if tasks aren't loaded yet
+  // Filter by search query if provided (client-side filtering)
+  const clientGroupsByStatus = useMemo(() => {
+    const groups: Record<string, Array<{ orgId: string; name: string; logoUrl?: string }>> = {
+      in_progress: [],
+      to_do: [],
+      on_hold: [],
+      done: [],
+    }
+
+    // Get all unique client orgs from metadata
+    let clientOrgs = Array.from(allConnectionsMetadata.entries())
+      .map(([orgId, metadata]) => ({
+        orgId,
+        name: metadata.name,
+        logoUrl: metadata.logoUrl,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+
+    // Filter by search query if provided (client-side filtering for browse mode only)
+    // In search mode (searchResults !== null), server handles filtering
+    if (searchQueryProp && searchQueryProp.trim().length > 0 && searchResults === null) {
+      const searchLower = searchQueryProp.trim().toLowerCase()
+      clientOrgs = clientOrgs.filter(client => 
+        client.name.toLowerCase().includes(searchLower)
+      )
+    }
+
+    // Add all clients to all status groups (they'll show counts from clientCounts)
+    for (const status of statusOrder) {
+      groups[status] = clientOrgs
+    }
+
+    return groups
+  }, [allConnectionsMetadata, searchQueryProp, searchResults])
+
+  // Empty state: only show if we're not bootstrapping AND there are truly no tasks
+  // In accordion mode, always show headers (even with 0 counts) so users can see the structure
+  // Show empty state if search is active but no clients match the search query
+  const hasMatchingClients = useMemo(() => {
+    if (!searchQueryProp || searchQueryProp.trim().length === 0) return true
+    // Check if any status group has matching clients
+    return Object.values(clientGroupsByStatus).some(clients => clients.length > 0)
+  }, [searchQueryProp, clientGroupsByStatus])
   
+  const isEmptyState = !isBootstrapping && 
+    searchQueryProp && 
+    searchQueryProp.trim().length > 0 &&
+    !hasMatchingClients;
+
+  // Determine render mode priority:
+  // 1. Search Mode (only if we have search results OR actively searching with a query)
+  // 2. Assigned Filter Mode (only if we have filter results OR actively loading with filter enabled)
+  // 3. Browse Mode (default)
+  // Only show skeleton if actively searching AND we don't have results yet
+  // Don't show skeleton when transitioning back to browse mode
+  const hasActiveSearchQuery = (searchQueryProp || '').trim().length > 0;
+  const isSearchMode = searchResults !== null || (isSearching && hasActiveSearchQuery);
+  const isAssignedFilterMode = assignedFilterResults !== null || (isLoadingAssignedFilter && assignedToMe);
+
   // Helper function to get combobox options for a specific task's connection
   const getComboboxOptionsForTask = useCallback((connectionId: string) => {
     // Use membersByConnection if available (includes both agency and client members)
@@ -144,307 +540,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     };
   }, [membersByConnection, agencyMembers])
 
-  // Current sort label (memoized based on sortValue)
-  const currentSortLabel = useMemo(() => 
-    sortOptions.find(option => option.value === propSortValue)?.buttonLabel || 'Due date',
-    [sortOptions, propSortValue]
-  )
-
-  const handleSortChange = (newSortValue: string) => {
-    onSortChange?.(newSortValue)
-  }
-
-  // Assignee handlers with loading guard
-  const isMutingAssignee = useRef(false)
-  const handleAssigneeSelect = async (taskId: string, memberId: string, connectionId: string) => {
-    if (isMutingAssignee.current) return
-    
-    // Find member in the task's connection members (or fallback to agencyMembers)
-    const members = membersByConnection[connectionId] || agencyMembers;
-    const selectedMember = members.find(member => member.id === memberId)
-    if (selectedMember) {
-      // Check if this is a client member (for visibility logic)
-      const isClientMember = 'orgType' in selectedMember && selectedMember.orgType === 'client';
-      const newAssignee = {
-        id: memberId,
-        name: `${selectedMember.firstName} ${selectedMember.lastName}`,
-        email: selectedMember.email,
-        avatarUrl: selectedMember.avatarUrl
-      }
-      
-      // Get current task to check visibility state and old assignee
-      const currentTask = tasks.find(t => t.id === taskId);
-      const currentVisibility = currentTask?.clientVisible ?? false;
-      const oldAssigneeUserId = currentTask?.assignee?.id ?? null;
-      const oldCompletedAt = currentTask?.completedAtRaw ?? null;
-      
-      // Build update object
-      const updates: { assignee: any; clientVisible?: boolean; clientVisibilityLocked?: boolean } = {
-        assignee: newAssignee
-      };
-      
-      if (isClientMember) {
-        // Only change visibility to true if it's currently false
-        if (!currentVisibility) {
-          updates.clientVisible = true;
-        }
-        updates.clientVisibilityLocked = true;
-      }
-      // If assigning to agency member, don't change visibility (keep as-is)
-      
-      if (onTaskUpdate) {
-        onTaskUpdate(taskId, updates)
-      }
-      
-      // Dispatch event if assignee changed (affects assigned count) - only for client context
-      if (!isAgency && clientOrgUserIds.size > 0) {
-        dispatchTaskAssignedChanged({
-          taskId,
-          oldAssigneeUserId,
-          newAssigneeUserId: memberId,
-          oldCompletedAt,
-          newCompletedAt: oldCompletedAt, // CompletedAt doesn't change on assignee change
-        });
-      }
-      
-      isMutingAssignee.current = true
-      
-      try {
-        await updateTaskAssignee(taskId, memberId)
-      } catch (error) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('Failed to update assignee:', error)
-        }
-        toast.error('Failed to update assignee')
-        if (onTaskUpdate) {
-          const originalTask = tasks.find(t => t.id === taskId)
-          if (originalTask) {
-            onTaskUpdate(taskId, { assignee: originalTask.assignee })
-          }
-        }
-      } finally {
-        isMutingAssignee.current = false
-      }
-    }
-  }
-
-  const handleClearAssignee = async (taskId: string) => {
-    if (isMutingAssignee.current) return
-    
-    // Get current task to check old assignee
-    const currentTask = tasks.find(t => t.id === taskId);
-    const oldAssigneeUserId = currentTask?.assignee?.id ?? null;
-    const oldCompletedAt = currentTask?.completedAtRaw ?? null;
-    
-    if (onTaskUpdate) {
-      onTaskUpdate(taskId, { assignee: null })
-    }
-    
-    // Dispatch event if assignee changed (affects assigned count) - only for client context
-    if (!isAgency && clientOrgUserIds.size > 0) {
-      dispatchTaskAssignedChanged({
-        taskId,
-        oldAssigneeUserId,
-        newAssigneeUserId: null,
-        oldCompletedAt,
-        newCompletedAt: oldCompletedAt, // CompletedAt doesn't change on assignee clear
-      });
-    }
-    
-    isMutingAssignee.current = true
-    
-    try {
-      await updateTaskAssignee(taskId, null)
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Failed to clear assignee:', error)
-      }
-      toast.error('Failed to clear assignee')
-      if (onTaskUpdate) {
-        const originalTask = tasks.find(t => t.id === taskId)
-        if (originalTask) {
-          onTaskUpdate(taskId, { assignee: originalTask.assignee })
-        }
-      }
-    } finally {
-      isMutingAssignee.current = false
-    }
-  }
-
-  // Status handler with loading guard
-  const isMutingStatus = useRef(false)
-  const handleStatusChange = async (taskId: string, newStatus: string) => {
-    if (isMutingStatus.current) return
-    
-    const validStatuses = ['to_do', 'in_progress', 'on_hold', 'done'] as const
-    if (!validStatuses.includes(newStatus as any)) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Invalid status:', newStatus)
-      }
-      return
-    }
-    
-    const typedStatus = newStatus as 'to_do' | 'in_progress' | 'on_hold' | 'done'
-    
-    // Get current task to check old status and assignee
-    const currentTask = tasks.find(t => t.id === taskId);
-    const oldStatus = currentTask?.status ?? 'to_do';
-    const assigneeUserId = currentTask?.assignee?.id ?? null;
-    const oldCompletedAt = currentTask?.completedAtRaw ?? null;
-    
-    // When status changes to 'done', completed_at is set. When it changes from 'done', completed_at is cleared.
-    // For now, we'll dispatch the event and let the real-time subscription handle the actual completed_at change.
-    // The event will be dispatched with the old completed_at, and the real-time update will provide the new one.
-    const newCompletedAt = typedStatus === 'done' ? new Date().toISOString() : null;
-    
-    if (onTaskUpdate) {
-      onTaskUpdate(taskId, { status: typedStatus })
-    }
-    
-    // Dispatch event if status changed to/from 'done' (affects assigned count) - only for client context
-    if (!isAgency && clientOrgUserIds.size > 0 && assigneeUserId && clientOrgUserIds.has(assigneeUserId)) {
-      // Only dispatch if task is assigned to a client org member
-      const statusChangedToDone = oldStatus !== 'done' && typedStatus === 'done';
-      const statusChangedFromDone = oldStatus === 'done' && typedStatus !== 'done';
-      
-      if (statusChangedToDone || statusChangedFromDone) {
-        dispatchTaskAssignedChanged({
-          taskId,
-          oldAssigneeUserId: assigneeUserId,
-          newAssigneeUserId: assigneeUserId,
-          oldCompletedAt: statusChangedToDone ? null : oldCompletedAt,
-          newCompletedAt: statusChangedToDone ? newCompletedAt : null,
-        });
-      }
-    }
-    
-    isMutingStatus.current = true
-    
-    try {
-      await updateTaskStatus(taskId, typedStatus)
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Failed to update status:', error)
-      }
-      toast.error('Failed to update status')
-      if (onTaskUpdate) {
-        const originalTask = tasks.find(t => t.id === taskId)
-        if (originalTask) {
-          onTaskUpdate(taskId, { status: originalTask.status })
-        }
-      }
-    } finally {
-      isMutingStatus.current = false
-    }
-  }
-
-  // Profile Card state
-  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
-  const [selectedContact, setSelectedContact] = useState<{
-    id: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    avatar_url?: string;
-    job_title?: string;
-    organization: {
-      id: string;
-      name: string;
-      logo_url?: string;
-    };
-  } | null>(null)
-
-  const handleContactClick = (contact: {
-    id: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    avatar_url?: string;
-    job_title?: string;
-    organization: {
-      id: string;
-      name: string;
-      logo_url?: string;
-    };
-  }) => {
-    setSelectedContact(contact);
-    setProfileDialogOpen(true);
-  };
-
-  const handleRowClick = (taskId: string) => {
-    onTaskClick?.(taskId)
-  }
-
-  const handleCopyLink = (taskId: string, connectionId: string) => {
-    // Determine baseRoute based on isAgency prop
-    // Agencies view clients, clients view agencies
-    const baseRoute = isAgency ? 'clients' : 'agencies'
-    const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/tasks/${taskId}`
-    navigator.clipboard.writeText(fullUrl).then(() => {
-      toast.success('Link copied to clipboard')
-    }).catch(() => {
-      toast.error('Failed to copy link')
-    })
-  }
-  
-  const handleDeleteTask = async (taskId: string) => {
-    // Parent handles optimistic update, toast, and server action
-    onTaskDeleted?.(taskId)
-  }
-
-  // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
-    items: tasks,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
-  
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
-
-  const emptyStateColSpan = isAgency ? 8 : 7 // 8 columns if agency (includes visibility), 7 if client
-
-  const emptyState = isEmptyState ? (
-    <TableRow 
-      className="hover:bg-transparent"
-      style={{ 
-        backgroundColor: 'var(--color-base-surface-page-background)', 
-        borderBottomColor: 'var(--color-neutral-5)',
-        height: '100%'
-      }}
-    >
-      <TableCell 
-        colSpan={emptyStateColSpan} 
-        className="text-left" 
-        style={{ height: 'calc(100vh - 267px)', minHeight: '400px', paddingLeft: '120px' }}
-      >
-        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-          <div className="flex flex-col items-start gap-2">
-            <h2 className="display-8-medium">Your best work starts here</h2>
-            <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Add action items for your team or client, and choose what stays client-visible.'
-                : 'Ask questions, share updates, or task new work directly from your agency.'
-              }
-            </span>
-          </div>
-          {onNewTask && isAgency && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-              onClick={onNewTask}
-            >
-              <Plus size={16} weight="regular" />
-              New task
-            </Button>
-          )}
-        </div>
-      </TableCell>
-    </TableRow>
-  ) : null
-
   return (
     <div className="w-full min-w-0">
       {/* Sticky Header Section - Search + Table Header */}
@@ -471,10 +566,9 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-3">
                 <SearchInput
-                  placeholder="Search tasks…"
-                  value={searchQuery}
+                  placeholder="Search tasks by client…"
+                  value={searchQueryProp || ''}
                   onChange={(value) => {
-                    setSearchQuery(value)
                     onSearchChange?.(value)
                   }}
                   count={taskCount}
@@ -533,94 +627,25 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                     {isAgency ? 'Assigned to me' : 'Assigned to my team'}
                   </TooltipContent>
                 </Tooltip>
-                <DropdownMenu modal={false} open={isSortDropdownOpen} onOpenChange={setIsSortDropdownOpen}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={`text-sm-regular h-[32px] flex items-center gap-2 shadow-none cursor-pointer transition-all duration-75 ${
-                        isSortDropdownOpen
-                          ? 'bg-interactive-surface-hover hover:bg-interactive-surface-hover'
-                          : 'hover:bg-interactive-surface-hover'
-                      }`}
-                    >
-                      <SortAscending size={16} />
-                      {currentSortLabel}
-                      <CaretDown size={16} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64">
-                    {sortOptions.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onClick={(e) => {
-                          handleSortChange(option.value)
-                          setIsSortDropdownOpen(false)
-                          const trigger = e.currentTarget.closest('[data-radix-dropdown-menu-trigger]') as HTMLElement
-                          setTimeout(() => {
-                            trigger?.blur()
-                          }, 0)
-                        }}
-                        className="flex items-center justify-between"
-                      >
-                        <span>{option.label}</span>
-                        {propSortValue === option.value && <Check size={16} className="text-inherit" />}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button
+                  variant="outline"
+                  className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
+                >
+                  <SortAscending size={16} />
+                  {currentSortLabel}
+                </Button>
               </div>
             </div>
+            {/* Border with 20px margins to match content padding */}
+            <div className="absolute bottom-0 left-5 right-5 border-b border-[var(--color-neutral-4)]" />
           </div>
 
-          {/* Table Header */}
-          {(unfilteredTotalCount > 0 || hasActiveFilters) && (
-            <div className="px-5">
-              <Table className="table-fixed w-full border-collapse">
-                <TableHeader>
-                  <TableRow
-                    className="hover:bg-transparent"
-                    style={{
-                      borderBottom: '1px solid var(--color-neutral-4)',
-                    }}
-                  >
-                    <TableHead className="w-[25%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Title
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Status
-                    </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      {isAgency ? 'Client' : 'Agency'}
-                    </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Assignee
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Due date
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Project
-                    </TableHead>
-                    {isAgency && (
-                      <TableHead className="w-[44px] py-0 p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
-                        <span className="sr-only">Visibility</span>
-                      </TableHead>
-                    )}
-                    <TableHead className="w-[44px] py-0 p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
-                      <span className="sr-only">Actions</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-              </Table>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Scrollable Table Body Section */}
       <div
         className="w-full overflow-x-auto"
-        ref={containerRef}
         style={{ backgroundColor: 'var(--color-neutral-2)' }}
       >
         <div
@@ -634,292 +659,658 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
             backgroundColor: 'var(--color-base-surface-page-background)',
           }}
         >
-          <div className="px-5 pb-5">
-          {isBootstrapping && tasks.length === 0 ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+          <div className="pb-5 px-5">
+          {isBootstrapping ? (
+            <div className="space-y-0">
+              {/* Status Group Skeleton - 1x only, starts the block */}
+              <div
+                className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                style={{
+                  gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                }}
+              >
+                <div className="flex items-center justify-center">
+                  <Skeleton className="w-3 h-3" />
+                </div>
+                <div className="flex items-center gap-3 px-3">
+                  <Skeleton className="w-12 h-5 rounded" />
+                  <Skeleton className="w-16 h-4 rounded" />
+                </div>
+                {/* Empty cells to match grid structure */}
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div></div>
+              </div>
+              {/* Client Group + 4 Task Rows - repeatable pattern (2-3 times) */}
+              {[1, 2, 3].map((clientIndex) => (
+                <div key={clientIndex}>
+                  {/* Client Group Skeleton */}
+                  <div
+                    className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-5 h-5 rounded-full" />
+                      <Skeleton className="w-24 h-4 rounded" />
+                      <Skeleton className="w-12 h-4 rounded" />
+                    </div>
+                    {/* Empty cells to match grid structure */}
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Task Row Skeletons - 4 per client group */}
+                  {[1, 2, 3, 4].map((taskIndex) => (
+                    <div
+                      key={`${clientIndex}-${taskIndex}`}
+                      className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                      style={{
+                        gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                      }}
+                    >
+                      {/* Empty drag handle cell */}
+                      <div></div>
+                      {/* Title */}
+                      <div className="px-3">
+                        <Skeleton className="w-32 h-4 rounded" />
+                      </div>
+                      {/* Status */}
+                      <div className="px-3">
+                        <Skeleton className="w-20 h-4 rounded" />
+                      </div>
+                      {/* Assignee */}
+                      <div className="px-3">
+                        <Skeleton className="w-16 h-4 rounded" />
+                      </div>
+                      {/* Project */}
+                      <div className="px-3">
+                        <Skeleton className="w-24 h-4 rounded" />
+                      </div>
+                      {/* Due Date */}
+                      <div className="px-3">
+                        <Skeleton className="w-20 h-4 rounded" />
+                      </div>
+                      <div></div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : isSearchMode ? (
+            // Search Mode: Server-side search with atomic results
+            <div className="space-y-0">
+              {isSearching && hasActiveSearchQuery && searchResults === null ? (
+                // Loading state: Show skeleton only if we have active search query and no results yet
+                <div className="space-y-0">
+                  {/* Status Group Skeleton */}
+                  <div
+                    className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-12 h-5 rounded" />
+                      <Skeleton className="w-16 h-4 rounded" />
+                    </div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Client Group + Task Row Skeletons - repeatable pattern (3 clients, 4 rows each) */}
+                  {[1, 2, 3].map((clientIndex) => (
+                    <div key={clientIndex}>
+                      {/* Client Group Skeleton */}
+                      <div
+                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                        style={{
+                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                        }}
+                      >
+                        <div className="flex items-center justify-center">
+                          <Skeleton className="w-3 h-3" />
+                        </div>
+                        <div className="flex items-center gap-3 px-3">
+                          <Skeleton className="w-5 h-5 rounded-full" />
+                          <Skeleton className="w-24 h-4 rounded" />
+                          <Skeleton className="w-12 h-4 rounded" />
+                        </div>
+                        {/* Empty cells to match grid structure */}
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div></div>
+                      </div>
+                      {/* Task Row Skeletons - 4 per client group */}
+                      {[1, 2, 3, 4].map((taskIndex) => (
+                        <div
+                          key={`${clientIndex}-${taskIndex}`}
+                          className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                          style={{
+                            gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                          }}
+                        >
+                          {/* Empty drag handle cell */}
+                          <div></div>
+                          {/* Title */}
+                          <div className="px-3">
+                            <Skeleton className="w-32 h-4 rounded" />
+                          </div>
+                          {/* Status */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          {/* Assignee */}
+                          <div className="px-3">
+                            <Skeleton className="w-16 h-4 rounded" />
+                          </div>
+                          {/* Project */}
+                          <div className="px-3">
+                            <Skeleton className="w-24 h-4 rounded" />
+                          </div>
+                          {/* Due Date */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          <div></div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : searchResults ? (
+                // Search results: Render accordion structure with pre-loaded data
+                // Always show all status headers, even with 0 results
+                statusOrder.map((status) => {
+                  // Filter clients that have tasks in this status
+                  const clientsInStatus = searchResults.clients.filter((client: SearchResults['clients'][0]) => 
+                    client.tasks.some((task: Task) => task.status === status)
+                  );
+
+                  // Calculate status count from search results
+                  const statusCount = searchResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
+                    sum + client.tasks.filter((task: Task) => task.status === status).length, 0
+                  );
+
+                  // Always render status header, even if count is 0
+                  return (
+                    <React.Fragment key={status}>
+                      <StatusGroupHeader
+                        status={status}
+                        statusCount={statusCount}
+                        isCollapsed={collapsedStatuses.has(status)}
+                        onToggle={() => onToggleStatus(status)}
+                      />
+                      {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
+                        // Filter tasks for this status
+                        const tasksInStatus = clientResult.tasks.filter((task: Task) => task.status === status);
+                        
+                        if (tasksInStatus.length === 0) {
+                          return null;
+                        }
+
+                        // Check if this client is collapsed in search mode
+                        // Set tracks expanded clients, so if NOT in Set, it's collapsed
+                        // Default to expanded (all clients should be in Set), but allow toggling
+                        const isClientCollapsed = !collapsedClients.get(status)?.has(clientResult.client_id);
+
+                        return (
+                          <React.Fragment key={clientResult.client_id}>
+                            <ClientGroupHeader
+                              clientId={clientResult.client_id}
+                              clientName={isAgency ? clientResult.client_name : undefined}
+                              clientLogoUrl={isAgency ? clientResult.client_logo_url : undefined}
+                              agencyId={!isAgency ? clientResult.client_id : undefined}
+                              agencyName={!isAgency ? clientResult.client_name : undefined}
+                              agencyLogoUrl={!isAgency ? clientResult.client_logo_url : undefined}
+                              count={tasksInStatus.length}
+                              isCollapsed={isClientCollapsed}
+                              onToggle={() => onToggleClient(status, clientResult.client_id)}
+                              isAgency={isAgency}
+                            />
+                            {/* Render all tasks - data is pre-loaded, only when expanded */}
+                            {!isClientCollapsed && tasksInStatus.map((task: Task) => (
+                              <GlobalTaskRow
+                                key={task.id}
+                                task={task}
+                                isAgency={isAgency}
+                                clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
+                                comboboxOptions={getComboboxOptionsForTask(task.connectionId)}
+                                membersByConnection={membersByConnection}
+                                statusInlineRefs={statusInlineRefs}
+                                onStatusChange={handleStatusChange}
+                                onAssigneeSelect={handleAssigneeSelect}
+                                onClearAssignee={handleClearAssignee}
+                                onRowClick={handleRowClick}
+                                onCopyLink={handleCopyLink}
+                                onDeleteTask={handleDeleteTask}
+                                onContactClick={handleContactClick}
+                                openActionsDropdown={openActionsDropdown}
+                                setOpenActionsDropdown={setOpenActionsDropdown}
+                                baseRoute={baseRoute}
+                              />
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })
+              ) : null}
+            </div>
+          ) : isAssignedFilterMode ? (
+            // Assigned Filter Mode: Server-side filter with atomic results
+            <div className="space-y-0">
+              {isLoadingAssignedFilter || (assignedToMe && !assignedFilterResults) ? (
+                // Loading state: Show skeleton while loading OR when assignedToMe is true but no results yet
+                <div className="space-y-0">
+                  {/* Status Group Skeleton */}
+                  <div
+                    className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-12 h-5 rounded" />
+                      <Skeleton className="w-16 h-4 rounded" />
+                    </div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Client Group + Task Row Skeletons - repeatable pattern (3 clients, 4 rows each) */}
+                  {[1, 2, 3].map((clientIndex) => (
+                    <div key={clientIndex}>
+                      {/* Client Group Skeleton */}
+                      <div
+                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                        style={{
+                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                        }}
+                      >
+                        <div className="flex items-center justify-center">
+                          <Skeleton className="w-3 h-3" />
+                        </div>
+                        <div className="flex items-center gap-3 px-3">
+                          <Skeleton className="w-5 h-5 rounded-full" />
+                          <Skeleton className="w-24 h-4 rounded" />
+                          <Skeleton className="w-12 h-4 rounded" />
+                        </div>
+                        {/* Empty cells to match grid structure */}
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div></div>
+                      </div>
+                      {/* Task Row Skeletons - 4 per client group */}
+                      {[1, 2, 3, 4].map((taskIndex) => (
+                        <div
+                          key={`${clientIndex}-${taskIndex}`}
+                          className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                          style={{
+                            gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                          }}
+                        >
+                          {/* Empty drag handle cell */}
+                          <div></div>
+                          {/* Title */}
+                          <div className="px-3">
+                            <Skeleton className="w-32 h-4 rounded" />
+                          </div>
+                          {/* Status */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          {/* Assignee */}
+                          <div className="px-3">
+                            <Skeleton className="w-16 h-4 rounded" />
+                          </div>
+                          {/* Project */}
+                          <div className="px-3">
+                            <Skeleton className="w-24 h-4 rounded" />
+                          </div>
+                          {/* Due Date */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          <div></div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : assignedFilterResults ? (
+                // Assigned filter results: Render accordion structure with pre-loaded data
+                // Always show all status headers, even with 0 results
+                statusOrder.map((status) => {
+                  // Filter clients that have tasks in this status
+                  const clientsInStatus = assignedFilterResults.clients.filter((client: SearchResults['clients'][0]) => 
+                    client.tasks.some((task: Task) => task.status === status)
+                  );
+
+                  // Calculate status count from assigned filter results
+                  const statusCount = assignedFilterResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
+                    sum + client.tasks.filter((task: Task) => task.status === status).length, 0
+                  );
+
+                  // Always render status header, even if count is 0
+                  return (
+                    <React.Fragment key={status}>
+                      <StatusGroupHeader
+                        status={status}
+                        statusCount={statusCount}
+                        isCollapsed={collapsedStatuses.has(status)}
+                        onToggle={() => onToggleStatus(status)}
+                      />
+                      {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
+                        // Filter tasks for this status
+                        const tasksInStatus = clientResult.tasks.filter((task: Task) => task.status === status);
+                        
+                        if (tasksInStatus.length === 0) {
+                          return null;
+                        }
+
+                        // Check if this client is collapsed in assigned filter mode
+                        // Set tracks expanded clients, so if NOT in Set, it's collapsed
+                        // Default to expanded (all clients should be in Set), but allow toggling
+                        const isClientCollapsed = !collapsedClients.get(status)?.has(clientResult.client_id);
+
+                        return (
+                          <React.Fragment key={clientResult.client_id}>
+                            <ClientGroupHeader
+                              clientId={clientResult.client_id}
+                              clientName={isAgency ? clientResult.client_name : undefined}
+                              clientLogoUrl={isAgency ? clientResult.client_logo_url : undefined}
+                              agencyId={!isAgency ? clientResult.client_id : undefined}
+                              agencyName={!isAgency ? clientResult.client_name : undefined}
+                              agencyLogoUrl={!isAgency ? clientResult.client_logo_url : undefined}
+                              count={tasksInStatus.length}
+                              isCollapsed={isClientCollapsed}
+                              onToggle={() => onToggleClient(status, clientResult.client_id)}
+                              isAgency={isAgency}
+                            />
+                            {/* Render all tasks - data is pre-loaded, only when expanded */}
+                            {!isClientCollapsed && tasksInStatus.map((task: Task) => (
+                              <GlobalTaskRow
+                                key={task.id}
+                                task={task}
+                                isAgency={isAgency}
+                                clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
+                                comboboxOptions={getComboboxOptionsForTask(task.connectionId)}
+                                membersByConnection={membersByConnection}
+                                statusInlineRefs={statusInlineRefs}
+                                onStatusChange={handleStatusChange}
+                                onAssigneeSelect={handleAssigneeSelect}
+                                onClearAssignee={handleClearAssignee}
+                                onRowClick={handleRowClick}
+                                onCopyLink={handleCopyLink}
+                                onDeleteTask={handleDeleteTask}
+                                onContactClick={handleContactClick}
+                                openActionsDropdown={openActionsDropdown}
+                                setOpenActionsDropdown={setOpenActionsDropdown}
+                                baseRoute={baseRoute}
+                              />
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })
+              ) : null}
+            </div>
+          ) : isEmptyState ? (
+            <div 
+              className="text-left" 
+              style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
+            >
+              <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                <div className="flex flex-col items-start gap-2">
+                  <h2 className="display-8-medium">Your best work starts here</h2>
+                  <span className="text-sm-regular text-neutral-11">
+                    {isAgency 
+                      ? 'Add action items for your team or client, and choose what stays client-visible.'
+                      : 'Your agency manages all tasks. Submit a request to kick things off or share what you need next.'
+                    }
+                  </span>
+                </div>
+                {onNewTask && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+                    onClick={onNewTask}
+                  >
+                    <Plus size={16} weight="regular" />
+                    New task
+                  </Button>
+                )}
+              </div>
             </div>
           ) : (
-            <VirtualTableBody
-            items={tasks}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-            onRowClick={(task) => handleRowClick(task.id)}
-            emptyState={isEmptyState ? emptyState : undefined}
-            renderRow={(task) => (
-              <>
-                <TableCell className="w-[25%] py-0 truncate">
-                  {task.title}
-                </TableCell>
-
-                {(() => {
-                  const clientEditableMembers = getClientEditableMembersForTask(task.connectionId);
-                  const canEditStatus = isAgency || (task.assignee ? clientEditableMembers.idSet.has(task.assignee.id) : false);
-                  
-                  if (canEditStatus) {
-                    return (
-                      <TableCell 
-                        className="w-[12%] py-0" 
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <InlineEdit
-                          ref={(instance) => {
-                            statusInlineRefs.current[task.id] = instance
-                          }}
-                          type="badge"
-                          value={task.status}
-                          options={[
-                            { value: 'to_do', label: 'To do' },
-                            { value: 'in_progress', label: 'In progress' },
-                            { value: 'on_hold', label: 'On hold' },
-                            { value: 'done', label: 'Done' },
-                          ]}
-                          onSave={(newStatus) => {
-                            statusInlineRefs.current[task.id]?.closePopover()
-                            handleStatusChange(task.id, newStatus)
-                          }}
-                          badgeComponent="task"
-                          className="truncate h-6 rounded-[8px]"
-                        />
-                      </TableCell>
-                    );
-                  }
-                  
-                  return (
-                    <TableCell className="w-[12%] py-0">
-                      <TaskBadge 
-                        variant={task.status as 'to_do' | 'in_progress' | 'on_hold' | 'done'} 
-                        size="sm" 
-                        showText={true}
-                        className="inline-flex"
-                      />
-                    </TableCell>
-                  );
-                })()}
-
-                {/* Client/Agency column */}
-                <TableCell className="w-[15%] py-0">
-                  <div className="flex items-center gap-2">
-                    {isAgency ? (
-                      <>
-                        <Avatar className="w-5 h-5">
-                          <AvatarImage src={task.client.logoUrl} alt={task.client.name} />
-                          <AvatarFallback 
-                            className="text-[10px] font-medium text-white"
-                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                          >
-                            {task.client.name.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {task.client.name}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Avatar className="w-5 h-5">
-                          <AvatarImage src={task.agency?.logoUrl} alt={task.agency?.name || ''} />
-                          <AvatarFallback 
-                            className="text-[10px] font-medium text-white"
-                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                          >
-                            {task.agency?.name?.charAt(0).toUpperCase() || 'A'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {task.agency?.name || 'Unknown'}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </TableCell>
-
-                <TableCell 
-                  className="w-[15%] py-0"
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                >
-                  {isAgency ? (
-                    <ListRow
-                      avatar={true}
-                      avatarUrl={task.assignee ? task.assignee.avatarUrl : undefined}
-                      avatarFallback={!task.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                      text={!task.assignee ? "Unassigned" : task.assignee.name}
-                      textColor={!task.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                      variant="stacked"
-                      className="min-w-0 min-h-[32px]"
-                      comboboxSelectedValue={task.assignee?.id ?? null}
-                      comboboxOptions={getComboboxOptionsForTask(task.connectionId)}
-                      onComboboxSelect={(memberId) => handleAssigneeSelect(task.id, memberId, task.connectionId)}
-                      comboboxPlaceholder="Search members..."
-                      comboboxWidth="240px"
-                      clearable={!!task.assignee}
-                      onClear={() => handleClearAssignee(task.id)}
+            // Accordion mode: direct hierarchical rendering
+            // Always show status headers, even if counts are 0 or clients list is empty
+            <div className="space-y-0">
+              {statusOrder.map((status) => {
+                const isStatusCollapsed = collapsedStatuses.has(status)
+                const statusCount = statusCounts.get(status) ?? 0
+                const clients = clientGroupsByStatus[status] || []
+                
+                // Always render status header, even if count is 0
+                return (
+                  <React.Fragment key={status}>
+                    <StatusGroupHeader
+                      status={status}
+                      statusCount={statusCount}
+                      isCollapsed={isStatusCollapsed}
+                      onToggle={() => onToggleStatus(status)}
                     />
-                  ) : (
-                    (() => {
-                      const clientEditableMembers = getClientEditableMembersForTask(task.connectionId);
-                      const clientHasOptions = clientEditableMembers.options.length > 0;
-                      const assigneeIsClientMember = task.assignee ? clientEditableMembers.idSet.has(task.assignee.id) : false;
-
-                      if (clientHasOptions && (assigneeIsClientMember || !task.assignee)) {
-                        return (
-                          <ListRow
-                            avatar={true}
-                            avatarUrl={task.assignee ? task.assignee.avatarUrl : undefined}
-                            avatarFallback={!task.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                            text={!task.assignee ? "Unassigned" : task.assignee.name}
-                            textColor={!task.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                            variant="stacked"
-                            className="min-w-0 min-h-[32px]"
-                            comboboxSelectedValue={task.assignee?.id ?? null}
-                            comboboxOptions={clientEditableMembers.options}
-                            onComboboxSelect={(memberId) => handleAssigneeSelect(task.id, memberId, task.connectionId)}
-                            comboboxPlaceholder="Search members..."
-                            comboboxWidth="240px"
-                            clearable={false}
-                          />
-                        );
-                      }
-
+                    {!isStatusCollapsed && clients.length > 0 && clients.map((client) => {
+                      const cacheKey = `${status}-${client.orgId}`
+                      // Client is expanded if it's in the Set, collapsed otherwise (default to collapsed)
+                      const isClientCollapsed = !collapsedClients.get(status)?.has(client.orgId)
+                      
+                      // 1. Get the raw value. DO NOT default to [].
+                      // If this returns undefined, it means we haven't fetched it yet.
+                      const clientTasks = tasksByClientStatus.get(cacheKey)
+                      
+                      const isLoading = isLoadingClientStatus.get(cacheKey) || false
+                      const knownCount = clientCounts.get(cacheKey) ?? 0
+                      
+                      // 2. Derive the state
+                      const isExpanded = !isClientCollapsed
+                      const hasData = clientTasks !== undefined
+                      const isEmpty = hasData && clientTasks.length === 0
+                      
+                      // Separate optimistic tasks from real tasks if we have data
+                      const optimisticTasks = hasData ? clientTasks.filter(t => t.id.startsWith('temp-')) : []
+                      const realTasks = hasData ? clientTasks.filter(t => !t.id.startsWith('temp-')) : []
+                      
                       return (
-                        <ListRow
-                          avatar={true}
-                          avatarUrl={task.assignee ? task.assignee.avatarUrl : undefined}
-                          avatarFallback={!task.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                          text={!task.assignee ? "Unassigned" : task.assignee.name}
-                          textColor={!task.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                          variant="stacked"
-                          className="min-w-0"
-                          nonInteractive={!task.assignee}
-                          onClick={task.assignee ? () => {
-                            const nameParts = task.assignee!.name.split(' ')
-                            // Find member in the task's connection members (or fallback to agencyMembers)
-                            const members = membersByConnection[task.connectionId] || agencyMembers;
-                            const assigneeMember = members.find(member => member.id === task.assignee!.id)
-                            handleContactClick({
-                              id: task.assignee!.id,
-                              first_name: nameParts[0] || '',
-                              last_name: nameParts.slice(1).join(' ') || '',
-                              email: task.assignee!.email,
-                              avatar_url: task.assignee!.avatarUrl || '',
-                              job_title: assigneeMember?.jobTitle,
-                              organization: {
-                                id: task.agency?.id || '',
-                                name: task.agency?.name || '',
-                                logo_url: task.agency?.logoUrl || ''
+                        <React.Fragment key={client.orgId}>
+                          <ClientGroupHeader
+                            clientId={client.orgId}
+                            clientName={isAgency ? client.name : undefined}
+                            clientLogoUrl={isAgency ? client.logoUrl : undefined}
+                            agencyId={!isAgency ? client.orgId : undefined}
+                            agencyName={!isAgency ? client.name : undefined}
+                            agencyLogoUrl={!isAgency ? client.logoUrl : undefined}
+                            count={knownCount}
+                            isCollapsed={isClientCollapsed}
+                            onToggle={() => {
+                              const wasCollapsed = isClientCollapsed
+                              onToggleClient(status, client.orgId)
+                              // Fetch if expanding (was collapsed, now will be expanded)
+                              // Always fetch if we haven't fetched yet (undefined) OR cache is incomplete
+                              if (wasCollapsed && !isLoading && onFetchClientTasks) {
+                                const cacheKey = `${status}-${client.orgId}`
+                                const hasOptimistic = hasOptimisticData?.(cacheKey) ?? false
+                                const expectedCount = knownCount
+                                const cachedCount = hasData ? clientTasks.length : 0
+                                
+                                // Fetch if: haven't fetched yet OR optimistic data exists OR cache is incomplete
+                                if (!hasData || hasOptimistic || cachedCount < expectedCount) {
+                                  onFetchClientTasks(status, client.orgId)
+                                }
                               }
-                            })
-                          } : undefined}
-                        />
-                      );
-                    })()
-                  )}
-                </TableCell>
-
-                <TableCell className="w-[12%] py-0 truncate">
-                  <span 
-                    className="text-sm-regular" 
-                    style={task.dueDate ? undefined : { color: 'var(--color-base-text-tertiary)' }}
-                  >
-                    {task.dueDate || "No due date"}
-                  </span>
-                </TableCell>
-
-                <TableCell className="w-[12%] py-0">
-                  {task.project ? (
-                    <Badge variant="neutral" className="text-xs">
-                      {task.project.name}
-                    </Badge>
-                  ) : null}
-                </TableCell>
-
-                {isAgency && (
-                  <TableCell 
-                    className="w-[44px] p-0"
-                  >
-                    <div className="flex items-center justify-center h-full">
-                      {task.clientVisible ? (
-                        <Tooltip delayDuration={250}>
-                          <TooltipTrigger asChild>
-                            <div>
-                              <Eye size={16} weight="fill" style={{ color: 'var(--color-neutral-11)' }} />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" sideOffset={4}>
-                            <p>Visible to client</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <Tooltip delayDuration={250}>
-                          <TooltipTrigger asChild>
-                            <div>
-                              <EyeSlash size={16} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" sideOffset={4}>
-                            <p>Not visible to client</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </div>
-                  </TableCell>
-                )}
-
-                <TableCell 
-                  className="w-[44px] p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={openActionsDropdown === task.id} onOpenChange={(open) => setOpenActionsDropdown(open ? task.id : null)}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            openActionsDropdown === task.id
-                              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
-                              : 'hover:bg-[var(--color-interactive-surface-hover)]'
-                          }`}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleRowClick(task.id)
-                        }}>
-                          <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          View details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleCopyLink(task.id, task.connectionId)
-                        }}>
-                          <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Copy link
-                        </DropdownMenuItem>
-                        {isAgency && (
-                          <>
-                            <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                            <DropdownMenuItem 
-                              onClick={() => {
-                                handleDeleteTask(task.id)
-                                setOpenActionsDropdown(null)
-                              }}
-                              style={{ color: 'var(--color-red-11)' }}
-                            >
-                              <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                              Delete task
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </>
-            )}
-          />
+                            }}
+                            isAgency={isAgency}
+                          />
+                          {isExpanded && (
+                            <>
+                              {/* CASE 1: We have never fetched this OR we have optimistic tasks but no real data yet.
+                                  Show optimistic tasks (if any) above the skeleton. */}
+                              {(!hasData || (hasData && optimisticTasks.length > 0 && realTasks.length === 0 && isLoading)) && (
+                                <>
+                                  {/* Render optimistic tasks FIRST (at the top) if they exist */}
+                                  {optimisticTasks.map((task) => (
+                                    <GlobalTaskRow
+                                      key={task.id}
+                                      task={task}
+                                      isAgency={isAgency}
+                                      clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
+                                      comboboxOptions={getComboboxOptionsForTask(task.connectionId)}
+                                      membersByConnection={membersByConnection}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteTask={handleDeleteTask}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      baseRoute={baseRoute}
+                                    />
+                                  ))}
+                                  
+                                  {/* Show skeleton while loading (existing skeleton logic) */}
+                                  <div className="space-y-0">
+                                    {[1, 2, 3].map((i) => (
+                                      <div
+                                        key={i}
+                                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                                        style={{
+                                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                                        }}
+                                      >
+                                        <div></div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-32 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-20 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-16 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-24 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-20 h-4 rounded" />
+                                        </div>
+                                        <div></div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                              
+                              {/* CASE 2: We fetched, and it's truly empty (no optimistic tasks either). */}
+                              {hasData && isEmpty && optimisticTasks.length === 0 && (
+                                <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
+                                  No tasks found
+                                </div>
+                              )}
+                              
+                              {/* CASE 3: We have data (optimistic or real). Render optimistic tasks first, then real tasks. */}
+                              {hasData && !isEmpty && !(optimisticTasks.length > 0 && realTasks.length === 0 && isLoading) && (
+                                <>
+                                  {/* Render optimistic tasks FIRST (at the top) */}
+                                  {optimisticTasks.map((task) => (
+                                    <GlobalTaskRow
+                                      key={task.id}
+                                      task={task}
+                                      isAgency={isAgency}
+                                      clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
+                                      comboboxOptions={getComboboxOptionsForTask(task.connectionId)}
+                                      membersByConnection={membersByConnection}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteTask={handleDeleteTask}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      baseRoute={baseRoute}
+                                    />
+                                  ))}
+                                  
+                                  {/* Render real tasks (below optimistic) */}
+                                  {realTasks.map((task) => (
+                                    <GlobalTaskRow
+                                      key={task.id}
+                                      task={task}
+                                      isAgency={isAgency}
+                                      clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
+                                      comboboxOptions={getComboboxOptionsForTask(task.connectionId)}
+                                      membersByConnection={membersByConnection}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteTask={handleDeleteTask}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      baseRoute={baseRoute}
+                                    />
+                                  ))}
+                                </>
+                              )}
+                            </>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                    {!isStatusCollapsed && clients.length === 0 && (
+                      <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
+                        No clients found
+                      </div>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </div>
           )}
           </div>
         </div>
@@ -936,7 +1327,12 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
           }}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   )
 }
-

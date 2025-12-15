@@ -39,6 +39,7 @@ export type HomeSnapshot = {
 export type StatsCardProps = {
   snapshot: HomeSnapshot;
   context: EnhancedModeContext;
+  allowedConnectionIds?: string[] | null;
 };
 
 export type CardConfig = {

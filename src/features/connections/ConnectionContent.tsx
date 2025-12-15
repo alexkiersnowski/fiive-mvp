@@ -8,9 +8,9 @@ interface ConnectionContentProps {
   context: EnhancedModeContext;
 }
 
-export function ConnectionContent({ snapshot, context }: ConnectionContentProps) {
-  const isAgencyView = context.variant === 'agency';
-  const isClientView = context.variant === 'client';
+export function ConnectionContent({ snapshot: _snapshot, context }: ConnectionContentProps) {
+  const _isAgencyView = context.variant === 'agency';
+  const _isClientView = context.variant === 'client';
 
   return (
     <div>

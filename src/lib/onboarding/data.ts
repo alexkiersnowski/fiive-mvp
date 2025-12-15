@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { User } from '@supabase/supabase-js'
 
 /**
  * Optimized data fetching for onboarding pages
@@ -46,7 +45,7 @@ export async function getProfileData(userId: string): Promise<ProfileData | null
  * Fetch organization data with optimized single query
  * Replaces complex 3-query fallback pattern with efficient JOIN
  */
-export async function getOrganizationData(userId: string): Promise<OrganizationData | null> {
+export async function getOrganizationData(_userId: string): Promise<OrganizationData | null> {
   const supabase = await createClient()
   
   // RLS policies will automatically filter to organizations the user has access to

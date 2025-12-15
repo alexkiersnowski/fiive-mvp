@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import React, { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
-// Removed Next.js Image import to use regular img tag
+import Image from "next/image"
 import { z } from "zod"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { RadioCards, RadioCard, AgencyIcon, ClientIcon } from '@/components/ui/radio-cards'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
-import { ImageUpload } from '@/components/ui/image-upload'
 import { ArrowLeft } from '@phosphor-icons/react'
 import {
   Form,
@@ -207,7 +206,7 @@ interface OnboardingLayoutProps {
 export default function OnboardingLayout({ 
   title, 
   subtitle,
-  description,
+  description: _description,
   buttonText,
   placeholder = "Enter your email address",
   onSubmit,
@@ -402,14 +401,14 @@ export default function OnboardingLayout({
       <div className="flex-1 overflow-y-auto" style={{ width: '66.67%' }}>
         {/* Navigation - Sticky */}
         <div className="sticky top-0 py-5 px-10" style={{ backgroundColor: 'var(--color-neutral-1)', zIndex: 10 }}>
-          <img 
+          <Image 
             src="/logos/fiive-logo.svg" 
             alt="Fiive" 
             width={96}
             height={24}
             style={{ height: '24px' }}
             draggable={false}
-            loading="eager"
+            priority
           />
         </div>
 
@@ -825,15 +824,35 @@ export default function OnboardingLayout({
       {/* Right side - Graphic container (1/3 width) - Fixed height, no scroll */}
       <div className="flex items-center justify-center overflow-hidden" style={{ width: '33.33%', height: '100vh' }}>
         <div className="w-full h-full p-2">
-          <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
-            <img 
+          <div 
+            className="w-full h-full rounded-sm flex items-center justify-center relative overflow-hidden"
+            style={{ backgroundColor: 'var(--color-neutral-3)' }}
+          >
+            {/* Circular gradient blur element */}
+            <div
+              className="absolute"
+              suppressHydrationWarning
+              style={{
+                background: 'linear-gradient(180deg, #FF8C1A 0%, #FF8985 40%, #51D9CC 100%)',
+                borderRadius: '50%',
+                width: '250%',
+                height: '150%',
+                filter: 'blur(125px)',
+                right: '-125%',
+                top: '-5%',
+                opacity: 0.9,
+              }}
+            />
+            {/* Watermark image on top */}
+            <Image 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
               width={240}
               height={240}
-              className="max-w-full h-60 object-contain"
+              className="max-w-full h-60 object-contain relative z-10"
+              style={{ opacity: 0.6 }}
               draggable={false}
-              loading="eager"
+              priority
             />
           </div>
         </div>

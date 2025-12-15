@@ -7,6 +7,19 @@ import { TaskDetailContent } from './TaskDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { useConnection } from '../ConnectionContext'
+import { deleteTask } from './actions'
+import type { Task } from '../server'
+
+// Helper hook to safely use connection context
+function useConnectionSafe() {
+  try {
+    return useConnection()
+  } catch {
+    // Return default values when not in ConnectionProvider context
+    return { isDisconnected: false }
+  }
+}
 
 interface TaskDetailModalProps {
   taskData: {
@@ -74,7 +87,7 @@ interface TaskDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
+  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
   onTaskDeleted?: (taskId: string) => void
   connectionId: string
   currentOrgId: string
@@ -102,9 +115,15 @@ interface TaskDetailModalProps {
     text: string
   }>) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean // Optional prop for when used outside ConnectionProvider
+  organizationType?: 'agency' | 'client' // Optional prop for when used outside ConnectionProvider
 }
 
-export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false }: TaskDetailModalProps) {
+export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], isOpen, onClose, onExpand, onTaskUpdate, onTaskDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, isGlobalView = false, isDisconnected: propIsDisconnected, organizationType: propOrganizationType }: TaskDetailModalProps) {
+  // Use prop if provided, otherwise try to get from context
+  const connectionContext = useConnectionSafe()
+  const isDisconnected = propIsDisconnected !== undefined ? propIsDisconnected : connectionContext.isDisconnected
+  const isClientOrg = propOrganizationType === 'client' || ('context' in connectionContext && connectionContext.context?.organization?.type === 'client')
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // All fields are editable (no restrictions)
@@ -114,15 +133,32 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
     return 'Task'
   }
   
-  // Handle delete task (optimistic)
+  // Handle delete task
   const handleDeleteTask = async () => {
     if (!taskData?.taskId) return
     
     // Close modal immediately
     onClose()
     
-    // Notify parent - parent handles optimistic update, toast, and server action
-    onTaskDeleted?.(taskData.taskId)
+    // If parent provides onTaskDeleted handler, let it handle the delete and toast
+    // Otherwise, handle delete here (for standalone usage)
+    if (onTaskDeleted) {
+      // Notify parent for optimistic update and server delete
+      onTaskDeleted(taskData.taskId)
+    } else {
+      // Actually delete the task from the database (standalone usage)
+      try {
+        await deleteTask(taskData.taskId)
+        toast.success('Task deleted')
+        // Real-time subscription will handle UI updates
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error deleting task:', error)
+        }
+        toast.error('Failed to delete task')
+        // Note: Optimistic update already happened, but real-time will reconcile
+      }
+    }
   }
 
   const handleCopyLink = useCallback(() => {
@@ -137,8 +173,8 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
       : currentPath.startsWith('/clients/')
         ? 'clients'
         : variant === 'agency'
-          ? 'agencies'
-          : 'clients'
+          ? 'clients' // Agencies view clients
+          : 'agencies' // Clients view agencies
 
     const clipboard = navigator?.clipboard
     if (!clipboard?.writeText) {
@@ -151,12 +187,13 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
     clipboard.writeText(fullUrl)
       .then(() => {
         toast.success('Link copied to clipboard')
+        setIsActionsDropdownOpen(false)
       })
       .catch((error) => {
         console.error('Failed to copy task link:', error)
         toast.error('Failed to copy link')
       })
-  }, [taskData, connectionId, variant])
+  }, [taskData, connectionId, variant, setIsActionsDropdownOpen])
   
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -195,19 +232,21 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                <>
-                  <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                  <DropdownMenuItem 
-                    onClick={() => {
-                      handleDeleteTask()
-                      setIsActionsDropdownOpen(false)
-                    }}
-                    style={{ color: 'var(--color-red-11)' }}
-                  >
-                    <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                    Delete task
-                  </DropdownMenuItem>
-                </>
+                {!isDisconnected && !isClientOrg && (
+                  <>
+                    <div className="border-t border-[var(--color-neutral-6)] my-1" />
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        handleDeleteTask()
+                        setIsActionsDropdownOpen(false)
+                      }}
+                      style={{ color: 'var(--color-red-11)' }}
+                    >
+                      <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
+                      Delete task
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button 
@@ -267,6 +306,7 @@ export function TaskDetailModal({ taskData, agencyMembers = [], projects = [], i
               initialComments={initialComments}
               onCommentsUpdate={onCommentsUpdate}
               isGlobalView={isGlobalView}
+              isDisconnected={isDisconnected}
             />
           </div>
         )}

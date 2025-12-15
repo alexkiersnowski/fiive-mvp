@@ -1,25 +1,31 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
-import { RequestBadge } from '@/components/ui/request-badge'
-import { InlineEdit } from '@/components/ui/inline-edit'
+import type { InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, Check, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, Eye, Users } from '@phosphor-icons/react'
+import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
+import { groupRequestsByStatus, sortRequestsForDisplay, type RequestStatus } from './requestSort'
 import type { Request } from '../server'
-import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
 import { useConnection } from '../ConnectionContext'
+import { RequestRow } from './RequestRow'
+import { StatusSection } from './StatusSection'
+import { useRequestDragDrop } from './useRequestDragDrop'
+import { Skeleton } from '@/components/ui/skeleton'
+
+// Drag ghost offset from cursor (pixels from left edge of row)
+const DRAG_GHOST_OFFSET_X = 200
+const DRAG_GHOST_OFFSET_Y = 22 // Half of row height (44px / 2)
+
+// Status order: new, in_review, accepted, closed, canceled
+const REQUEST_STATUS_ORDER: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
 
 interface RequestsTableProps {
   userAvatar?: string
@@ -35,9 +41,10 @@ interface RequestsTableProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: Array<{ index: number; start: number; end: number; size: number }>) => void
+  searchQuery?: string
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -53,27 +60,41 @@ interface RequestsTableProps {
   }
   onRequestDeleted?: (requestId: string) => void
   onConvertToTask?: (request: Request) => void
+  statusCounts?: Record<string, number> // Server-side status counts to prevent flicker
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask }: RequestsTableProps) {
-  const { snapshot, isDisconnected } = useConnection()
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, searchQuery = '', onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, agencyOrganization, onRequestDeleted, onConvertToTask, statusCounts: statusCountsProp }: RequestsTableProps) {
+  const { snapshot: _snapshot, isDisconnected } = useConnection()
   const pathname = usePathname()
-  const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
-  const [searchQuery, setSearchQuery] = useState('')
-  const [sortValue, setSortValue] = useState('created')
-  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
-  const [requestStatus, setRequestStatus] = useState('in_review')
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   
-  // Assignee ref for combobox functionality
-  const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
+  // Ensure requests are sorted before grouping (safeguard)
+  const sortedRequests = useMemo(() => sortRequestsForDisplay(requests), [requests])
+  
+  // Group requests by status (always grouped, even when filtering)
+  const requestsByStatus = useMemo(() => {
+    return groupRequestsByStatus(sortedRequests)
+  }, [sortedRequests])
+
+  // Compute filtered counts per status (for status headers when filtering)
+  const filteredStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const status of REQUEST_STATUS_ORDER) {
+      counts[status] = requestsByStatus[status]?.length || 0
+    }
+    return counts
+  }, [requestsByStatus])
+  
+  const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
-  const isMutingStatus = useRef(false)
+  
+  // Track pending status updates per request ID to prevent flickering
+  const pendingStatusUpdatesRef = useRef<Map<string, { status: string; abortController: AbortController }>>(new Map())
   
   // Profile Card state
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -105,24 +126,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   )
 
   // Sort options (memoized to prevent recreation)
-  const sortOptions = useMemo(() => [
-    { value: 'created', label: 'Created (newest first)', buttonLabel: 'Created' },
-    { value: 'status', label: 'Status', buttonLabel: 'Status' }
-  ], [])
-
-  // Current sort label (memoized based on sortValue)
-  const currentSortLabel = useMemo(() => 
-    sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Created',
-    [sortOptions, sortValue]
-  )
-
-  const handleSortChange = (newSortValue: string) => {
-    setSortValue(newSortValue)
-    // Sort will be applied when we implement actual data
-  }
+  const currentSortLabel = 'Created'
 
   // Assignee handlers with loading guard
-  const handleAssigneeSelect = async (requestId: string, memberId: string) => {
+  const handleAssigneeSelect = useCallback(async (requestId: string, memberId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -164,9 +171,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         isMutingAssignee.current = false
       }
     }
-  }
+  }, [agencyMembers, onRequestUpdate, requests])
 
-  const handleClearAssignee = async (requestId: string) => {
+  const handleClearAssignee = useCallback(async (requestId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -198,58 +205,84 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       // Clear loading guard
       isMutingAssignee.current = false
     }
-  }
+  }, [onRequestUpdate, requests])
 
-  // Status handler with loading guard
-  const handleStatusChange = async (requestId: string, newStatus: string) => {
-    // Prevent rapid-fire mutations
-    if (isMutingStatus.current) return
-    
-    const validStatuses = ['new', 'in_review', 'accepted', 'canceled'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+  // Status handler with loading guard and pending update tracking
+  const handleStatusChange = useCallback(async (requestId: string, newStatus: string): Promise<void> => {
+    const validStatuses = ['new', 'in_review', 'accepted', 'canceled', 'closed'] as const
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Invalid status:', newStatus)
       }
       return
     }
     
-    const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled'
+    const typedStatus = newStatus as RequestStatus
+    
+    // Cancel any existing pending update for this request
+    const existingPending = pendingStatusUpdatesRef.current.get(requestId)
+    if (existingPending) {
+      existingPending.abortController.abort()
+      pendingStatusUpdatesRef.current.delete(requestId)
+    }
+    
+    // Create new AbortController for this update
+    const abortController = new AbortController()
+    pendingStatusUpdatesRef.current.set(requestId, {
+      status: typedStatus,
+      abortController
+    })
     
     // Notify parent for bidirectional updates (table → modal)
     if (onRequestUpdate) {
       onRequestUpdate(requestId, { status: typedStatus })
     }
     
-    // Set loading guard
-    isMutingStatus.current = true
-    
     try {
       await updateRequestStatus(requestId, typedStatus)
-      const statusLabels = {
-        new: 'New',
-        in_review: 'In review',
-        accepted: 'Accepted',
-        canceled: 'Canceled'
+      
+      // Check if this update was aborted before processing
+      if (abortController.signal.aborted) {
+        return
       }
-      toast.success(`Status updated to ${statusLabels[typedStatus]}`)
-      // Real-time subscription will handle UI updates
+      
+      // Check if this update is still the latest before applying
+      const pendingUpdate = pendingStatusUpdatesRef.current.get(requestId)
+      if (pendingUpdate && pendingUpdate.status === typedStatus && !abortController.signal.aborted) {
+        // Real-time subscription will handle UI updates
+      }
+      // If update was superseded, don't apply changes
     } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Failed to update status:', error)
+      // Ignore abort errors (request was cancelled by a newer update)
+      // Check both the signal and if it's an AbortError
+      if (abortController.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        return
       }
-      toast.error('Failed to update status')
-      // Revert parent state on error
-      if (onRequestUpdate) {
-        const originalRequest = requests.find(r => r.id === requestId)
-        if (originalRequest) {
-          onRequestUpdate(requestId, { status: originalRequest.status })
+      
+      // Only handle error if this update is still the latest
+      const pendingUpdate = pendingStatusUpdatesRef.current.get(requestId)
+      if (pendingUpdate && pendingUpdate.status === typedStatus && !abortController.signal.aborted) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to update status:', error)
+        }
+        toast.error('Failed to update status')
+        // Revert parent state on error
+        if (onRequestUpdate) {
+          const originalRequest = requests.find(r => r.id === requestId)
+          if (originalRequest) {
+            onRequestUpdate(requestId, { status: originalRequest.status })
+          }
         }
       }
     } finally {
-      // Clear loading guard
-      isMutingStatus.current = false
+      // Clean up pending update if this was the latest one
+      // Only clean up if this specific update (by status match) is still pending
+      const pendingUpdate = pendingStatusUpdatesRef.current.get(requestId)
+      if (pendingUpdate && pendingUpdate.status === typedStatus) {
+        pendingStatusUpdatesRef.current.delete(requestId)
+      }
     }
-  }
+  }, [onRequestUpdate, requests])
 
   // Profile Card handler
   const handleContactClick = (contact: {
@@ -269,10 +302,47 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     setProfileDialogOpen(true);
   };
 
-  // Navigation handler
-  const handleRowClick = (requestId: string) => {
+  // Navigation handler - prevent click if drag occurred
+  const handleRowClick = useCallback((requestId: string) => {
+    // Prevent modal opening if drag occurred
+    // hasDragged is managed by useRequestDragDrop hook
     onRequestClick?.(requestId)
-  }
+  }, [onRequestClick])
+  
+  // Check if user can drag a request (same permissions as editing status)
+  // Only agencies can drag requests (clients cannot edit request status)
+  const canDragRequest = useCallback((_request: Request) => {
+    if (isDisconnected) return false
+    return isAgency
+  }, [isDisconnected, isAgency])
+  
+  // Use drag & drop hook (simplified logic)
+  const {
+    draggedRequestId,
+    dragStartPosition,
+    hoveredGroupStatus,
+    dragOffset,
+    hasDragged,
+    handleDragStart,
+    dragGhostProps
+  } = useRequestDragDrop({
+    onStatusChange: async (requestId, newStatus) => {
+      await handleStatusChange(requestId, newStatus)
+    },
+    onRequestUpdate,
+    requests,
+    containerRef,
+    parentRef,
+    openActionsDropdown
+  })
+
+  // Update handleRowClick to use hasDragged from hook
+  const handleRowClickWithDragCheck = useCallback((requestId: string) => {
+    if (hasDragged) {
+      return
+    }
+    onRequestClick?.(requestId)
+  }, [hasDragged, onRequestClick])
 
   const handleCopyLink = (requestId: string, connectionId: string) => {
     const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestId}`
@@ -299,92 +369,75 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     }
   }
 
-  // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
-    items: requests,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
-  
-  // Check if there are active filters
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
-  
-  // isNearEnd available for future use (e.g., showing loading indicator)
-
-  // Empty state logic: ONLY show empty state when no requests exist at all
-  // When requests exist but search returns no results, VirtualTableBody will show "no results"
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+  // Derived from current filter state — prevents flicker during search clear
+  const hasActiveFilters = (searchQuery?.trim().length ?? 0) > 0 || assignedToMe;
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters;
 
   // Empty state component matching ClientsTable design
   const emptyState = isEmptyState ? (
-    <TableRow 
-      className="hover:bg-transparent"
-      style={{ 
-        backgroundColor: 'var(--color-base-surface-page-background)', 
-        borderBottomColor: 'var(--color-neutral-5)',
-        height: '100%'
-      }}
+    <div 
+      className="text-left" 
+      style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
     >
-      <TableCell 
-        colSpan={isAgency ? 8 : 8} 
-        className="text-left" 
-        style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px' }}
-      >
-        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-          <div className="flex flex-col items-start gap-2">
-            <h2 className="display-8-medium">Your best work starts here</h2>
-            <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Clients can submit requests from their portal, or you can add one for them.'
-                : 'Ask questions, share updates, or request new work directly from your agency.'
-              }
-            </span>
-          </div>
-          {onNewRequest && !isDisconnected && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-              onClick={onNewRequest}
-            >
-              <Plus size={16} weight="regular" />
-              {isAgency ? 'New request' : 'Submit request'}
-            </Button>
-          )}
+      <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+        <div className="flex flex-col items-start gap-2">
+          <h2 className="display-8-medium">Your best work starts here</h2>
+          <span className="text-sm-regular text-neutral-11">
+            {isAgency 
+              ? 'Clients can submit requests from their portal, or you can add one for them.'
+              : 'Ask questions, share updates, or request new work directly from your agency.'
+            }
+          </span>
         </div>
-      </TableCell>
-    </TableRow>
+        {onNewRequest && !isDisconnected && (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+            onClick={onNewRequest}
+          >
+            <Plus size={16} weight="regular" />
+            {isAgency ? 'New request' : 'Submit request'}
+          </Button>
+        )}
+      </div>
+    </div>
   ) : null
+
+  // Scroll to top when search/filter changes
+  useEffect(() => {
+    if (searchQuery || assignedToMe) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [searchQuery, assignedToMe])
 
   return (
     <div className="w-full min-w-0">
       {/* Search section - Sticky */}
-      <div className="sticky top-10 z-1 bg-[var(--color-base-surface-page-background)] pt-5 pb-4 px-5 rounded-t-lg">
+      <div className="sticky top-10 z-1 bg-[var(--color-base-surface-page-background)] pt-5 pb-4 px-5 rounded-t-lg relative">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
             <SearchInput
-              placeholder="Search by title, project, or status…"
-              value={searchQuery}
+              placeholder="Search requests by title…"
+              value={searchQuery || ''}
               onChange={(value) => {
-                setSearchQuery(value)
                 onSearchChange?.(value)
               }}
               count={requestCount}
               countLabel={(requestCount as number) === 1 ? 'request' : 'requests'}
             />
-              <Tooltip delayDuration={250}>
-                <TooltipTrigger asChild>
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs border-0"
-                    style={{
-                      borderRadius: 'var(--radius-1-max, 3px)',
-                      backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
-                      border: 'none',
-                      cursor: 'default'
-                    }}
-                  >
+            <Tooltip delayDuration={250}>
+              <TooltipTrigger asChild>
+                <Badge 
+                  variant="outline" 
+                  className="text-xs border-0"
+                  style={{
+                    borderRadius: 'var(--radius-1-max, 3px)',
+                    backgroundColor: 'var(--color-neutral-3, #f0f0f3)',
+                    border: 'none',
+                    cursor: 'default'
+                  }}
+                >
                   {isAgency ? (
                     <Eye size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
                   ) : (
@@ -393,14 +446,14 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                   <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
                     {isAgency ? 'Client visible' : 'Collaborate'}
                   </span>
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={8}>
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8}>
                 {isAgency 
                   ? 'Visible in client portal'
                   : 'Both you and your agency can manage this'}
-                </TooltipContent>
-              </Tooltip>
+              </TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-3">
             <Tooltip delayDuration={0}>
@@ -428,7 +481,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             </Tooltip>
             <Button
               variant="outline"
-              className="text-sm-regular h-[32px] flex items-center gap-2 shadow-none cursor-default pointer-events-none"
+              className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
             >
               <SortAscending size={16} />
               {currentSortLabel}
@@ -471,340 +524,177 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             )}
           </div>
         </div>
+        {/* Border with 20px margins to match table padding */}
+        <div className="absolute bottom-0 left-5 right-5 border-b border-[var(--color-neutral-4)]" />
       </div>
 
-      {/* Table Header - Sticky */}
-      {(unfilteredTotalCount > 0 || hasActiveFilters) && (
-      <div className="sticky top-[112px] z-10 bg-[var(--color-base-surface-page-background)] px-5">
-        <Table className="table-fixed w-full border-collapse">
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[25%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Title
-              </TableHead>
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Status
-              </TableHead>
-              {isAgency ? (
-                <>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Submitted by
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Project
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Assignee
-                  </TableHead>
-                </>
-              ) : (
-                <>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Owner
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Project
-                  </TableHead>
-                  <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                    Submitted by
-                  </TableHead>
-                </>
-              )}
-              <TableHead className="w-[15%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                Created
-              </TableHead>
-              <TableHead className="w-[44px] p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-        </Table>
-      </div>
-      )}
-
-      {/* Table Body - Virtualized Scrollable */}
+      {/* List Body */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
-        <div className="px-5 pb-5">
-          {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
-          {isBootstrapping && requests.length === 0 ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+        <div className="pb-5 px-5">
+          {isBootstrapping ? (
+            <div className="space-y-0">
+              {/* Status Group Skeleton - 1x only, starts the block */}
+              <div
+                className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                style={{
+                  gridTemplateColumns: isAgency 
+                    ? '44px 4fr 3fr 3fr 3fr 3fr 44px'
+                    : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                }}
+              >
+                <div className="flex items-center justify-center">
+                  <Skeleton className="w-3 h-3" />
+                </div>
+                <div className="flex items-center gap-3 px-3">
+                  <Skeleton className="w-12 h-5 rounded" />
+                  <Skeleton className="w-16 h-4 rounded" />
+                </div>
+              </div>
+              {/* Request Row Skeletons - 20 per status group */}
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((requestIndex) => (
+                <div
+                  key={requestIndex}
+                  className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                  style={{
+                    gridTemplateColumns: isAgency 
+                      ? '44px 4fr 3fr 3fr 3fr 3fr 44px'
+                      : '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                  }}
+                >
+                  {/* Empty drag handle cell */}
+                  <div></div>
+                  {/* Title */}
+                  <div className="px-3">
+                    <Skeleton className="w-32 h-4 rounded" />
+                  </div>
+                  {/* Status */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {/* Assignee/Owner */}
+                  <div className="px-3">
+                    <Skeleton className="w-16 h-4 rounded" />
+                  </div>
+                  {/* Project */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {/* Created */}
+                  <div className="px-3">
+                    <Skeleton className="w-24 h-4 rounded" />
+                  </div>
+                  {/* Actions */}
+                  <div></div>
+                </div>
+              ))}
             </div>
           ) : (
-            <VirtualTableBody
-            items={requests}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-            onRowClick={(request) => handleRowClick(request.id)}
-            emptyState={isEmptyState ? emptyState : undefined}
-            renderRow={(request) => (
+            // Always render StatusSection components (grouped by status, even when filtering)
+            isEmptyState ? (
+              emptyState
+            ) : (
               <>
-                <TableCell className="w-[25%] py-0 truncate">
-                  {request.title}
-                </TableCell>
-
-                {isAgency ? (
-                  <TableCell 
-                    className="w-[15%] py-0" 
-                    onClick={isDisconnected ? undefined : (e) => e.stopPropagation()}
-                  >
-                    {isDisconnected ? (
-                      <RequestBadge 
-                        variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
-                        size="sm" 
-                        showText={true}
-                        className="inline-flex"
-                      />
-                    ) : (
-                      <InlineEdit
-                        type="badge"
-                        value={request.status}
-                        options={[
-                          { value: 'new', label: 'New' },
-                          { value: 'in_review', label: 'In review' },
-                          { value: 'accepted', label: 'Accepted' },
-                          { value: 'canceled', label: 'Canceled' },
-                        ]}
-                        onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
-                        badgeComponent="request"
-                        className="truncate h-6 rounded-[8px]"
-                      />
-                    )}
-                  </TableCell>
-                ) : (
-                  <TableCell className="w-[15%] py-0">
-                    <RequestBadge 
-                      variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
-                      size="sm" 
-                      showText={true}
-                      customLabel={request.status === 'new' ? 'Submitted' : undefined}
-                      className="inline-flex"
+                {REQUEST_STATUS_ORDER.map((status: RequestStatus) => {
+                  // Use filtered counts when filtering, otherwise use server counts
+                  const count = hasActiveFilters
+                    ? filteredStatusCounts[status] || 0
+                    : (statusCountsProp?.[status] || requestsByStatus[status]?.length || 0)
+                  
+                  return (
+                    <StatusSection
+                      key={status}
+                      status={status}
+                      requests={requestsByStatus[status] || []}
+                      count={count}
+                      // NO isExpanded prop - StatusSection owns this
+                      // NO onToggle prop - StatusSection handles toggle internally
+                      onDrop={(requestId) => handleStatusChange(requestId, status)}
+                      isAgency={isAgency}
+                      isDisconnected={isDisconnected}
+                      comboboxOptions={comboboxOptions}
+                      agencyMembers={agencyMembers}
+                      agencyOrganization={agencyOrganization}
+                      statusInlineRefs={statusInlineRefs}
+                      onStatusChange={handleStatusChange}
+                      onAssigneeSelect={handleAssigneeSelect}
+                      onClearAssignee={handleClearAssignee}
+                      onRowClick={handleRowClickWithDragCheck}
+                      onCopyLink={handleCopyLink}
+                      onDeleteRequest={handleDeleteRequest}
+                      onContactClick={handleContactClick}
+                      openActionsDropdown={openActionsDropdown}
+                      setOpenActionsDropdown={setOpenActionsDropdown}
+                      baseRoute={baseRoute}
+                      currentOrgId={currentOrgId}
+                      onConvertToTask={onConvertToTask}
+                      draggedRequestId={draggedRequestId}
+                      onDragStart={handleDragStart}
+                      canDragRequest={canDragRequest}
+                      isDraggingActive={draggedRequestId !== null}
+                      hoveredGroupStatus={hoveredGroupStatus}
+                      parentRef={parentRef}
                     />
-                  </TableCell>
-                )}
-
-                {isAgency ? (
-                  <>
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ListRow
-                        avatar
-                        avatarUrl={request.submittedBy.avatarUrl}
-                        text={request.submittedBy.name}
-                        variant="stacked"
-                        className="min-w-0"
-                        onClick={() => {
-                          const nameParts = request.submittedBy.name.split(' ')
-                          handleContactClick({
-                            id: request.submittedBy.id,
-                            first_name: nameParts[0] || '',
-                            last_name: nameParts.slice(1).join(' ') || '',
-                            email: request.submittedBy.email,
-                            avatar_url: request.submittedBy.avatarUrl || '',
-                            job_title: request.submittedBy.jobTitle || '',
-                            organization: {
-                              id: request.submittedBy.orgId,
-                              name: request.submittedBy.orgName,
-                              logo_url: request.submittedBy.orgLogo || ''
-                            }
-                          })
-                        }}
-                      />
-                    </TableCell>
-
-                    <TableCell className="w-[15%] py-0">
-                      {request.project ? (
-                        <Badge variant="neutral" className="text-xs">
-                          {request.project.name}
-                        </Badge>
-                      ) : (
-                        <Badge variant="neutral" className="text-xs">
-                          General request
-                        </Badge>
-                      )}
-                    </TableCell>
-
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={isDisconnected ? undefined : (e: React.MouseEvent) => e.stopPropagation()}
-                    >
-                      <ListRow
-                        ref={assigneeListRowRef}
-                        avatar={true}
-                        avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
-                        avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                        text={!request.assignee ? "Unassigned" : request.assignee.name}
-                        textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                        variant="stacked"
-                        className="min-w-0 min-h-[32px]"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                        onClick={() => {
-                          // Assignee click handled by combobox
-                        }}
-                        comboboxOptions={isDisconnected ? undefined : comboboxOptions}
-                        onComboboxSelect={isDisconnected ? undefined : (memberId) => handleAssigneeSelect(request.id, memberId)}
-                        comboboxPlaceholder={isDisconnected ? undefined : "Search members..."}
-                        comboboxWidth={isDisconnected ? undefined : "240px"}
-                        clearable={isDisconnected ? false : !!request.assignee}
-                        onClear={isDisconnected ? undefined : () => handleClearAssignee(request.id)}
-                        nonInteractive={isDisconnected}
-                      />
-                    </TableCell>
-                  </>
-                ) : (
-                  <>
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={request.assignee && !isDisconnected ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
-                    >
-                      <ListRow
-                        avatar={true}
-                        avatarUrl={request.assignee ? request.assignee.avatarUrl : undefined}
-                        avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                        text={!request.assignee ? "Unassigned" : request.assignee.name}
-                        textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                        variant="stacked"
-                        className="min-w-0"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                        nonInteractive={isDisconnected || !request.assignee}
-                        onClick={request.assignee && !isDisconnected ? () => {
-                          const nameParts = request.assignee!.name.split(' ')
-                          const assigneeMember = agencyMembers.find(member => member.id === request.assignee!.id)
-                          handleContactClick({
-                            id: request.assignee!.id,
-                            first_name: nameParts[0] || '',
-                            last_name: nameParts.slice(1).join(' ') || '',
-                            email: request.assignee!.email,
-                            avatar_url: request.assignee!.avatarUrl || '',
-                            job_title: assigneeMember?.jobTitle,
-                            organization: {
-                              id: agencyOrganization?.id || '',
-                              name: agencyOrganization?.name || '',
-                              logo_url: agencyOrganization?.logoUrl || ''
-                            }
-                          })
-                        } : undefined}
-                      />
-                    </TableCell>
-
-                    <TableCell className="w-[15%] py-0">
-                      {request.project ? (
-                        <Badge variant="neutral" className="text-xs">
-                          {request.project.name}
-                        </Badge>
-                      ) : (
-                        <Badge variant="neutral" className="text-xs">
-                          General request
-                        </Badge>
-                      )}
-                    </TableCell>
-
-                    <TableCell 
-                      className="w-[15%] py-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ListRow
-                        avatar
-                        avatarUrl={request.submittedBy.avatarUrl}
-                        text={request.submittedBy.name}
-                        variant="stacked"
-                        className="min-w-0"
-                        onClick={() => {
-                          const nameParts = request.submittedBy.name.split(' ')
-                          handleContactClick({
-                            id: request.submittedBy.id,
-                            first_name: nameParts[0] || '',
-                            last_name: nameParts.slice(1).join(' ') || '',
-                            email: request.submittedBy.email,
-                            avatar_url: request.submittedBy.avatarUrl || '',
-                            job_title: request.submittedBy.jobTitle || '',
-                            organization: {
-                              id: request.submittedBy.orgId,
-                              name: request.submittedBy.orgName,
-                              logo_url: request.submittedBy.orgLogo || ''
-                            }
-                          })
-                        }}
-                      />
-                    </TableCell>
-                  </>
-                )}
-
-                <TableCell className="w-[15%] py-0 truncate">
-                  {request.createdAt}
-                </TableCell>
-
-                <TableCell 
-                  className="w-[44px] p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={openActionsDropdown === request.id} onOpenChange={(open) => setOpenActionsDropdown(open ? request.id : null)}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            openActionsDropdown === request.id
-                              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
-                              : 'hover:bg-[var(--color-interactive-surface-hover)]'
-                          }`}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleRowClick(request.id)
-                        }}>
-                          <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          View details
-                        </DropdownMenuItem>
-                        {!isDisconnected && isAgency && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setOpenActionsDropdown(null)
-                              onConvertToTask?.(request)
-                            }}
-                          >
-                            <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                            Convert to task
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleCopyLink(request.id, request.connectionId)
-                        }}>
-                          <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Copy link
-                        </DropdownMenuItem>
-                        {!isDisconnected && request.createdByOrgId === currentOrgId && (
-                          <>
-                            <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                            <DropdownMenuItem 
-                              onClick={() => {
-                                handleDeleteRequest(request.id)
-                                setOpenActionsDropdown(null)
-                              }}
-                              style={{ color: 'var(--color-red-11)' }}
-                            >
-                              <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                              Delete request
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
+                  )
+                })}
               </>
-            )}
-          />
+            )
           )}
         </div>
       </div>
+
+      {/* Drag Ghost Preview */}
+      {dragGhostProps.draggedRequestId && dragGhostProps.dragStartPosition && dragGhostProps.dragOffset && (() => {
+        const draggedRequest = requests.find(r => r.id === dragGhostProps.draggedRequestId)
+        if (!draggedRequest) return null
+        
+        return (
+          <div
+            data-ghost="true"
+            style={{
+              position: 'fixed',
+              left: dragGhostProps.dragStartPosition!.x - DRAG_GHOST_OFFSET_X,
+              top: dragGhostProps.dragStartPosition!.y - DRAG_GHOST_OFFSET_Y,
+              transform: `translate(${dragGhostProps.dragOffset!.x}px, ${dragGhostProps.dragOffset!.y}px)`,
+              willChange: 'transform',
+              pointerEvents: 'none',
+              zIndex: 9999,
+              opacity: 0.9,
+              width: dragGhostProps.containerWidth || 'auto',
+              maxWidth: dragGhostProps.containerWidth || 'none',
+              backgroundColor: 'var(--color-base-surface-page-background)',
+              borderRadius: '4px'
+            }}
+            className="shadow-lg border border-[var(--color-neutral-6)]"
+          >
+            <RequestRow
+              request={draggedRequest}
+              isAgency={isAgency}
+              isDisconnected={isDisconnected}
+              comboboxOptions={comboboxOptions}
+              agencyMembers={agencyMembers}
+              agencyOrganization={agencyOrganization}
+              statusInlineRefs={statusInlineRefs}
+              onStatusChange={handleStatusChange}
+              onAssigneeSelect={handleAssigneeSelect}
+              onClearAssignee={handleClearAssignee}
+              onRowClick={() => {}}
+              onCopyLink={handleCopyLink}
+              onDeleteRequest={handleDeleteRequest}
+              onContactClick={handleContactClick}
+              openActionsDropdown={null}
+              setOpenActionsDropdown={() => {}}
+              baseRoute={baseRoute}
+              currentOrgId={currentOrgId}
+              onConvertToTask={onConvertToTask}
+              isDragging={false}
+              onDragStart={() => {}}
+              canDrag={false}
+              isGhost={true}
+              isDraggingActive={true}
+            />
+          </div>
+        )
+      })()}
 
       {/* Profile Card Dialog */}
       {selectedContact && (

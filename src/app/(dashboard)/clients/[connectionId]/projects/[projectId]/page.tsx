@@ -1,5 +1,5 @@
 import { ProjectDetailContent } from '@/features/connections/projects/ProjectDetailContent'
-import { getProjectById, getAgencyMembersForConnection, getConnectionPartnerName, getCommentsForProject } from '@/features/connections/server'
+import { getProjectById, getAgencyMembersForConnection, getConnectionPartnerName, getCommentsForProject, getConnectionStatus } from '@/features/connections/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { notFound } from 'next/navigation'
 
@@ -24,6 +24,10 @@ export default async function ClientProjectDetailPage({
   
   // Fetch partner name for breadcrumbs
   const partnerName = await getConnectionPartnerName(connectionId, context)
+  
+  // Get connection status to determine if disconnected
+  const connectionStatus = await getConnectionStatus(connectionId, context)
+  const isDisconnected = connectionStatus === 'disconnected'
   
   if (!project) {
     notFound()
@@ -60,6 +64,7 @@ export default async function ClientProjectDetailPage({
         avatarUrl: context.user.avatarUrl
       } : undefined}
       initialComments={comments}
+      isDisconnected={isDisconnected}
     />
   )
 }

@@ -8,6 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
+import { useConnection } from '../ConnectionContext'
+import type { Request } from '../server'
 
 interface RequestDetailModalProps {
   requestData: {
@@ -40,7 +42,7 @@ interface RequestDetailModalProps {
       id: string
       name: string
     } | null
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
     createdAt?: string
     createdByOrgId?: string
     createdByOrgType?: 'agency' | 'client'
@@ -60,7 +62,7 @@ interface RequestDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
   onRequestDeleted?: (requestId: string) => void
   connectionId: string
   currentOrgId: string
@@ -89,6 +91,17 @@ interface RequestDetailModalProps {
   }>) => void
   onConvertToTask?: (request: RequestDetailModalProps['requestData']) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean // Optional prop for when used outside ConnectionProvider
+}
+
+// Helper hook to safely use connection context
+function useConnectionSafe() {
+  try {
+    return useConnection()
+  } catch {
+    // Return default values when not in ConnectionProvider context
+    return { isDisconnected: false }
+  }
 }
 
 export function RequestDetailModal({
@@ -108,7 +121,11 @@ export function RequestDetailModal({
   onCommentsUpdate,
   onConvertToTask,
   isGlobalView = false,
+  isDisconnected: propIsDisconnected,
 }: RequestDetailModalProps) {
+  // Use prop if provided, otherwise try to get from context
+  const connectionContext = useConnectionSafe()
+  const isDisconnected = propIsDisconnected !== undefined ? propIsDisconnected : connectionContext.isDisconnected
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
   // Determine if the request is locked for editing based on view context and organization type
@@ -137,18 +154,34 @@ export function RequestDetailModal({
   // Handle copy link
   const handleCopyLink = () => {
     if (!requestData?.requestId || !connectionId) return
-    
-    // Determine baseRoute based on variant
-    // Agencies view clients, clients view agencies
-    const baseRoute = variant === 'agency' ? 'clients' : 'agencies'
-    const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestData.requestId}`
-    
-    navigator.clipboard.writeText(fullUrl).then(() => {
-      toast.success('Link copied to clipboard')
-      setIsActionsDropdownOpen(false)
-    }).catch(() => {
-      toast.error('Failed to copy link')
-    })
+    if (typeof window === 'undefined') return
+
+    const currentPath = window.location.pathname
+    const routeSegment = currentPath.startsWith('/agencies/')
+      ? 'agencies'
+      : currentPath.startsWith('/clients/')
+        ? 'clients'
+        : variant === 'agency'
+          ? 'clients' // Agencies view clients
+          : 'agencies' // Clients view agencies
+
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      toast.error('Clipboard unavailable')
+      return
+    }
+
+    const fullUrl = `${window.location.origin}/${routeSegment}/${connectionId}/requests/${requestData.requestId}`
+
+    clipboard.writeText(fullUrl)
+      .then(() => {
+        toast.success('Link copied to clipboard')
+        setIsActionsDropdownOpen(false)
+      })
+      .catch((error) => {
+        console.error('Failed to copy request link:', error)
+        toast.error('Failed to copy link')
+      })
   }
   
   // Handle delete request (optimistic)
@@ -214,7 +247,7 @@ export function RequestDetailModal({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                {variant === 'agency' && (
+                {!isDisconnected && variant === 'agency' && (
                   <DropdownMenuItem
                     onClick={() => {
                       setIsActionsDropdownOpen(false)
@@ -234,7 +267,7 @@ export function RequestDetailModal({
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {!isLocked && (
+                {!isDisconnected && !isLocked && (
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 
@@ -318,6 +351,7 @@ export function RequestDetailModal({
                 })
               }}
               isGlobalView={isGlobalView}
+              isDisconnected={isDisconnected}
             />
           </div>
         )}

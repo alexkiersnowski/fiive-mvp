@@ -14,8 +14,9 @@ export const config = {
      * - favicon.ico (favicon file)
      * - auth pages (signin, signup, check-email)
      * - claim pages (claim flow for unauthenticated users)
+     * - API routes (especially webhooks that don't need auth)
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|signin|signup|check-email|claim|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|signin|signup|check-email|claim|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

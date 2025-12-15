@@ -1,8 +1,8 @@
 import { Card } from '@/components/ui/card';
-import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { getTasksForConnection, getConnectionMembers, getProjectsForConnection, getCommentsForTasks } from '../server';
+import { getTasksForConnection, getTasksCountsForConnection, getConnectionMembers, getProjectOptionsForConnection, getCommentsForTasks } from '../server';
+import type { Task } from '../server';
 import TasksPageClient from './TasksPageClient';
-import { PAGE_SIZE } from '../constants';
+// PAGE_SIZE imported but not used - kept for potential future use
 
 interface TasksPageProps {
   connectionId: string
@@ -10,13 +10,50 @@ interface TasksPageProps {
 
 // Server component that fetches data from Supabase
 export async function TasksPage({ connectionId }: TasksPageProps) {
-  // Fetch tasks, members, and projects in parallel (they don't depend on each other)
-  // Comments depend on taskIds, so we'll fetch them after tasks
-  const [tasksData, memberData, projectsData] = await Promise.all([
-    getTasksForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
+  // Fetch ALL tasks upfront for connection tables (~200-1000 items max)
+  // No pagination needed - connection tables are small enough to load everything
+  // Fetch from each status separately to ensure we get all tasks from all statuses
+  // Note: Tasks don't have a 'canceled' status (only requests do)
+  const statuses: Array<'to_do' | 'in_progress' | 'on_hold' | 'done'> = ['to_do', 'in_progress', 'on_hold', 'done']
+  
+  // Fetch ALL tasks from each status (no limit - fetch everything)
+  // Add error handling to prevent one failed status from breaking the entire fetch
+  const tasksByStatusPromises = statuses.map(status => 
+    getTasksForConnection(connectionId, { 
+      limit: 10000, // High safety limit (10k per status = 40k total max, way more than any connection needs)
+      offset: 0,
+      status, // Filter by status
+      sortBy: 'updated_at' // Use updated_at to get most recent tasks per status
+    })
+      .then(result => ({ status, tasks: result.tasks, error: null }))
+      .catch(error => {
+        console.error(`Error fetching tasks for status ${status}:`, error)
+        return { status, tasks: [], error }
+      })
+  )
+  
+  // Fetch counts, members, and projects in parallel with tasks
+  const [tasksByStatusResults, statusCounts, memberData, projects] = await Promise.all([
+    Promise.all(tasksByStatusPromises),
+    getTasksCountsForConnection(connectionId),
     getConnectionMembers(connectionId),
-    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
-  ]);
+    getProjectOptionsForConnection(connectionId)
+  ])
+  
+  // Combine ALL tasks from all statuses
+  const allTasks: Task[] = []
+  const statusOrder: typeof statuses = ['to_do', 'in_progress', 'on_hold', 'done']
+  for (const status of statusOrder) {
+    const result = tasksByStatusResults.find(r => r.status === status)
+    if (result) {
+      allTasks.push(...result.tasks)
+    }
+  }
+  
+  const tasksData = {
+    tasks: allTasks, // No limit - we fetched all tasks
+    totalCount: statusCounts ? Object.values(statusCounts).reduce((sum, count) => sum + count, 0) : allTasks.length
+  }
   
   // Now fetch comments using taskIds from the fetched tasks
   const taskIds = tasksData.tasks.map(task => task.id);
@@ -44,21 +81,19 @@ export async function TasksPage({ connectionId }: TasksPageProps) {
     }
   }
 
-  // Transform projects to the format expected by TaskDetailContent
-  const projects = projectsData.projects.map(p => ({ id: p.id, name: p.title }));
+  // getProjectOptionsForConnection already returns { id, name } format, no transformation needed
 
   return (
     <Card className="w-full gap-0 h-full">
-      <ErrorBoundary>
-        <TasksPageClient 
-          connectionId={connectionId} 
-          initialTasks={tasksData.tasks} 
-          initialTotalCount={tasksData.totalCount}
-          agencyMembers={assignableMembers}
-          projects={projects}
-          initialCommentsByTask={serializedComments}
-        />
-      </ErrorBoundary>
+      <TasksPageClient 
+        connectionId={connectionId} 
+        initialTasks={tasksData.tasks} 
+        initialTotalCount={tasksData.totalCount}
+        initialStatusCounts={statusCounts}
+        agencyMembers={assignableMembers}
+        projects={projects}
+        initialCommentsByTask={serializedComments}
+      />
     </Card>
   );
 }

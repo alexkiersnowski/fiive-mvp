@@ -112,7 +112,7 @@ export default async function ClaimOrganizationDetailsPage({ searchParams }: Cla
       showForm={true}
       formType="organization"
       showBackButton={true}
-      logoUpload={<ImageUpload initialLogoUrl={organization?.logo_url || undefined} useSessionStorage={true} />}
+      logoUpload={<ImageUpload initialLogoUrl={organization?.logo_url || undefined} useSessionStorage={true} uploadText="Upload logo (optional)" />}
       accountType={accountType}
       initialLogoUrl={organization?.logo_url || undefined}
       initialData={initialData}

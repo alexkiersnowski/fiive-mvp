@@ -87,9 +87,10 @@ export default async function ClaimPage({ searchParams }: ClaimPageProps) {
   // Profile auto-created via database trigger
 
   // 6. Atomic claim via Postgres function
+  // Note: clientId is actually the draft org ID (could be agency or client)
   const { error: claimError } = await adminSupabase.rpc('claim_organization', {
     p_connection_id: connectionId,
-    p_client_id: clientId,
+    p_draft_org_id: clientId,
     p_user_id: user.id
   })
 

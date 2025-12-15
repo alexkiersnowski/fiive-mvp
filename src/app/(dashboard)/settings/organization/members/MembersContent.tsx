@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/search-input'
+import { PaywallModal } from '@/components/ui/paywall-modal'
 import MembersTable from './MembersTable'
 import { OrganizationMember, OrganizationInvitation, getOrganizationMembers, getOrganizationInvitations } from '../../actions'
+import type { VirtualItem } from '@tanstack/react-virtual'
 
 const PAGE_SIZE = 100
 
@@ -15,6 +17,9 @@ interface MembersContentProps {
   currentUserRole: 'owner' | 'member'
   unfilteredTotalCount: number
   initialHasNextPage: boolean
+  billingStatus: string
+  organizationType: 'agency' | 'client'
+  canInviteMembers: boolean
 }
 
 export default function MembersContent({
@@ -23,7 +28,10 @@ export default function MembersContent({
   organizationId,
   currentUserRole,
   unfilteredTotalCount,
-  initialHasNextPage
+  initialHasNextPage,
+  billingStatus,
+  organizationType,
+  canInviteMembers: initialCanInviteMembers
 }: MembersContentProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const parentRef = useRef<HTMLDivElement | null>(null)
@@ -42,10 +50,40 @@ export default function MembersContent({
   const [hasMore, setHasMore] = useState(initialHasNextPage)
   const [currentOffset, setCurrentOffset] = useState(PAGE_SIZE)
   const [isBootstrapping, setIsBootstrapping] = useState(false)
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
+  const [canInviteMembers, setCanInviteMembers] = useState(initialCanInviteMembers)
   
   const memberCount = members.length + invitations.length
 
+  // Calculate max emails that can be invited (for free agencies only)
+  const maxEmailsForInvite = useMemo(() => {
+    if (organizationType === 'agency' && billingStatus === 'free') {
+      const totalCount = members.length + invitations.length
+      const remainingSlots = 2 - totalCount
+      return Math.max(0, remainingSlots) // Can't be negative
+    }
+    return undefined // No limit for clients and paid agencies
+  }, [members.length, invitations.length, organizationType, billingStatus])
+
+  // Update canInviteMembers when members/invitations change (e.g., after successful invite)
+  useEffect(() => {
+    // For agencies on free tier, check if we've hit the limit
+    if (organizationType === 'agency' && billingStatus === 'free') {
+      const totalCount = members.length + invitations.length
+      setCanInviteMembers(totalCount < 2)
+    } else {
+      // Clients and paid agencies can always invite
+      setCanInviteMembers(true)
+    }
+  }, [members.length, invitations.length, organizationType, billingStatus])
+
   const handleInviteClick = () => {
+    // Use prefetched server-side check result for instant validation
+    if (!canInviteMembers) {
+      setIsPaywallModalOpen(true)
+      return
+    }
+
     membersTableRef.current?.openInviteDialog()
   }
   
@@ -60,6 +98,79 @@ export default function MembersContent({
       }
     }
     return merged
+  }
+
+  // Client-side filtering function that matches server-side search logic
+  // Used when unfilteredTotalCount <= 100 for instant search without network calls
+  function filterMembersLocally(
+    members: OrganizationMember[],
+    invitations: OrganizationInvitation[],
+    searchQuery: string
+  ): { filteredMembers: OrganizationMember[]; filteredInvitations: OrganizationInvitation[] } {
+    const trimmedQuery = searchQuery.trim()
+    
+    if (!trimmedQuery) {
+      return { filteredMembers: members, filteredInvitations: invitations }
+    }
+
+    const lowerQuery = trimmedQuery.toLowerCase()
+    const searchTerms = lowerQuery.split(' ').filter(t => t.length > 0)
+
+    // Check if query is a role search (exact match for "owner" or "member")
+    const isRoleSearch = lowerQuery === 'owner' || lowerQuery === 'member'
+
+    // Filter members
+    const filteredMembers = members.filter(member => {
+      // If it's a role search, check effective_role
+      if (isRoleSearch) {
+        return member.effective_role.toLowerCase() === lowerQuery
+      }
+
+      // Otherwise, search in name and email fields
+      const firstName = (member.first_name || '').toLowerCase()
+      const lastName = (member.last_name || '').toLowerCase()
+      const email = (member.email || '').toLowerCase()
+      const effectiveRole = (member.effective_role || '').toLowerCase()
+
+      if (searchTerms.length > 1) {
+        // Multi-word search: try to match first word in first_name AND second word in last_name
+        // OR vice versa, OR full term in any field (including role)
+        const firstTerm = searchTerms[0]
+        const secondTerm = searchTerms[1]
+        
+        return (
+          (firstName.includes(firstTerm) && lastName.includes(secondTerm)) ||
+          (firstName.includes(secondTerm) && lastName.includes(firstTerm)) ||
+          firstName.includes(lowerQuery) ||
+          lastName.includes(lowerQuery) ||
+          email.includes(lowerQuery) ||
+          effectiveRole.includes(lowerQuery)
+        )
+      } else {
+        // Single word search: match in first_name, last_name, email, or role
+        return (
+          firstName.includes(lowerQuery) ||
+          lastName.includes(lowerQuery) ||
+          email.includes(lowerQuery) ||
+          effectiveRole.includes(lowerQuery)
+        )
+      }
+    })
+
+    // Filter invitations
+    const filteredInvitations = invitations.filter(invitation => {
+      const invitedEmail = (invitation.invited_email || '').toLowerCase()
+      const role = (invitation.role || '').toLowerCase()
+      
+      // If it's a role search, check invitation role (invitations are always "member" role)
+      if (isRoleSearch) {
+        return lowerQuery === 'member' && role === 'member'
+      }
+      
+      return invitedEmail.includes(lowerQuery) || role.includes(lowerQuery)
+    })
+
+    return { filteredMembers, filteredInvitations }
   }
   
   // Load more function following RequestsPageClient pattern
@@ -106,20 +217,31 @@ export default function MembersContent({
   }, [isLoading, hasMore, currentOffset, organizationId, debouncedSearchQuery])
   
   // Load more handler for virtual scroll
-  const handleLoadMore = useCallback((virtualRows: any[]) => {
+  const handleLoadMore = useCallback((_virtualRows: VirtualItem[]) => {
     loadMore()
   }, [loadMore])
   
+  // Determine if we should use client-side filtering (≤100 members) or server-side search (>100 members)
+  const useClientSideFiltering = unfilteredTotalCount <= 100
+
   // Debounce server fetch (150ms - matching other tables)
+  // Only debounce if using server-side search
   useEffect(() => {
+    if (useClientSideFiltering) {
+      // For client-side filtering, update immediately (no debounce needed)
+      setDebouncedSearchQuery(searchQuery)
+      return
+    }
+    
+    // For server-side search, debounce to reduce API calls
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery)
     }, 150)
 
     return () => clearTimeout(timer)
-  }, [searchQuery])
+  }, [searchQuery, useClientSideFiltering])
   
-  // Track current request to prevent stale updates
+  // Search effect: client-side filtering for ≤100 members, server-side for >100 members
   useEffect(() => {
     // Handle empty search query by resetting to initial data
     if (!debouncedSearchQuery.trim()) {
@@ -131,7 +253,24 @@ export default function MembersContent({
       setIsLoading(false)
       return
     }
-    
+
+    // Client-side filtering for small organizations (≤100 members)
+    if (useClientSideFiltering) {
+      const { filteredMembers, filteredInvitations } = filterMembersLocally(
+        initialMembers,
+        initialInvitations,
+        debouncedSearchQuery
+      )
+      setMembers(filteredMembers)
+      setInvitations(filteredInvitations)
+      setHasMore(false) // No pagination needed for client-side filtering
+      setCurrentOffset(PAGE_SIZE)
+      setIsBootstrapping(false)
+      setIsLoading(false)
+      return
+    }
+
+    // Server-side search for large organizations (>100 members)
     // Increment request ID for this search
     const requestId = ++currentRequestRef.current
     
@@ -180,7 +319,7 @@ export default function MembersContent({
     return () => {
       // No-op. The ref check prevents stale updates.
     }
-  }, [debouncedSearchQuery, organizationId])
+  }, [debouncedSearchQuery, organizationId, initialMembers, initialInvitations, initialHasNextPage, useClientSideFiltering])
   
   // Sync local state when props change (e.g., when new members/invitations are added)
   // Only sync when there's no active search to avoid interfering with search results
@@ -267,8 +406,18 @@ export default function MembersContent({
           hasNextPage={hasMore}
           isLoading={isLoading}
           isBootstrapping={isBootstrapping}
+          billingStatus={billingStatus}
+          organizationType={organizationType}
+          onPaywallTrigger={() => setIsPaywallModalOpen(true)}
+          maxEmailsForInvite={maxEmailsForInvite}
         />
       </div>
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   )
 }

@@ -1,24 +1,24 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ListRow } from '@/components/ui/list-row'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ProjectBadge } from '@/components/ui/project-badge'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, LinkSimple, Trash, User, Eye } from '@phosphor-icons/react'
+import { Plus, SortAscending, CaretDown, Check, DotsThree, MagnifyingGlass, LinkSimple, Trash, Eye } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateProjectAssignee, updateProjectStatus, deleteProject } from './actions'
 import type { Project } from '../server'
-import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import { VirtualizedProjectList } from './VirtualizedProjectList'
 import { useConnection } from '../ConnectionContext'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface ProjectsTableProps {
   userAvatar?: string
@@ -34,15 +34,14 @@ interface ProjectsTableProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any }) => void
+  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: Project['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  searchQuery?: string
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
   parentRef?: React.RefObject<HTMLDivElement | null>
   isBootstrapping?: boolean
-  isSearching?: boolean
   isAgency?: boolean
   agencyOrganization?: {
     id: string
@@ -50,31 +49,24 @@ interface ProjectsTableProps {
     logoUrl?: string
   }
   onProjectDeleted?: (projectId: string) => void
-  initialSortValue?: string
+  sortValue?: string
   onSortChange?: (sortValue: string) => void
 }
 
-export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isSearching = false, isAgency = false, agencyOrganization, onProjectDeleted, initialSortValue = 'newest_first', onSortChange }: ProjectsTableProps) {
-  const { snapshot } = useConnection()
+export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitials: _userInitials = 'U', onProjectClick, onNewProject, projects = [], agencyMembers = [], onProjectUpdate, currentOrgId: _currentOrgId, searchQuery = '', onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, isBootstrapping = false, isAgency = false, agencyOrganization: _agencyOrganization, onProjectDeleted, sortValue = 'project_asc', onSortChange }: ProjectsTableProps) {
+  const { isDisconnected } = useConnection()
   const pathname = usePathname()
-  const router = useRouter()
   const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   
-  const [searchQuery, setSearchQuery] = useState('')
-  const [sortValue, setSortValue] = useState(initialSortValue)
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
-  
-  // Update sortValue when initialSortValue prop changes
-  useEffect(() => {
-    setSortValue(initialSortValue)
-  }, [initialSortValue])
+  const containerRef = useRef<HTMLDivElement>(null)
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{projectId: string; projectName: string} | null>(null)
   
   // Assignee ref for combobox functionality
-  const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
+  const _assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
+  const [_isAssigneeUnassigned, _setIsAssigneeUnassigned] = useState(false)
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
@@ -99,7 +91,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   const projectCount = totalCount !== undefined ? totalCount : projects.length
   
   // Transform agency members to combobox options (memoized to prevent recreation)
-  const comboboxOptions = useMemo(() => 
+  const _comboboxOptions = useMemo(() => 
     agencyMembers.map(member => ({
       value: member.id,
       label: `${member.firstName} ${member.lastName}`,
@@ -111,27 +103,24 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
 
   // Sort options (memoized to prevent recreation)
   const sortOptions = useMemo(() => [
-    { value: 'newest_first', label: 'Newest first', buttonLabel: 'Newest first' },
     { value: 'project_asc', label: 'Project (A-Z)', buttonLabel: 'Project (A-Z)' },
-    { value: 'project_desc', label: 'Project (Z-A)', buttonLabel: 'Project (Z-A)' },
-    { value: 'end_date_asc', label: 'End date (soonest first)', buttonLabel: 'End date' }
+    { value: 'end_date_asc', label: 'End date', buttonLabel: 'End date' }
   ], [])
 
   // Current sort label (memoized based on sortValue)
   const currentSortLabel = useMemo(() => 
-    sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Newest first',
+    sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Project (A-Z)',
     [sortOptions, sortValue]
   )
 
   const handleSortChange = (newSortValue: string) => {
-    setSortValue(newSortValue)
     setIsSortDropdownOpen(false)
-    // Call parent callback to trigger data refetch with new sort
+    // Call parent callback to update sort state
     onSortChange?.(newSortValue)
   }
 
   // Assignee handlers with loading guard
-  const handleAssigneeSelect = async (projectId: string, memberId: string) => {
+  const _handleAssigneeSelect = async (projectId: string, memberId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -175,7 +164,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     }
   }
 
-  const handleClearAssignee = async (projectId: string) => {
+  const _handleClearAssignee = async (projectId: string) => {
     // Prevent rapid-fire mutations
     if (isMutingAssignee.current) return
     
@@ -215,7 +204,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     if (isMutingStatus.current) return
     
     const validStatuses = ['planned', 'active', 'on_hold', 'completed', 'canceled'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Invalid status:', newStatus)
       }
@@ -262,7 +251,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
   }
 
   // Profile Card handler
-  const handleContactClick = (contact: {
+  const _handleContactClick = (contact: {
     id: string;
     first_name: string;
     last_name: string;
@@ -325,57 +314,26 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
     }
   }
 
-  // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
-    items: projects,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
-  
-  // isNearEnd available for future use (e.g., showing loading indicator)
-
   // Empty state logic: ONLY show empty state when no projects exist at all
-  // When projects exist but search returns no results, VirtualTableBody will show "no results"
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+  const hasActiveFilters = (searchQuery?.trim().length ?? 0) > 0
+  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0 && !hasActiveFilters
 
-  // Empty state component matching ClientsTable design
+  // Empty state component matching VirtualTableBody "No results" style
   const emptyState = isEmptyState ? (
     <TableRow 
       className="hover:bg-transparent"
-      style={{ 
-        backgroundColor: 'var(--color-base-surface-page-background)', 
-        borderBottomColor: 'var(--color-neutral-5)',
-        height: '100%'
+      style={{
+        backgroundColor: 'var(--color-base-surface-page-background)',
       }}
     >
-      <TableCell 
-        colSpan={isAgency ? 8 : 8} 
-        className="text-left" 
-        style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px' }}
+      <td 
+        colSpan={8} 
+        className="text-center py-8"
       >
-        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-          <div className="flex flex-col items-start gap-2">
-            <h2 className="display-8-medium">Your best work starts here</h2>
-            <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Projects give your team and client a shared view of work and progress'
-                : 'Projects are created by your agency and give you a shared view of work and progress'}
-            </span>
-          </div>
-          {onNewProject && isAgency && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-              onClick={onNewProject}
-            >
-              <Plus size={16} weight="regular" />
-              New project
-            </Button>
-          )}
-        </div>
-      </TableCell>
+        <span className="text-sm-regular text-[var(--color-base-text-tertiary)]">
+          No projects
+        </span>
+      </td>
     </TableRow>
   ) : null
 
@@ -386,10 +344,9 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
             <SearchInput
-              placeholder="Search by project or status…"
-              value={searchQuery}
+              placeholder="Search projects by name…"
+              value={searchQuery || ''}
               onChange={(value) => {
-                setSearchQuery(value)
                 onSearchChange?.(value)
               }}
               count={projectCount}
@@ -436,7 +393,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                   <CaretDown size={16} />
             </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-55">
+              <DropdownMenuContent align="end" className="w-[180px]">
                 {sortOptions.map((option) => (
                   <DropdownMenuItem
                     key={option.value}
@@ -459,7 +416,7 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            {isAgency && (
+            {isAgency && !isDisconnected && (
             <Button
               variant="default"
               size="lg"
@@ -478,7 +435,6 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
       </div>
 
       {/* Table Header - Sticky */}
-      {(unfilteredTotalCount > 0 || searchQuery.trim().length > 0) && (
       <div className="sticky top-[112px] z-10 bg-[var(--color-base-surface-page-background)] px-5">
         <Table className="table-fixed w-full border-collapse">
           <TableHeader>
@@ -508,54 +464,114 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
           </TableHeader>
         </Table>
       </div>
-      )}
 
       {/* Table Body - Virtualized Scrollable */}
       <div className="w-full overflow-x-auto" ref={containerRef}>
         <div className="px-5 pb-5">
-          {/* During initial bootstrap or when searching, suppress empty-state flash with skeleton block */}
-          {(isBootstrapping || (isSearching && projects.length === 0 && searchQuery.trim().length > 0)) ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+          {isBootstrapping ? (
+            <div className="space-y-0">
+              {/* Project Row Skeletons - 20 rows */}
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((projectIndex) => (
+                <div
+                  key={projectIndex}
+                  className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                  style={{
+                    gridTemplateColumns: '25% 15% 15% 15% 15% 15% 44px',
+                  }}
+                >
+                  {/* Project */}
+                  <div className="px-3">
+                    <Skeleton className="w-32 h-4 rounded" />
+                  </div>
+                  {/* Status */}
+                  <div className="px-3">
+                    <Skeleton className="w-20 h-4 rounded" />
+                  </div>
+                  {/* Start date */}
+                  <div className="px-3">
+                    <Skeleton className="w-24 h-4 rounded" />
+                  </div>
+                  {/* End date */}
+                  <div className="px-3">
+                    <Skeleton className="w-24 h-4 rounded" />
+                  </div>
+                  {/* Requests */}
+                  <div className="px-3">
+                    <Skeleton className="w-8 h-4 rounded" />
+                  </div>
+                  {/* Tasks */}
+                  <div className="px-3">
+                    <Skeleton className="w-8 h-4 rounded" />
+                  </div>
+                  {/* Actions */}
+                  <div></div>
+                </div>
+              ))}
             </div>
           ) : (
-            <VirtualTableBody
-            items={projects}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-            onRowClick={(project) => handleRowClick(project.id)}
-            emptyState={isEmptyState ? emptyState : undefined}
-            renderRow={(project) => (
-              <>
-                <TableCell className="w-[25%] py-0 truncate">
-                  {project.title}
-                </TableCell>
-
-                {isAgency ? (
-                  <TableCell 
-                    className="w-[15%] py-0" 
-                    onClick={(e) => e.stopPropagation()}
+            isEmptyState ? (
+              <Table className="table-fixed w-full border-collapse" noWrapper>
+                <TableBody>
+                  <TableRow 
+                    className="hover:bg-transparent"
+                    style={{
+                      backgroundColor: 'var(--color-base-surface-page-background)',
+                    }}
                   >
-                    <InlineEdit
-                      type="badge"
-                      value={project.status}
-                      options={[
-                        { value: 'planned', label: 'Planned' },
-                        { value: 'active', label: 'Active' },
-                        { value: 'on_hold', label: 'On hold' },
-                        { value: 'completed', label: 'Completed' },
-                        { value: 'canceled', label: 'Canceled' },
-                      ]}
-                      onSave={(newStatus) => handleStatusChange(project.id, newStatus)}
-                      badgeComponent="project"
-                      className="truncate h-6 rounded-[8px]"
-                    />
-                  </TableCell>
-                ) : (
-                  <TableCell className="w-[15%] py-0">
-                    <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
-                  </TableCell>
-                )}
+                    <TableCell 
+                      colSpan={7} 
+                      className="text-center py-8"
+                    >
+                      <span className="text-sm-regular text-[var(--color-base-text-tertiary)]">
+                        No projects
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            ) : (
+              <Table className="table-fixed w-full border-collapse" noWrapper>
+                <TableBody>
+                  <VirtualizedProjectList
+                    projects={projects}
+                    parentRef={parentRef}
+                    renderRow={(project, index) => (
+                      <TableRow
+                        key={project.id}
+                        className="hover:bg-[var(--color-interactive-surface-hover)] transition-colors duration-75 cursor-pointer"
+                        onClick={() => handleRowClick(project.id)}
+                      >
+                    <TableCell className="w-[25%] py-0 truncate">
+                      {project.title}
+                    </TableCell>
+
+                    {isDisconnected || !isAgency ? (
+                      <TableCell 
+                        className="w-[15%] py-0"
+                      >
+                        <ProjectBadge variant={project.status as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'} size="sm" showText={true} className="inline-flex" />
+                      </TableCell>
+                    ) : (
+                      <TableCell 
+                        className="w-[15%] py-0" 
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <InlineEdit
+                          type="badge"
+                          value={project.status}
+                          options={[
+                            { value: 'planned', label: 'Planned' },
+                            { value: 'active', label: 'Active' },
+                            { value: 'on_hold', label: 'On hold' },
+                            { value: 'completed', label: 'Completed' },
+                            { value: 'canceled', label: 'Canceled' },
+                          ]}
+                          onSave={(newStatus) => handleStatusChange(project.id, newStatus)}
+                          badgeComponent="project"
+                          className="truncate h-6 rounded-[8px]"
+                        />
+                      </TableCell>
+                    )}
 
                     <TableCell className="w-[15%] py-0 truncate">
                       <span 
@@ -575,69 +591,72 @@ export default function ProjectsTable({ userAvatar = '', userInitials = 'U', onP
                       </span>
                     </TableCell>
 
-                <TableCell className="w-[15%] py-0 truncate">
-                  {project.requestsCount}
-                </TableCell>
+                    <TableCell className="w-[15%] py-0 truncate">
+                      {project.requestsCount}
+                    </TableCell>
 
-                <TableCell className="w-[15%] py-0 truncate">
-                  {project.tasksCount}
-                </TableCell>
+                    <TableCell className="w-[15%] py-0 truncate">
+                      {project.tasksCount}
+                    </TableCell>
 
-                <TableCell 
-                  className="w-[44px] p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={openActionsDropdown === project.id} onOpenChange={(open) => setOpenActionsDropdown(open ? project.id : null)}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            openActionsDropdown === project.id
-                              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
-                              : 'hover:bg-[var(--color-interactive-surface-hover)]'
-                          }`}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleRowClick(project.id)
-                        }}>
-                          <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          View details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleCopyLink(project.id, project.connectionId)
-                        }}>
-                          <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Copy link
-                        </DropdownMenuItem>
-                        {isAgency && (
-                          <>
-                        <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                        <DropdownMenuItem 
-                          onClick={() => {
-                            handleDeleteProject(project.id)
-                            setOpenActionsDropdown(null)
-                          }}
-                          style={{ color: 'var(--color-red-11)' }}
-                        >
-                          <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                          Delete project
-                        </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </>
-            )}
-          />
+                    <TableCell 
+                      className="w-[44px] p-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-center h-full">
+                        <DropdownMenu modal={false} open={openActionsDropdown === project.id} onOpenChange={(open) => setOpenActionsDropdown(open ? project.id : null)}>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
+                                openActionsDropdown === project.id
+                                  ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
+                                  : 'hover:bg-[var(--color-interactive-surface-hover)]'
+                              }`}
+                            >
+                              <DotsThree size={16} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-[200px]">
+                            <DropdownMenuItem onClick={() => {
+                              setOpenActionsDropdown(null)
+                              handleRowClick(project.id)
+                            }}>
+                              <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                              View details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              setOpenActionsDropdown(null)
+                              handleCopyLink(project.id, project.connectionId)
+                            }}>
+                              <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
+                              Copy link
+                            </DropdownMenuItem>
+                            {!isDisconnected && isAgency && (
+                              <>
+                            <div className="border-t border-[var(--color-neutral-6)] my-1" />
+                            <DropdownMenuItem 
+                              onClick={() => {
+                                handleDeleteProject(project.id)
+                                setOpenActionsDropdown(null)
+                              }}
+                              style={{ color: 'var(--color-red-11)' }}
+                            >
+                              <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
+                              Delete project
+                            </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                      </TableRow>
+                    )}
+                  />
+                </TableBody>
+              </Table>
+            )
           )}
         </div>
       </div>

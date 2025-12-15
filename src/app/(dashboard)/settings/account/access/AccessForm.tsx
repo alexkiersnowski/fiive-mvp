@@ -4,7 +4,6 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -16,7 +15,6 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage,
 } from "@/components/ui/form"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
@@ -38,7 +36,6 @@ const emailSchema = z.object({
 type EmailFormData = z.infer<typeof emailSchema>
 
 export default function AccessForm({ userId, currentEmail, isOwner }: Props) {
-  const router = useRouter()
   const [pendingEmail, setPendingEmail] = React.useState<string | null>(null)
   const [isUpdating, setIsUpdating] = React.useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
@@ -150,7 +147,7 @@ export default function AccessForm({ userId, currentEmail, isOwner }: Props) {
         toast.success("Your account has been deleted successfully")
         
         // Redirect to signin page
-        router.push('/signin')
+        window.location.href = '/signin'
       } else {
         toast.error(result.message || "Failed to delete account. Please try again.")
       }
@@ -247,7 +244,7 @@ export default function AccessForm({ userId, currentEmail, isOwner }: Props) {
             </p>
             <p className="text-xs-regular" style={{ color: 'var(--color-base-text-tertiary, rgba(3, 9, 26, 0.56))' }}>
               {isOwner
-                ? "You are the owner of this workspace. To delete your workspace and account, go to Billing & Subscription, or transfer ownership to another member."
+                ? "You are the owner of this workspace. To delete your workspace and account, go to Plan & billing, or transfer ownership to another member."
                 : "Permanently remove your personal account and access to Fiive. This cannot be undone."
               }
             </p>

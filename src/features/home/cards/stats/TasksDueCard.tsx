@@ -9,6 +9,7 @@ import { ArrowRight, Info } from '@phosphor-icons/react/dist/ssr'
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { StatsCardProps } from '../../types'
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext'
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
 // Custom event types for cross-component communication
 const TASK_DUE_DATE_CHANGED_EVENT = 'task-due-date-changed'
@@ -153,16 +154,16 @@ function TasksDueCardClient({ initialCount, context }: TasksDueCardClientProps) 
     }
 
     // Use window.addEventListener for custom events
-    window.addEventListener(TASK_DUE_DATE_CHANGED_EVENT as any, handleDueDateChanged as EventListener)
-    window.addEventListener(TASK_STATUS_CHANGED_EVENT as any, handleStatusChanged as EventListener)
-    window.addEventListener(TASK_DELETED_EVENT as any, handleDeleted as EventListener)
-    window.addEventListener(TASK_CREATED_EVENT as any, handleCreated as EventListener)
+    window.addEventListener(TASK_DUE_DATE_CHANGED_EVENT, handleDueDateChanged as EventListener)
+    window.addEventListener(TASK_STATUS_CHANGED_EVENT, handleStatusChanged as EventListener)
+    window.addEventListener(TASK_DELETED_EVENT, handleDeleted as EventListener)
+    window.addEventListener(TASK_CREATED_EVENT, handleCreated as EventListener)
 
     return () => {
-      window.removeEventListener(TASK_DUE_DATE_CHANGED_EVENT as any, handleDueDateChanged as EventListener)
-      window.removeEventListener(TASK_STATUS_CHANGED_EVENT as any, handleStatusChanged as EventListener)
-      window.removeEventListener(TASK_DELETED_EVENT as any, handleDeleted as EventListener)
-      window.removeEventListener(TASK_CREATED_EVENT as any, handleCreated as EventListener)
+      window.removeEventListener(TASK_DUE_DATE_CHANGED_EVENT, handleDueDateChanged as EventListener)
+      window.removeEventListener(TASK_STATUS_CHANGED_EVENT, handleStatusChanged as EventListener)
+      window.removeEventListener(TASK_DELETED_EVENT, handleDeleted as EventListener)
+      window.removeEventListener(TASK_CREATED_EVENT, handleCreated as EventListener)
     }
   }, [applyOptimisticUpdate])
 
@@ -227,8 +228,8 @@ function TasksDueCardClient({ initialCount, context }: TasksDueCardClientProps) 
             schema: 'public',
             table: 'tasks',
           },
-          (payload: any) => {
-            const newTask = payload?.new
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; due_date: string | null; status: string; deleted_at: string | null }>) => {
+            const newTask = payload?.new as { id: string; connection_id: string; due_date: string | null; status: string; deleted_at: string | null } | undefined
             if (!newTask || newTask.deleted_at) return
 
             // Filter by connection ID client-side
@@ -254,9 +255,9 @@ function TasksDueCardClient({ initialCount, context }: TasksDueCardClientProps) 
             schema: 'public',
             table: 'tasks',
           },
-          (payload: any) => {
-            const oldTask = payload?.old
-            const newTask = payload?.new
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; due_date: string | null; status: string; deleted_at: string | null }>) => {
+            const oldTask = payload?.old as { id: string; due_date: string | null; status: string; deleted_at: string | null } | undefined
+            const newTask = payload?.new as { id: string; connection_id: string; due_date: string | null; status: string; deleted_at: string | null } | undefined
 
             if (!oldTask || !newTask) return
 
@@ -315,8 +316,8 @@ function TasksDueCardClient({ initialCount, context }: TasksDueCardClientProps) 
             schema: 'public',
             table: 'tasks',
           },
-          (payload: any) => {
-            const deletedTask = payload?.old
+          (payload: RealtimePostgresChangesPayload<{ id: string; connection_id: string; due_date: string | null; status: string; deleted_at: string | null }>) => {
+            const deletedTask = payload?.old as { id: string; connection_id: string; due_date: string | null; status: string } | undefined
             if (!deletedTask) return
 
             // Filter by connection ID client-side

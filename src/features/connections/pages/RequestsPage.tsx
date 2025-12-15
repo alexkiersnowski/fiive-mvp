@@ -1,8 +1,7 @@
 import { Card } from '@/components/ui/card';
-import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { getRequestsForConnection, getAgencyMembersForConnection, getProjectsForConnection, getCommentsForRequests } from '../server';
+import { getRequestsForConnection, getRequestsCountsForConnection, getAgencyMembersForConnection, getProjectOptionsForConnection, getCommentsForRequests } from '../server';
 import RequestsPageClient from './RequestsPageClient';
-import { PAGE_SIZE } from '../constants';
+// PAGE_SIZE imported but not used - kept for potential future use
 
 interface RequestsPageProps {
   connectionId: string
@@ -10,10 +9,13 @@ interface RequestsPageProps {
 
 // Server component that fetches data from Supabase
 export async function RequestsPage({ connectionId }: RequestsPageProps) {
-  const [requestsData, agencyMembers, projectsData] = await Promise.all([
-    getRequestsForConnection(connectionId, { limit: PAGE_SIZE, offset: 0 }),
+  // Fetch ALL requests upfront for connection tables (no pagination)
+  // No pagination needed - connection tables are small enough to load everything
+  const [requestsData, statusCounts, agencyMembers, projects] = await Promise.all([
+    getRequestsForConnection(connectionId, { limit: 10000, offset: 0 }), // High safety limit (10k max, way more than any connection needs)
+    getRequestsCountsForConnection(connectionId),
     getAgencyMembersForConnection(connectionId),
-    getProjectsForConnection(connectionId, { limit: 1000, offset: 0 })
+    getProjectOptionsForConnection(connectionId)
   ]);
 
   // Fetch comments for initial requests in parallel (after requests are fetched)
@@ -22,22 +24,20 @@ export async function RequestsPage({ connectionId }: RequestsPageProps) {
     ? await getCommentsForRequests(requestIds)
     : {};
 
-  // Transform projects to the format expected by RequestDetailContent
-  const projects = projectsData.projects.map(p => ({ id: p.id, name: p.title }));
+  // getProjectOptionsForConnection already returns { id, name } format, no transformation needed
 
   return (
     <Card className="w-full gap-0 h-full">
-      <ErrorBoundary>
-        <RequestsPageClient 
-          connectionId={connectionId} 
-          initialRequests={requestsData.requests} 
-          initialTotalCount={requestsData.totalCount}
-          initialNewCount={requestsData.newCount}
-          agencyMembers={agencyMembers}
-          projects={projects}
-          initialComments={initialComments}
-        />
-      </ErrorBoundary>
+      <RequestsPageClient 
+        connectionId={connectionId} 
+        initialRequests={requestsData.requests} 
+        initialTotalCount={requestsData.totalCount}
+        initialNewCount={requestsData.newCount}
+        initialStatusCounts={statusCounts}
+        agencyMembers={agencyMembers}
+        projects={projects}
+        initialComments={initialComments}
+      />
     </Card>
   );
 }

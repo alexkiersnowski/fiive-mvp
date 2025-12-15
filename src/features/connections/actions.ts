@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { uploadLogo } from '@/lib/supabase/storage'
 import { getAgencyOrgId } from '@/lib/connections/agency-validation'
 import { z } from 'zod'
+import { SITE_URL } from '@/lib/env'
 
 export async function updateClientPrimaryContact(
   connectionId: string,
@@ -657,10 +658,10 @@ export async function inviteClientToConnection(data: {
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const agencyEmails = (agencyMembers || []).map((m: any) => 
-      m.profiles?.email?.toLowerCase()
-    ).filter(Boolean)
+    const agencyEmails = (agencyMembers || []).map((m: { profiles: { email: string } | { email: string }[] }) => {
+      const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+      return profile?.email?.toLowerCase();
+    }).filter(Boolean) as string[]
 
     if (agencyEmails.includes(data.email.toLowerCase())) {
       return {
@@ -697,8 +698,7 @@ export async function inviteClientToConnection(data: {
     }
 
     // Build invite URL
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`
+    const inviteUrl = `${SITE_URL}/claim?token=${tokenResult.token}`
 
     // Send invitation email via Resend
     try {
@@ -857,7 +857,6 @@ export async function resendInviteEmail(data: {
 
     // Import token creation and email sending functions
     const { createInviteToken } = await import('@/lib/tokens/createInviteToken')
-    const { sendClientInviteEmail } = await import('@/app/actions/sendClientInviteEmail')
 
     // Invalidate old token before creating new one (security: only one valid token at a time)
     const { error: clearTokenError } = await supabase
@@ -901,8 +900,7 @@ export async function resendInviteEmail(data: {
     }
 
     // Build invite URL
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-    const inviteUrl = `${baseUrl}/claim?token=${tokenResult.token}`
+    const inviteUrl = `${SITE_URL}/claim?token=${tokenResult.token}`
 
     // Send invitation email via Resend (use appropriate template based on context)
     try {

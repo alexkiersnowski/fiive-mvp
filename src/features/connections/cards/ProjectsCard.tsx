@@ -12,7 +12,7 @@ interface ProjectsCardProps {
 }
 
 async function defaultFetchProjects(connectionId: string) {
-  const { projects } = await getProjectsForConnection(connectionId, { limit: 4, offset: 0 });
+  const { projects } = await getProjectsForConnection(connectionId, { limit: 5, offset: 0 });
   return projects;
 }
 
@@ -31,10 +31,15 @@ export default async function ProjectsCard({
     getAgencyMembersForConnection(connectionId),
   ]);
 
+  // Split into displayed (first 4) and prefetched (5th)
+  const displayedProjects = projects.slice(0, 4);
+  const prefetchedNextProject = projects[4] || null;
+
   return (
     <ProjectsCardClient
       connectionId={connectionId}
-      projects={projects.slice(0, 4)}
+      projects={displayedProjects}
+      prefetchedNextProject={prefetchedNextProject}
       agencyMembers={agencyMembers}
     />
   );

@@ -9,6 +9,7 @@ import { headers } from 'next/headers'
 import Stripe from 'stripe'
 import { getStripeInstance, mapSubscriptionStatusToBillingStatus } from '@/lib/stripe/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { resetStripeFields } from '@/lib/stripe/helpers'
 
 export async function POST(request: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
         signature,
         webhookSecret
       )
-    } catch (err) {
+    } catch (_err) {
       return NextResponse.json(
         { error: 'Invalid signature' },
         { status: 401 }
@@ -88,10 +89,10 @@ export async function POST(request: NextRequest) {
               break
             }
             
-            // Verify organization exists before updating
+            // Verify organization exists and get current billing status before updating
             const { data: existingOrg, error: checkError } = await supabase
               .from('organizations')
-              .select('id, name')
+              .select('id, name, billing_status, type')
               .eq('id', organizationId)
               .single()
             
@@ -105,20 +106,28 @@ export async function POST(request: NextRequest) {
             // Use mapping function to determine correct billing status
             const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
             
-            // Access current_period_end with type safety
-            const currentPeriodEnd = 'current_period_end' in subscription && typeof subscription.current_period_end === 'number'
-              ? subscription.current_period_end
+            // Extract current_period_end: use cancel_at if present (cancelled), otherwise use current_period_end
+            // Under Flexible Billing, cancel_at === current_period_end when cancelled
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const topLevelEnd = (subscription as any).current_period_end as number | null | undefined
+            const itemEnd = subscription.items?.data?.[0]?.current_period_end ?? null
+            const cancelAtUnix = subscription.cancel_at ?? null
+            
+            // Use cancel_at if present (cancelled), otherwise fallback to current_period_end
+            const currentPeriodEndUnix = cancelAtUnix ?? topLevelEnd ?? itemEnd ?? null
+            const currentPeriodEndIso = currentPeriodEndUnix
+              ? new Date(currentPeriodEndUnix * 1000).toISOString()
               : null
             
             // Update organization
-            const { data, error } = await supabase
+            const { data: _data, error } = await supabase
               .from('organizations')
               .update({
                 stripe_customer_id: customerId,
                 stripe_subscription_id: subscriptionId,
                 stripe_price_id: priceId,
                 billing_status: billingStatus,
-                current_period_end: currentPeriodEnd ? new Date(currentPeriodEnd * 1000).toISOString() : null,
+                current_period_end: currentPeriodEndIso,
               })
               .eq('id', organizationId)
               .select()
@@ -129,6 +138,9 @@ export async function POST(request: NextRequest) {
                 { status: 500 }
               )
             }
+            
+            // Note: Email is sent from customer.subscription.created event to avoid duplicates
+            // This event may fire before or after subscription.created, so we rely on that handler
           } catch (subscriptionError) {
             return NextResponse.json(
               { error: 'Failed to retrieve subscription', details: subscriptionError instanceof Error ? subscriptionError.message : String(subscriptionError) },
@@ -154,6 +166,53 @@ export async function POST(request: NextRequest) {
           
           const customerId = subscription.customer as string
         
+          // GUARD: Check customer exists and isn't deleted before processing (idempotency + sanity check)
+          try {
+            const customer = await stripe.customers.retrieve(customerId)
+            // If customer is deleted, Stripe returns a deleted customer object
+            if (customer.deleted) {
+              // Customer is deleted - reset fields and return success (idempotent)
+              const { data: org } = await supabase
+                .from('organizations')
+                .select('id')
+                .eq('stripe_customer_id', customerId)
+                .single()
+              
+              if (org) {
+                await resetStripeFields(org.id)
+              }
+              
+              // Return success - we've handled the deleted customer case
+              return NextResponse.json({ 
+                received: true,
+                eventType: event.type,
+                processed: true,
+                message: 'Customer deleted - fields reset',
+                timestamp: new Date().toISOString()
+              })
+            }
+          } catch (_customerError) {
+            // Customer doesn't exist or error retrieving - reset fields if org found
+            const { data: org } = await supabase
+              .from('organizations')
+              .select('id')
+              .eq('stripe_customer_id', customerId)
+              .single()
+            
+            if (org) {
+              await resetStripeFields(org.id)
+            }
+            
+            // Return success - we've handled the invalid customer case
+            return NextResponse.json({ 
+              received: true,
+              eventType: event.type,
+              processed: true,
+              message: 'Customer not found - fields reset',
+              timestamp: new Date().toISOString()
+            })
+          }
+        
           // Validate subscription has items
           if (!subscription.items || !subscription.items.data || subscription.items.data.length === 0) {
             return NextResponse.json(
@@ -173,15 +232,23 @@ export async function POST(request: NextRequest) {
           
           const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
           
-          // Access current_period_end with type safety
-          const currentPeriodEnd = 'current_period_end' in subscription && typeof subscription.current_period_end === 'number'
-            ? subscription.current_period_end
+          // Extract current_period_end: use cancel_at if present (cancelled), otherwise use current_period_end
+          // Under Flexible Billing, cancel_at === current_period_end when cancelled
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const topLevelEnd = (subscription as any).current_period_end as number | null | undefined
+          const itemEnd = subscription.items?.data?.[0]?.current_period_end ?? null
+          const cancelAtUnix = subscription.cancel_at ?? null
+          
+          // Use cancel_at if present (cancelled), otherwise fallback to current_period_end
+          const currentPeriodEndUnix = cancelAtUnix ?? topLevelEnd ?? itemEnd ?? null
+          const currentPeriodEndIso = currentPeriodEndUnix
+            ? new Date(currentPeriodEndUnix * 1000).toISOString()
             : null
           
           // Find organization by subscription ID first (most reliable - unique per subscription)
           const { data: orgBySub, error: subError } = await supabase
             .from('organizations')
-            .select('id, billing_status')
+            .select('id, billing_status, type, stripe_customer_id')
             .eq('stripe_subscription_id', subscription.id)
             .single()
           
@@ -193,7 +260,7 @@ export async function POST(request: NextRequest) {
             if (subError.code === 'PGRST116') {
               const { data: org, error: findError } = await supabase
                 .from('organizations')
-                .select('id, billing_status')
+                .select('id, billing_status, type, stripe_customer_id')
                 .eq('stripe_customer_id', customerId)
                 .single()
               
@@ -221,15 +288,33 @@ export async function POST(request: NextRequest) {
             )
           }
           
+          // MISMATCH GUARD: Verify subscription.customer === org.stripe_customer_id (prevent cross-org updates)
+          if (organization.stripe_customer_id && organization.stripe_customer_id !== customerId) {
+            console.warn('Subscription customer mismatch:', {
+              organizationId: organization.id,
+              subscriptionCustomerId: customerId,
+              orgCustomerId: organization.stripe_customer_id,
+              subscriptionId: subscription.id
+            })
+            return NextResponse.json(
+              { error: 'Subscription customer does not match organization customer' },
+              { status: 400 }
+            )
+          }
+          
+          // Store previous billing status to check for free -> active transition
+          const previousBillingStatus = organization.billing_status || 'free'
+          const organizationType = organization.type
+          
           // Update organization - ALWAYS sync all Stripe fields (webhook is source of truth)
-          const { data, error } = await supabase
+          const { data: _data, error } = await supabase
             .from('organizations')
             .update({
               stripe_customer_id: customerId,  // CRITICAL: Always update - IDs can change/rotate
               stripe_subscription_id: subscription.id,
               stripe_price_id: priceId,
               billing_status: billingStatus,
-              current_period_end: currentPeriodEnd ? new Date(currentPeriodEnd * 1000).toISOString() : null,
+              current_period_end: currentPeriodEndIso,
             })
             .eq('id', organization.id)
             .select('id, billing_status, stripe_subscription_id, stripe_customer_id')
@@ -239,6 +324,26 @@ export async function POST(request: NextRequest) {
               { error: 'Failed to update organization', details: error.message },
               { status: 500 }
             )
+          }
+          
+          // Send welcome email if organization upgraded from 'free' to 'active' and is an agency
+          // Only send on subscription.created to avoid duplicate emails
+          if (
+            eventType === 'customer.subscription.created' &&
+            previousBillingStatus === 'free' &&
+            billingStatus === 'active' &&
+            organizationType === 'agency'
+          ) {
+            try {
+              const { sendAgencyProWelcomeEmail } = await import('@/app/actions/sendAgencyProWelcomeEmail')
+              await sendAgencyProWelcomeEmail({ organizationId: organization.id })
+            } catch (emailError) {
+              // Log error but don't fail webhook - email is best-effort
+              console.error('Failed to send Agency Pro welcome email:', {
+                organizationId: organization.id,
+                error: emailError instanceof Error ? emailError.message : String(emailError)
+              })
+            }
           }
         } catch (subscriptionError) {
           return NextResponse.json(
@@ -261,16 +366,37 @@ export async function POST(request: NextRequest) {
           .single()
         
         if (!findError && org) {
-          const { error } = await supabase
-            .from('organizations')
-            .update({
-              billing_status: 'free',
-            })
-            .eq('id', org.id)
-          
-          if (error) {
+          // Use centralized reset helper to reset all Stripe fields
+          try {
+            await resetStripeFields(org.id)
+          } catch (resetError) {
             return NextResponse.json(
-              { error: 'Failed to update organization after cancellation', details: error.message },
+              { error: 'Failed to reset Stripe fields after subscription deletion', details: resetError instanceof Error ? resetError.message : String(resetError) },
+              { status: 500 }
+            )
+          }
+        }
+        break
+      }
+      
+      case 'customer.deleted': {
+        const customer = event.data.object as Stripe.Customer
+        const customerId = customer.id
+        
+        // Find organization by customer ID
+        const { data: org, error: findError } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('stripe_customer_id', customerId)
+          .single()
+        
+        if (!findError && org) {
+          // Use centralized reset helper to reset all Stripe fields
+          try {
+            await resetStripeFields(org.id)
+          } catch (resetError) {
+            return NextResponse.json(
+              { error: 'Failed to reset Stripe fields after customer deletion', details: resetError instanceof Error ? resetError.message : String(resetError) },
               { status: 500 }
             )
           }
@@ -304,9 +430,17 @@ export async function POST(request: NextRequest) {
           // This ensures we don't override 'canceled_pending' if subscription is still cancelling
           const billingStatus = mapSubscriptionStatusToBillingStatus(subscription)
           
-          // Access current_period_end with type safety
-          const currentPeriodEnd = 'current_period_end' in subscription && typeof subscription.current_period_end === 'number'
-            ? subscription.current_period_end
+          // Extract current_period_end: use cancel_at if present (cancelled), otherwise use current_period_end
+          // Under Flexible Billing, cancel_at === current_period_end when cancelled
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const topLevelEnd = (subscription as any).current_period_end as number | null | undefined
+          const itemEnd = subscription.items?.data?.[0]?.current_period_end ?? null
+          const cancelAtUnix = subscription.cancel_at ?? null
+          
+          // Use cancel_at if present (cancelled), otherwise fallback to current_period_end
+          const currentPeriodEndUnix = cancelAtUnix ?? topLevelEnd ?? itemEnd ?? null
+          const currentPeriodEndIso = currentPeriodEndUnix
+            ? new Date(currentPeriodEndUnix * 1000).toISOString()
             : null
           
           // Find organization by subscription ID first (most reliable)
@@ -338,7 +472,7 @@ export async function POST(request: NextRequest) {
                 stripe_subscription_id: subscriptionId,
                 stripe_price_id: priceId,
                 billing_status: billingStatus,
-                current_period_end: currentPeriodEnd ? new Date(currentPeriodEnd * 1000).toISOString() : null,
+                current_period_end: currentPeriodEndIso,
               })
               .eq('id', org.id)
             
@@ -382,7 +516,7 @@ export async function POST(request: NextRequest) {
         break
       }
       
-      case 'invoice.past_due' as any: {
+      case 'invoice.past_due': {
         const invoice = event.data.object as Stripe.Invoice
         const customerId = invoice.customer as string
         

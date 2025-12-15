@@ -55,7 +55,6 @@ export default function ProfileForm({ initialValues, userId, context }: ProfileF
     },
   })
 
-  const watchedValues = form.watch()
   const isFormChanged = form.formState.isDirty || profilePicture !== null
 
   const handleSubmit = async (data: ProfileFormData) => {

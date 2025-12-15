@@ -38,13 +38,16 @@ interface NewRequestModalProps {
     projectId: string | null
     projectName?: string | null
     assigneeUserId: string | null
+    connectionId: string
   }) => void
-  onRequestCreated?: (payload: { requestId: string; tempId?: string }) => void
+  onRequestCreated?: (payload: { requestId: string; tempId?: string; connectionId?: string }) => void
   connectionId?: string // Optional for global mode
   currentOrgId: string
   variant?: 'agency' | 'client'
   isGlobal?: boolean // If true, show client dropdown instead of fixed client
   onConnectionSelect?: (connectionId: string) => void // Callback when connection is selected in global mode
+  allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
+  onPaywallBlocked?: () => void // Callback when paywall blocks creation
 }
 
 export function NewRequestModal({ 
@@ -57,14 +60,25 @@ export function NewRequestModal({
   onRequestOptimistic, 
   onRequestCreated, 
   connectionId, 
-  currentOrgId, 
+  currentOrgId: _currentOrgId, 
   variant = 'agency',
   isGlobal = false,
-  onConnectionSelect
+  onConnectionSelect,
+  allowedConnectionIds = null,
+  onPaywallBlocked
 }: NewRequestModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
+  
+  // Track mount status to prevent state updates after unmount
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
   
   // Local state for form fields
   const [title, setTitle] = useState('')
@@ -133,52 +147,67 @@ export function NewRequestModal({
   const canCreate = title.trim().length > 0 && (!isGlobal || selectedConnectionId.length > 0)
   
   // Handle create request
-  const handleCreateRequest = useCallback(async () => {
+  const handleCreateRequest = useCallback(() => {
     if (!canCreate) return
     
     // Determine the connection ID to use
     const targetConnectionId = isGlobal ? selectedConnectionId : connectionId
     if (!targetConnectionId) return
     
-    // Close modal immediately for snappy UX
-    onClose()
-    
-    try {
-      // Look up project name from projects list
-      const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId)
-      const projectName = selectedProject ? selectedProject.name : null
-      
-      // Emit optimistic row with temp id immediately
-      const tempId = `temp-${Date.now()}`
-      onRequestOptimistic?.({
-        tempId,
-        title,
-        description,
-        projectId: projectId === 'general' ? null : projectId,
-        projectName,
-        assigneeUserId
-      })
-
-      // Await the server insert to obtain the new request id
-      const created = await createRequest(
-        targetConnectionId,
-        title,
-        description,
-        projectId === 'general' ? null : projectId,
-        assigneeUserId
-      )
-      
-      // Only show success toast after server confirms
-      if (created?.id) {
-        toast.success('Request created successfully')
-        // Notify parent with the created id so it can fetch and prepend the row
-        onRequestCreated?.({ requestId: created.id, tempId })
-      }
-    } catch (error) {
-      console.error('Error creating request:', error)
-      toast.error('Failed to create request')
+    // Check paywall: if allowedConnectionIds is not null and targetConnectionId is not in the allowed list, block creation
+    if (allowedConnectionIds !== null && !allowedConnectionIds.includes(targetConnectionId)) {
+      // Connection is restricted - show paywall
+      onPaywallBlocked?.()
+      return
     }
-  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onRequestCreated, onRequestOptimistic, onClose])
+    
+    // Look up project name from projects list
+    const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId)
+    const projectName = selectedProject ? selectedProject.name : null
+    
+    // Emit optimistic row FIRST (before closing modal) - this ensures state updates happen before modal cleanup
+    const tempId = `temp-${Date.now()}`
+    onRequestOptimistic?.({
+      tempId,
+      title,
+      description,
+      projectId: projectId === 'general' ? null : projectId,
+      projectName,
+      assigneeUserId,
+      connectionId: targetConnectionId
+    })
+    
+    // THEN close modal (after optimistic update is queued)
+    onClose()
+
+    // Fire server action concurrently (void prevents promise leak warnings)
+    void createRequest(
+      targetConnectionId,
+      title,
+      description,
+      projectId === 'general' ? null : projectId,
+      assigneeUserId
+    )
+      .then((created) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        if (created?.id) {
+          // Log temp → real ID mapping for debugging
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Request] Created: tempId=${tempId} → requestId=${created.id}`)
+          }
+          toast.success('Request created successfully')
+          // Notify parent with the created id so it can fetch and prepend the row
+          onRequestCreated?.({ requestId: created.id, tempId, connectionId: targetConnectionId })
+        }
+      })
+      .catch((error) => {
+        if (!isMountedRef.current) return // Guard against unmounted updates
+        
+        console.error('Error creating request:', error)
+        toast.error('Failed to create request')
+      })
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onRequestCreated, onRequestOptimistic, onClose, allowedConnectionIds, onPaywallBlocked])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -204,16 +233,18 @@ export function NewRequestModal({
     : null
   
   // Get selected connection/client
-  const selectedConnection = isGlobal && selectedConnectionId
+  const _selectedConnection = isGlobal && selectedConnectionId
     ? connections.find(c => c.id === selectedConnectionId)
     : client
   
-  // Connection options for global mode (for combobox)
-  const connectionComboboxOptions = connections.map(c => ({
-    value: c.id,
-    label: c.name,
-    avatar: c.logoUrl
-  }))
+  // Connection options for global mode (for combobox) - sorted A-Z
+  const connectionComboboxOptions = [...connections]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+    .map(c => ({
+      value: c.id,
+      label: c.name,
+      avatar: c.logoUrl
+    }))
   
   // Project options: General request + actual projects
   const projectOptions = [
@@ -324,20 +355,22 @@ export function NewRequestModal({
               )}
 
               {/* Project */}
-              <InlineEdit
-                type="badge"
-                value={projectId}
-                options={projectOptions}
-                onSave={setProjectId}
-                placeholder="General request"
-                searchPlaceholder="Search projects…"
-                clearable={false}
-                dividerIndex={0}
-                popoverWidth="240px"
-                badgeBorderRadius="4px"
-                maxHeight="210px"
-                className="h-6"
-              />
+              <div className="min-w-0 max-w-[150px]">
+                <InlineEdit
+                  type="badge"
+                  value={projectId}
+                  options={projectOptions}
+                  onSave={setProjectId}
+                  placeholder="General request"
+                  searchPlaceholder="Search projects…"
+                  clearable={false}
+                  dividerIndex={0}
+                  popoverWidth="240px"
+                  badgeBorderRadius="4px"
+                  maxHeight="210px"
+                  className="h-6"
+                />
+              </div>
 
               {/* Assignee - Only for agency view */}
               {variant === 'agency' && (

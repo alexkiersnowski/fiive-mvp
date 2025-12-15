@@ -80,7 +80,7 @@ export default async function OrganizationDetailsPage({
       showForm={true}
       formType="organization"
       showBackButton={true}
-      logoUpload={<ImageUpload initialLogoUrl={organization?.logo_url || undefined} useSessionStorage={true} />}
+      logoUpload={<ImageUpload initialLogoUrl={organization?.logo_url || undefined} useSessionStorage={true} uploadText="Upload logo (optional)" />}
       accountType={type as 'agency' | 'client'}
       initialLogoUrl={organization?.logo_url || undefined}
       initialData={{

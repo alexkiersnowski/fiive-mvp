@@ -10,16 +10,16 @@ import { ListRow } from '@/components/ui/list-row'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
-import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, Eye, EyeSlash, ChatCentered, ArrowSquareOut } from '@phosphor-icons/react'
+import { Check, CaretDown, DotsThree, LinkSimple, Trash, Eye, EyeSlash, ChatCentered, ArrowSquareOut } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { CommentInput } from '@/components/ui/comment-input'
 import { CommentItem } from '@/components/ui/comment-item'
 import Link from 'next/link'
 import { updateTaskTitle, updateTaskDescription, updateTaskStatus, updateTaskAssignee, updateTaskProject, updateTaskDueDate, updateTaskClientVisible, deleteTask, createComment, deleteComment, fetchCommentsForTask, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
+import type { Task } from '../server'
 
 interface Comment {
   id: string
@@ -90,7 +90,7 @@ interface TaskDetailContentProps {
     createdByName?: string
   } | null
   mode?: 'modal' | 'page'
-  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
+  onTaskUpdate?: (taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -120,9 +120,10 @@ interface TaskDetailContentProps {
     }
   }) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean
 }
 
-export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt, clientVisible = false, clientVisibilityLocked = false, sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick, isGlobalView: propIsGlobalView }: TaskDetailContentProps) {
+export function TaskDetailContent({ taskId, title, description, client, agency, submittedBy: _submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'to_do', dueDate, dueDateRaw, createdAt: _createdAt, clientVisible = false, clientVisibilityLocked: _clientVisibilityLocked = false, sourceRequestId: _sourceRequestId = null, linkedRequest = null, mode = 'modal', onTaskUpdate, createdByOrgId: _createdByOrgId, createdByOrgType: _createdByOrgType, currentOrgId: _currentOrgId, connectionId, onTaskDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onContactClick: _onContactClick, isGlobalView: propIsGlobalView, isDisconnected = false }: TaskDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -178,7 +179,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
 
   const isClientVariant = variant === 'client'
   const canClientEditStatusOrAssignee = Boolean(clientAssignee)
-  const isAgencyOwnedForClient = isClientVariant && !canClientEditStatusOrAssignee
+  const _isAgencyOwnedForClient = isClientVariant && !canClientEditStatusOrAssignee
 
   const [titleValue, setTitleValue] = useState(title)
   const [descriptionValue, setDescriptionValue] = useState(description)
@@ -251,10 +252,15 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
   // and merge with initial projects from props
   useEffect(() => {
     if (project && project.id && project.name) {
-      // Add current project to list immediately if not already present
+      // Update or add current project to list
       setProjects(prev => {
         const existingIndex = prev.findIndex(p => p.id === project.id)
         if (existingIndex >= 0) {
+          // Update existing project name if it changed
+          const existing = prev[existingIndex]
+          if (existing.name === project.name) {
+            return prev // No change needed
+          }
           const updated = [...prev]
           updated[existingIndex] = { id: project.id, name: project.name }
           return updated
@@ -264,13 +270,22 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     }
   }, [project])
 
+  // Sync project prop when project ID changes (different task selected)
+  // Event listener handles real-time name updates for the same project
   useEffect(() => {
     if (project && project.id && project.name) {
-      setTaskProject({ id: project.id, name: project.name })
+      setTaskProject((prev) => {
+        // Update if project ID changed (different project) or if no previous state
+        // Don't update if same project ID (event listener handles name updates)
+        if (!prev || prev.id !== project.id) {
+          return { id: project.id, name: project.name }
+        }
+        return prev // Keep existing state - event listener will update name if needed
+      })
     } else {
       setTaskProject(null)
     }
-  }, [project?.id, project?.name])
+  }, [project]) // Depend on entire project object
   
   // Update projects list when initialProjects prop changes (e.g., when modal opens with fresh data)
   useEffect(() => {
@@ -284,6 +299,63 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       })
     }
   }, [initialProjects])
+
+  // Listen for project creation (e.g., when a new project is created in ProjectsCard)
+  useEffect(() => {
+    const handleProjectCreated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Add new project to projects list (avoid duplicates)
+      setProjects((prev) => {
+        // Check if project already exists
+        if (prev.some(p => p.id === projectId)) {
+          return prev;
+        }
+        // Add new project to the list
+        return [{ id: projectId, name: title }, ...prev];
+      });
+    };
+
+    window.addEventListener('projectCreated', handleProjectCreated as EventListener);
+    return () => {
+      window.removeEventListener('projectCreated', handleProjectCreated as EventListener);
+    };
+  }, [connectionId]);
+
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in projects list
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+
+      // Update taskProject if it matches the updated project
+      setTaskProject((prev) => {
+        if (prev && prev.id === projectId) {
+          return { ...prev, name: title };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId])
   
   const loadComments = useCallback(async (): Promise<Comment[] | null> => {
     try {
@@ -315,7 +387,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       console.error('Error fetching fresh task comments:', error)
       return null
     }
-  }, [fetchCommentsForTask, mergeComments, normalizeComments, onCommentsUpdate, taskId])
+  }, [mergeComments, normalizeComments, onCommentsUpdate, taskId])
 
   useEffect(() => {
     // Only reset comments and clear optimistic metadata when taskId actually changes
@@ -522,6 +594,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       document.removeEventListener('focusin', handleFocus, true)
       document.removeEventListener('keydown', handleKeyDown, true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleValue, descriptionValue])
 
   const handleTitleSave = async (value: string) => {
@@ -619,7 +692,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     if (isClientVariant && !canClientEditStatusOrAssignee) return
 
     const validStatuses = ['to_do', 'in_progress', 'on_hold', 'done'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       console.error('Invalid status:', newStatus)
       return
     }
@@ -871,12 +944,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               </Button>
             </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                {variant === 'agency' && (
-                  <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
-                    <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                    Convert to task
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={() => {
                   handleCopyLink()
                   setIsActionsDropdownOpen(false)
@@ -884,7 +951,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {variant === 'agency' && (
+                {!isDisconnected && variant === 'agency' && (
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 
@@ -912,7 +979,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         <div className="flex-shrink-0 pb-4 pr-8">
           <div className="flex items-start gap-3">
             <div data-inline-edit="title" className="flex-1 min-w-0">
-              {isClientVariant ? (
+              {isClientVariant || isDisconnected ? (
                 <p className="display-7-medium text-primary px-0">
                   {titleValue}
                 </p>
@@ -939,7 +1006,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                   <EyeSlash size={20} weight="fill" style={{ color: 'var(--color-neutral-11)', opacity: 0.5 }} className="mt-1.5" />
                 )
               )}
-              {(variant === 'agency' || (isClientVariant && canClientEditStatusOrAssignee)) ? (
+              {!isDisconnected && (variant === 'agency' || (isClientVariant && canClientEditStatusOrAssignee)) ? (
                 <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
                   <PopoverTrigger asChild>
             <TaskStatusButton variant={statusValue as 'to_do' | 'in_progress' | 'on_hold' | 'done'} className="mt-1.5">
@@ -988,7 +1055,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
           <div className="flex flex-col gap-5">
             <div data-inline-edit="description">
-            {isClientVariant ? (
+            {isClientVariant || isDisconnected ? (
               <div className="text-md-regular px-0 whitespace-pre-wrap" style={{ fontSize: '15px', lineHeight: '22px' }}>
                 {descriptionValue || <span className="text-sm-regular text-secondary">No description</span>}
               </div>
@@ -1001,6 +1068,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               textClass="text-md-regular"
               multiline={true}
               linkifyUrls={true}
+              maxLength={10000}
               className="px-0"
               style={{ fontSize: '15px', lineHeight: '22px' }}
             />
@@ -1054,11 +1122,13 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         <>
           <h4 className="text-md-medium text-primary mt-5">Comments</h4>
             
-            {/* Comment Input */}
-            <CommentInput 
-              activeUser={activeUser}
-              onCommentSubmit={handleCommentSubmit}
-            />
+            {/* Comment Input - Hide when disconnected */}
+            {!isDisconnected && (
+              <CommentInput 
+                activeUser={activeUser}
+                onCommentSubmit={handleCommentSubmit}
+              />
+            )}
 
             {/* Comments List */}
             {comments.map((comment) => (
@@ -1072,6 +1142,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                 createdByUserId={comment.userId}
                 activeUserId={activeUser?.id}
                 onDelete={handleCommentDelete}
+                hideActions={isDisconnected}
               />
             ))}
           </>
@@ -1083,7 +1154,7 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       <div className="w-px bg-neutral-alpha-4 flex-shrink-0 mb-10"/>
 
       {/* Right Column */}
-      <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
+      <div className="flex-[1] flex flex-col gap-2 min-w-0 pl-8 mb-10">
           <h3 className="text-md-medium text-primary">
           Details
         </h3>
@@ -1128,26 +1199,23 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
             <div className="w-2/5 min-w-0">
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
-            <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
-                <InlineEdit
-                  type="badge"
-                  value={taskProject ? taskProject.id : ''}
-                  options={projects.map(p => ({ value: p.id, label: p.name }))}
-                  onSave={handleProjectSave}
-                  searchPlaceholder="Search projects…"
-                  clearable={!!taskProject}
-                  placeholder="None (account task)"
-                  popoverWidth="240px"
-                  badgeBorderRadius="4px"
-                  maxHeight="210px"
-                  className="h-6"
-                />
-              ) : (
-                <span className="text-sm-regular text-tertiary ml-1">
-                  {taskProject ? taskProject.name : 'None (account task)'}
-                </span>
-              )}
+            <div className="w-3/5 min-w-0 max-w-full">
+                <div className="min-w-0 max-w-full">
+                  <InlineEdit
+                    type="badge"
+                    value={taskProject ? taskProject.id : ''}
+                    options={projects.map(p => ({ value: p.id, label: p.name }))}
+                    onSave={handleProjectSave}
+                    searchPlaceholder="Search projects…"
+                    clearable={variant === 'agency' ? !!taskProject : false}
+                    placeholder="None (account task)"
+                    popoverWidth="240px"
+                    badgeBorderRadius="4px"
+                    maxHeight="210px"
+                    className="h-6"
+                  nonInteractive={isDisconnected || variant === 'client'}
+                  />
+                </div>
             </div>
           </div>
 
@@ -1159,7 +1227,17 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               </p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
+              {isDisconnected ? (
+                <ListRow
+                  avatar={true}
+                  avatarUrl={assigneeValue?.avatarUrl || null}
+                  text={assigneeValue ? assigneeValue.name : 'Unassigned'}
+                  textColor={assigneeValue ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
+                  variant="stacked"
+                  className="min-w-0"
+                  nonInteractive={true}
+                />
+              ) : variant === 'agency' ? (
                 <ListRow
                   avatar={true}
                   avatarUrl={assigneeValue?.avatarUrl || null}
@@ -1222,7 +1300,11 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
               <p className="text-sm-regular text-secondary truncate">Due date</p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
+              {isDisconnected || variant !== 'agency' ? (
+                <span className="text-sm-regular text-tertiary ml-1">
+                  {dueDateValue || "No due date"}
+                </span>
+              ) : (
                 <InlineEdit
                   type="date"
                   value={dueDateValue}
@@ -1231,10 +1313,6 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                   onSave={handleDueDateSave}
                   className="h-[28px] cursor-pointer truncate"
                 />
-              ) : (
-                <span className="text-sm-regular text-tertiary ml-1">
-                  {dueDateValue || "No due date"}
-                </span>
               )}
             </div>
           </div>
@@ -1262,9 +1340,9 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
                     return (
                       <Switch
                         checked={toggleValue}
-                        disabled={isToggleDisabled}
+                        disabled={isToggleDisabled || isDisconnected}
                         onCheckedChange={handleClientVisibleChange}
-                        className={isToggleDisabled ? '!cursor-default' : 'cursor-pointer'}
+                        className={isToggleDisabled || isDisconnected ? '!cursor-default' : 'cursor-pointer'}
                       />
                     );
                   })()}

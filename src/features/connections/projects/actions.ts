@@ -80,7 +80,7 @@ export async function createProject(
     start_date?: string | null;
     end_date?: string | null;
     created_by_user_id: string;
-    [key: string]: any; // Allow for optional fields that may not exist yet
+    [key: string]: unknown; // Allow for optional fields that may not exist yet
   } = {
     connection_id: connectionId,
     name: title,

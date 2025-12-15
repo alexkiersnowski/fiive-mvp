@@ -1,5 +1,4 @@
 import * as React from "react"
-import { CaretDown } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { Slot } from "@radix-ui/react-slot"
 

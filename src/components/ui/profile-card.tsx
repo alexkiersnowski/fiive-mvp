@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
@@ -60,16 +61,14 @@ export function ProfileCard({ member, isOpen, onClose }: ProfileCardProps) {
             }}
           >
             {member.organization.logo_url ? (
-              <img
+              <Image
                 src={member.organization.logo_url}
                 alt={member.organization.name}
-                className="rounded-full"
+                width={100}
+                height={100}
+                className="rounded-full object-cover"
                 draggable={false}
-                style={{ 
-                  width: '100px', 
-                  height: '100px',
-                  objectFit: 'cover'
-                }}
+                unoptimized
               />
             ) : (
               <span className="text-2xl font-medium text-white">
@@ -94,16 +93,14 @@ export function ProfileCard({ member, isOpen, onClose }: ProfileCardProps) {
                 }}
               >
                 {member.avatar_url ? (
-                  <img
+                  <Image
                     src={member.avatar_url}
                     alt={`${member.first_name} ${member.last_name}`}
-                    className="rounded-full"
+                    width={80}
+                    height={80}
+                    className="rounded-full object-cover"
                     draggable={false}
-                    style={{ 
-                      width: '80px', 
-                      height: '80px',
-                      objectFit: 'cover'
-                    }}
+                    unoptimized
                   />
                 ) : (
                   <span className="text-xl font-medium text-white">
@@ -119,10 +116,12 @@ export function ProfileCard({ member, isOpen, onClose }: ProfileCardProps) {
                   {member.first_name} {member.last_name}
                 </h2>
 
-                {/* Job Title */}
-                <p className="text-md-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-                  {member.job_title || 'Job title'}
-                </p>
+                {/* Job Title - Only show if job_title exists */}
+                {member.job_title && (
+                  <p className="text-md-regular" style={{ color: 'var(--color-base-text-primary)' }}>
+                    {member.job_title}
+                  </p>
+                )}
 
                 {/* Email */}
                 <p className="text-sm-regular overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: 'var(--color-base-text-tertiary)' }}>

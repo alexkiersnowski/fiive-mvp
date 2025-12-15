@@ -19,6 +19,7 @@ interface NewTaskModalProps {
     id: string
     name: string
     logoUrl?: string
+    orgId: string // Organization ID (client_id for agencies, agency_id for clients)
   }> // For global mode - list of all connections
   agencyMembers?: Array<{
     id: string
@@ -49,13 +50,16 @@ interface NewTaskModalProps {
     } | null
     clientVisible?: boolean
     clientVisibilityLocked?: boolean
+    connectionId: string
   }) => void
-  onTaskCreated?: (payload: { taskId: string; tempId?: string }) => void
+  onTaskCreated?: (payload: { taskId: string; tempId?: string; connectionId: string }) => void
   connectionId?: string // Optional for global mode
   currentOrgId: string
   variant?: 'agency' | 'client'
   isGlobal?: boolean // If true, show client dropdown instead of fixed client
   onConnectionSelect?: (connectionId: string) => void // Callback when connection is selected in global mode
+  allowedConnectionIds?: string[] | null // Array of allowed connection IDs (null = no limit for paid plans)
+  onPaywallBlocked?: () => void // Callback when paywall blocks creation
 }
 
 export function NewTaskModal({ 
@@ -68,14 +72,25 @@ export function NewTaskModal({
   onTaskOptimistic, 
   onTaskCreated, 
   connectionId, 
-  currentOrgId, 
+  currentOrgId: _currentOrgId, 
   variant = 'agency',
   isGlobal = false,
-  onConnectionSelect
+  onConnectionSelect,
+  allowedConnectionIds = null,
+  onPaywallBlocked
 }: NewTaskModalProps) {
   // Refs for controlling InlineEdit focus
   const titleRef = useRef<InlineEditRef>(null)
   const descriptionRef = useRef<InlineEditRef>(null)
+  
+  // Track mount status to prevent state updates after unmount
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
   
   // Local state for form fields
   const [title, setTitle] = useState('')
@@ -208,68 +223,88 @@ export function NewTaskModal({
   // Check if create button should be enabled (title is required, and connection if global)
   const canCreate = title.trim().length > 0 && (!isGlobal || selectedConnectionId.length > 0)
   
+  // In global mode: use connectionMembers if connection selected, otherwise use agencyMembers (active org members)
+  // In connection-specific mode: use agencyMembers
+  const membersToUse = isGlobal 
+    ? (selectedConnectionId ? connectionMembers : agencyMembers)
+    : agencyMembers
+  
   // Handle create task
-  const handleCreateTask = useCallback(async () => {
+  const handleCreateTask = useCallback(() => {
     if (!canCreate) return
     
     // Determine the connection ID to use
     const targetConnectionId = isGlobal ? selectedConnectionId : connectionId
     if (!targetConnectionId) return
     
+    // Check paywall: if allowedConnectionIds is not null and targetConnectionId is not in the allowed list, block creation
+    if (allowedConnectionIds !== null && !allowedConnectionIds.includes(targetConnectionId)) {
+      // Connection is restricted - show paywall
+      onPaywallBlocked?.()
+      return
+    }
+    
     // Close modal immediately for snappy UX
     onClose()
     
-    try {
-      // Look up project name from projects list
-      const selectedProject = !projectId || projectId === '' ? null : projects.find(p => p.id === projectId)
-      const projectName = selectedProject ? selectedProject.name : null
-      
-      // Look up assignee details from members list
-      const assigneeMember = assigneeUserId ? membersToUse.find(m => m.id === assigneeUserId) : null
-      const assigneeData = assigneeMember ? {
-        id: assigneeMember.id,
-        name: `${assigneeMember.firstName} ${assigneeMember.lastName}`.trim() || assigneeMember.email,
-        email: assigneeMember.email,
-        avatarUrl: assigneeMember.avatarUrl
-      } : null
-      
-      // Determine if assignee is a client member (for visibility logic)
-      const isClientMemberAssignee = assigneeMember && 'orgType' in assigneeMember && assigneeMember.orgType === 'client'
-      
-      // Emit optimistic row with temp id immediately
-      const tempId = `temp-${Date.now()}`
-      onTaskOptimistic?.({
-        tempId,
-        title,
-        description,
-        projectId: !projectId || projectId === '' ? null : projectId,
-        projectName,
-        assigneeUserId,
-        assignee: assigneeData,
-        clientVisible: isClientMemberAssignee ? true : false,
-        clientVisibilityLocked: isClientMemberAssignee ? true : false
-      })
+    // Look up project name from projects list
+    const selectedProject = !projectId || projectId === '' ? null : projects.find(p => p.id === projectId)
+    const projectName = selectedProject ? selectedProject.name : null
+    
+    // Look up assignee details from members list
+    const assigneeMember = assigneeUserId ? membersToUse.find(m => m.id === assigneeUserId) : null
+    const assigneeData = assigneeMember ? {
+      id: assigneeMember.id,
+      name: `${assigneeMember.firstName} ${assigneeMember.lastName}`.trim() || assigneeMember.email,
+      email: assigneeMember.email,
+      avatarUrl: assigneeMember.avatarUrl
+    } : null
+    
+    // Determine if assignee is a client member (for visibility logic)
+    const isClientMemberAssignee = assigneeMember && 'orgType' in assigneeMember && assigneeMember.orgType === 'client'
+    
+    // Emit optimistic row with temp id immediately
+    const tempId = `temp-${Date.now()}`
+    onTaskOptimistic?.({
+      tempId,
+      title,
+      description,
+      projectId: !projectId || projectId === '' ? null : projectId,
+      projectName,
+      assigneeUserId,
+      assignee: assigneeData,
+      clientVisible: isClientMemberAssignee ? true : false,
+      clientVisibilityLocked: isClientMemberAssignee ? true : false,
+      connectionId: targetConnectionId
+    })
 
-      // Await the server insert to obtain the new task id
-      const created = await createTask(
-        targetConnectionId,
-        title,
-        description,
-        !projectId || projectId === '' ? null : projectId,
-        assigneeUserId
-      )
-      
-      // Only show success toast after server confirms
-      if (created?.id) {
-        toast.success('Task created successfully')
-        // Notify parent with the created id so it can fetch and prepend the row
-        ;(onTaskCreated as any)?.({ taskId: created.id, tempId })
-      }
-    } catch (error) {
-      console.error('Error creating task:', error)
-      toast.error('Failed to create task')
-    }
-  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onTaskCreated, onTaskOptimistic, onClose])
+    // Fire server action concurrently (void prevents promise leak warnings)
+    void createTask(
+      targetConnectionId,
+      title,
+      description,
+      !projectId || projectId === '' ? null : projectId,
+      assigneeUserId
+    )
+      .then((created) => {
+        if (created?.id) {
+          // Log temp → real ID mapping for debugging
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Task] Created: tempId=${tempId} → taskId=${created.id}`)
+          }
+          // Notify parent with the created id so it can fetch and prepend the row
+          // Parent will show toast after successfully fetching the task
+          // Pass connectionId to avoid race condition with modal closing
+          // Call this even if component unmounted - parent callback is safe
+          onTaskCreated?.({ taskId: created.id, tempId, connectionId: targetConnectionId })
+        }
+      })
+      .catch((error) => {
+        // Show error toast even if component unmounted (toast is safe to call)
+        console.error('Error creating task:', error)
+        toast.error('Failed to create task')
+      })
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, membersToUse, onTaskCreated, onTaskOptimistic, onClose, allowedConnectionIds, onPaywallBlocked])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -290,11 +325,6 @@ export function NewTaskModal({
   }, [isOpen, canCreate, handleCreateTask])
   
   // Get selected assignee
-  // In global mode: use connectionMembers if connection selected, otherwise use agencyMembers (active org members)
-  // In connection-specific mode: use agencyMembers
-  const membersToUse = isGlobal 
-    ? (selectedConnectionId ? connectionMembers : agencyMembers)
-    : agencyMembers
   const selectedAssignee = assigneeUserId 
     ? membersToUse.find(m => m.id === assigneeUserId) 
     : null
@@ -304,12 +334,14 @@ export function NewTaskModal({
     ? connections.find(c => c.id === selectedConnectionId)
     : client
   
-  // Connection options for global mode (for combobox)
-  const connectionComboboxOptions = connections.map(c => ({
-    value: c.id,
-    label: c.name,
-    avatar: c.logoUrl
-  }))
+  // Connection options for global mode (for combobox) - sorted alphabetically by name
+  const connectionComboboxOptions = [...connections]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+    .map(c => ({
+      value: c.id,
+      label: c.name,
+      avatar: c.logoUrl
+    }))
   
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -409,19 +441,21 @@ export function NewTaskModal({
 
               {/* Project - Only show if not in global mode OR if connection is selected in global mode */}
               {(!isGlobal || selectedConnectionId) && (
-                <InlineEdit
-                  type="badge"
-                  value={projectId}
-                  options={projects.map(p => ({ value: p.id, label: p.name }))}
-                  onSave={setProjectId}
-                  placeholder="Add project"
-                  searchPlaceholder="Search projects…"
-                  clearable={!!projectId}
-                  popoverWidth="240px"
-                  badgeBorderRadius="4px"
-                  maxHeight="210px"
-                  className="h-6"
-                />
+                <div className="min-w-0 max-w-[150px]">
+                  <InlineEdit
+                    type="badge"
+                    value={projectId}
+                    options={projects.map(p => ({ value: p.id, label: p.name }))}
+                    onSave={setProjectId}
+                    placeholder="Add project"
+                    searchPlaceholder="Search projects…"
+                    clearable={!!projectId}
+                    popoverWidth="240px"
+                    badgeBorderRadius="4px"
+                    maxHeight="210px"
+                    className="h-6"
+                  />
+                </div>
               )}
 
               {/* Assignee - Only for agency view */}

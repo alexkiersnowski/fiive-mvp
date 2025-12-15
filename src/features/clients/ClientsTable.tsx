@@ -13,11 +13,13 @@ import { EngagementBadge } from '@/components/ui/engagement-badge';
 import { HealthBadge } from '@/components/ui/health-badge';
 import { ProfileCard } from '@/components/ui/profile-card';
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { deleteClient } from './actions';
 import { resendInviteEmail, cancelInvitation } from '@/features/connections/actions';
 import type { Client } from './types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
+import type { VirtualItem } from '@tanstack/react-virtual';
 
 // Style constants to prevent object recreation on each render
 const STYLES = {
@@ -68,12 +70,15 @@ interface ClientsTableProps {
   hasNextPage?: boolean;
   unfilteredTotalCount?: number; // Total count without search/filter applied
   onAddClient?: () => void;
-  onLoadMore?: (virtualRows: any[]) => void;
+  onLoadMore?: (virtualRows: VirtualItem[]) => void;
   parentRef?: React.RefObject<HTMLDivElement | null>;
   headerOffset?: number;
   context: EnhancedModeContext;
   onClientDeleted?: () => void; // Callback to refresh data after deletion
   onClientDeleteOptimistic?: (clientId: string) => void; // Callback for optimistic removal
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
+  billingStatus?: string;
+  onPaywallTrigger?: () => void;
 }
 
 // Extract column components for better readability and reusability
@@ -235,18 +240,40 @@ const HealthCell = React.memo(function HealthCell({ client }: { client: Client }
 
 const ActionsCell = React.memo(function ActionsCell({ 
   client, 
-  context, 
-  onDeleteClick 
+  context: _context, 
+  onDeleteClick,
+  allowedConnectionIds,
+  billingStatus,
+  onPaywallTrigger,
 }: { 
   client: Client; 
   context: EnhancedModeContext;
   onDeleteClick: (clientId: string, clientName: string) => void;
+  allowedConnectionIds?: string[] | null;
+  billingStatus?: string;
+  onPaywallTrigger?: () => void;
 }) {
+  const router = useRouter();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
   const isDraft = client.is_draft === true;
   const isInvited = client.status === 'invited';
+
+  const handleConnectionSettingsClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDropdownOpen(false);
+    
+    // Check if access is blocked (free plan only)
+    if (billingStatus === 'free' && allowedConnectionIds != null) {
+      if (!allowedConnectionIds.includes(client.id)) {
+        onPaywallTrigger?.();
+        return;
+      }
+    }
+    
+    router.push(`/clients/${client.id}/settings`);
+  };
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -323,7 +350,7 @@ const ActionsCell = React.memo(function ActionsCell({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={handleConnectionSettingsClick}>
             <Link size={16} style={{ color: 'var(--color-base-text-primary)' }} />
             Connection settings
           </DropdownMenuItem>
@@ -385,6 +412,9 @@ export function ClientsTable({
   context,
   onClientDeleted,
   onClientDeleteOptimistic,
+  allowedConnectionIds,
+  billingStatus,
+  onPaywallTrigger,
 }: ClientsTableProps) {
   const router = useRouter();
   const [selectedAccountManager, setSelectedAccountManager] = useState<Client['accountManager'] | null>(null);
@@ -399,7 +429,7 @@ export function ClientsTable({
 
   const confirmDeleteClient = useCallback(async () => {
     if (pendingDelete) {
-      const { clientId, clientName } = pendingDelete;
+      const { clientId, clientName: _clientName } = pendingDelete;
       
       // Optimistically remove client from UI immediately (row disappears right away)
       onClientDeleteOptimistic?.(clientId);
@@ -447,7 +477,7 @@ export function ClientsTable({
   }, [clients]);
 
   const guardedLoadMore = useCallback(
-    (virtualRows: any[]) => {
+    (virtualRows: VirtualItem[]) => {
       if (!hasNextPage || isLoading) return;
       onLoadMore?.(virtualRows);
     },
@@ -463,9 +493,19 @@ export function ClientsTable({
 
   const handleRowClick = useCallback(
     (client: Client) => {
+      // Check if this is an allowed workspace (free plan only)
+      // allowedConnectionIds is null for paid plans (no limit)
+      // allowedConnectionIds is array for free plans (check if client.id is in array)
+      if (billingStatus === 'free' && allowedConnectionIds != null) {
+        if (!allowedConnectionIds.includes(client.id)) {
+          onPaywallTrigger?.();
+          return; // Prevent navigation
+        }
+      }
+      
       router.push(`/clients/${client.id}/overview`);
     },
-    [router],
+    [router, billingStatus, allowedConnectionIds, onPaywallTrigger],
   );
 
   // Empty state logic: ONLY show empty state when no connections exist at all
@@ -609,7 +649,46 @@ export function ClientsTable({
         >
           {(isBootstrapping || (isSearching && displayedClients.length === 0 && searchValue.trim().length > 0)) ? (
             <div className="px-5 py-2">
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+              <div className="space-y-0">
+                {/* Client Row Skeletons - 20 rows */}
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((clientIndex) => (
+                  <div
+                    key={clientIndex}
+                    className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '40px 25% 18.75% 18.75% 18.75% 18.75% 44px',
+                    }}
+                  >
+                    {/* Connection status */}
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-4 h-4 rounded" />
+                    </div>
+                    {/* Client */}
+                    <div className="px-3 flex items-center gap-3">
+                      <Skeleton className="w-5 h-5 rounded-full" />
+                      <Skeleton className="w-32 h-4 rounded" />
+                    </div>
+                    {/* Account manager */}
+                    <div className="px-3">
+                      <Skeleton className="w-24 h-4 rounded" />
+                    </div>
+                    {/* Status */}
+                    <div className="px-3">
+                      <Skeleton className="w-20 h-4 rounded" />
+                    </div>
+                    {/* Contract end */}
+                    <div className="px-3">
+                      <Skeleton className="w-24 h-4 rounded" />
+                    </div>
+                    {/* Health */}
+                    <div className="px-3">
+                      <Skeleton className="w-20 h-4 rounded" />
+                    </div>
+                    {/* Actions */}
+                    <div></div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
           <VirtualTableBody
@@ -628,7 +707,14 @@ export function ClientsTable({
                 <StatusCell client={client} />
                 <ContractEndCell client={client} />
                 <HealthCell client={client} />
-                <ActionsCell client={client} context={context} onDeleteClick={handleDeleteClick} />
+                <ActionsCell 
+                  client={client} 
+                  context={context} 
+                  onDeleteClick={handleDeleteClick}
+                  allowedConnectionIds={allowedConnectionIds}
+                  billingStatus={billingStatus}
+                  onPaywallTrigger={onPaywallTrigger}
+                />
               </>
             )}
           />
@@ -670,7 +756,7 @@ export function ClientsTable({
           <DialogDescription 
             className="text-sm-regular mb-0"
           >
-            This will permanently delete the client and all related data. It won't affect any live clients or shared workspaces.
+            This will permanently delete the client and all related data. It won&apos;t affect any live clients or shared workspaces.
           </DialogDescription>
           <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
             <Button 

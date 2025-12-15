@@ -14,7 +14,6 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { PlanCard } from '@/components/ui/plan-card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { StarFour } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 
@@ -54,20 +53,7 @@ const AGENCY_PRO_FEATURES = [
   { text: 'All current & future features' },
   { text: 'Priority onboarding & support' },
   { text: 'Directly influence the future of Fiive' },
-  { text: 'Founding member rate locked for life' }
-]
-
-const AGENCY_PREMIUM_FEATURES = [
-  { text: 'Unlimited clients' },
-  { text: 'Unlimited live connections' },
-  { text: 'Unlimited team members' },
-  { text: 'Full client & relationship visibility' },
-  { text: 'Requests, projects & task management' },
-  { text: 'Shared links & resources' },
-  { text: 'All current & future features' },
-  { text: 'Priority onboarding & support' },
-  { text: 'Directly influence the future of Fiive' },
-  { text: 'Founding member rate locked for life' }
+  { text: 'Founding member rate locked in' }
 ]
 
 /**
@@ -175,8 +161,7 @@ interface BillingContentProps {
   currentPeriodEnd?: string | null
 }
 
-export default function BillingContent({ variant, billingStatus, sessionId: initialSessionId, shouldShowDialog: initialShouldShowDialog, stripePriceId, monthlyPriceId, annualPriceId, currentPeriodEnd }: BillingContentProps) {
-  const isAgency = variant === 'agency'
+export default function BillingContent({ variant: _variant, billingStatus, sessionId: initialSessionId, shouldShowDialog: initialShouldShowDialog, stripePriceId, monthlyPriceId, annualPriceId, currentPeriodEnd }: BillingContentProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [isCreatingCheckout, setIsCreatingCheckout] = React.useState(false)
@@ -214,7 +199,7 @@ export default function BillingContent({ variant, billingStatus, sessionId: init
     }
   }, [billingStatus, optimisticBillingStatus, isVerifyingSession])
 
-  // Handle checkout session verification on mount (safety check)
+  // Handle checkout session verification on mount (only if server-side didn't verify)
   React.useEffect(() => {
     const sessionIdFromUrl = searchParams.get('session_id')
     const sessionId = sessionIdFromUrl || initialSessionId
@@ -228,9 +213,19 @@ export default function BillingContent({ variant, billingStatus, sessionId: init
       return
     }
     
-    // Handle successful checkout - verify session as safety check
-    // Dialog is already shown from server-side verification, this just ensures DB is updated
-    if (sessionId && !isVerifyingSession) {
+    // Skip client-side verification if server-side already verified (shouldShowDialog === true)
+    // Server-side verification already updated the DB, so no need to verify again
+    if (initialShouldShowDialog && initialSessionId) {
+      // Server-side already verified - just clean up URL
+      if (searchParams.get('session_id') || initialSessionId) {
+        router.replace('/settings/organization/billing')
+      }
+      return
+    }
+    
+    // Only run client-side verification if server-side didn't verify
+    // This handles edge cases where server-side verification might have failed
+    if (sessionId && !isVerifyingSession && !initialShouldShowDialog) {
       setIsVerifyingSession(true)
       
       const verifySession = async () => {
@@ -246,8 +241,12 @@ export default function BillingContent({ variant, billingStatus, sessionId: init
           const data = await response.json()
           
           if (!response.ok) {
-            // Don't show error to user if dialog is already shown - just log
+            // Log error but don't show to user
             console.error('Client-side verification failed:', data.error)
+            // Clean up URL even on error
+            if (searchParams.get('session_id') || initialSessionId) {
+              router.replace('/settings/organization/billing')
+            }
             return
           }
           
@@ -269,7 +268,7 @@ export default function BillingContent({ variant, billingStatus, sessionId: init
             }
           }
         } catch (error) {
-          // Don't show error to user if dialog is already shown - just log
+          // Log error but don't show to user
           console.error('Error verifying checkout session:', error)
           // Clean up URL even on error
           if (searchParams.get('session_id') || initialSessionId) {
@@ -283,7 +282,7 @@ export default function BillingContent({ variant, billingStatus, sessionId: init
       // Run verification in background without blocking UI
       verifySession()
     }
-  }, [searchParams, router, isVerifyingSession, initialSessionId])
+  }, [searchParams, router, isVerifyingSession, initialSessionId, initialShouldShowDialog])
 
   const handleCheckout = async () => {
     if (isCreatingCheckout) return
@@ -405,6 +404,7 @@ export default function BillingContent({ variant, billingStatus, sessionId: init
               annualPrice: "99"
             }}
             onButtonClick={handleCheckout}
+            buttonLoading={isCreatingCheckout}
           />
         </>
       ) : (
@@ -418,7 +418,7 @@ export default function BillingContent({ variant, billingStatus, sessionId: init
             
             // Format renewal date if billing is active or past_due and date exists
             // Format cancellation date if billing is canceled_pending and date exists
-            // Show cancellation date in renewalDate field when canceled_pending
+            // Under Flexible Billing, current_period_end equals cancel_at when cancelled
             const renewalDate = (effectiveBillingStatus === 'active' || effectiveBillingStatus === 'past_due') && currentPeriodEnd
               ? formatRenewalDate(currentPeriodEnd)
               : null

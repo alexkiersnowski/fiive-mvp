@@ -1,6 +1,15 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext';
 import { getHomeSnapshot } from '@/features/home/loaders';
 import { homeCardRegistry } from '@/features/home/registry';
+import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
+
+export const metadata: Metadata = {
+  title: 'Fiive | Home',
+};
+
+// Cache for 30 seconds to improve performance while keeping data reasonably fresh
+export const revalidate = 30;
 
 export default async function DashboardHome() {
   const pageStartTime = performance.now();
@@ -17,10 +26,16 @@ export default async function DashboardHome() {
 
   // Await all data on the server for instant rendering (now using unified query)
   const snapshotStartTime = performance.now();
-  const snapshot = await getHomeSnapshot(context);
+  const [snapshot, allowedConnectionIds] = await Promise.all([
+    getHomeSnapshot(context),
+    // Prefetch allowed connection IDs for paywall checks (only for agencies)
+    context.variant === 'agency'
+      ? getAllowedConnectionIds(context.orgId, context.organization.billing_status || 'free')
+      : Promise.resolve(null)
+  ]);
   console.log(`[Performance] getHomeSnapshot (unified): ${(performance.now() - snapshotStartTime).toFixed(2)}ms`);
   
-  const cards = homeCardRegistry(context);
+  const cards = homeCardRegistry(context, allowedConnectionIds);
   
   console.log(`[Performance] DashboardHome TOTAL: ${(performance.now() - pageStartTime).toFixed(2)}ms`);
 
@@ -38,7 +53,7 @@ export default async function DashboardHome() {
       {/* Stats Cards Grid - First Row */}
       <div className="grid grid-cols-4 gap-4 mb-4">
         {cards.slice(0, 4).map(({ key, Component }) => (
-          <Component key={key} snapshot={snapshot} context={context} />
+          <Component key={key} snapshot={snapshot} context={context} allowedConnectionIds={allowedConnectionIds} />
         ))}
       </div>
       
@@ -46,12 +61,12 @@ export default async function DashboardHome() {
           <div className="grid grid-cols-3 gap-4 mb-4 h-[370px]">
             {cards.slice(4, 5).map(({ key, Component }) => (
               <div key={key} className="col-span-2 h-full">
-                <Component snapshot={snapshot} context={context} />
+                <Component snapshot={snapshot} context={context} allowedConnectionIds={allowedConnectionIds} />
               </div>
             ))}
             {cards.slice(5, 6).map(({ key, Component }) => (
               <div key={key} className="col-span-1 h-full">
-                <Component snapshot={snapshot} context={context} />
+                <Component snapshot={snapshot} context={context} allowedConnectionIds={allowedConnectionIds} />
               </div>
             ))}
           </div>
@@ -60,12 +75,12 @@ export default async function DashboardHome() {
           <div className="grid grid-cols-3 gap-4 h-[370px]">
             {cards.slice(6, 7).map(({ key, Component }) => (
               <div key={key} className="col-span-2 h-full">
-                <Component snapshot={snapshot} context={context} />
+                <Component snapshot={snapshot} context={context} allowedConnectionIds={allowedConnectionIds} />
               </div>
             ))}
             {cards.slice(7, 8).map(({ key, Component }) => (
               <div key={key} className="col-span-1 h-full">
-                <Component snapshot={snapshot} context={context} />
+                <Component snapshot={snapshot} context={context} allowedConnectionIds={allowedConnectionIds} />
               </div>
             ))}
           </div>

@@ -1,20 +1,20 @@
 'use client'
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
 import { VIRTUAL_ROW_HEIGHT, VIRTUAL_OVERSCAN, VIRTUAL_LOAD_MORE_THRESHOLD, VIRTUAL_LOAD_MORE_DEBOUNCE } from './constants'
 
 interface UseVirtualTableOptions<T> {
   items: T[]
-  onLoadMore?: (virtualItems: any[]) => void
-  scrollRestoreDeps?: any[]
+  onLoadMore?: (virtualItems: VirtualItem[]) => void
+  scrollRestoreDeps?: unknown[]
   parentRef?: React.RefObject<HTMLElement | null>
 }
 
-interface UseVirtualTableReturn<T> {
+interface UseVirtualTableReturn<_T> {
   containerRef: React.RefObject<HTMLDivElement | null>
-  rowVirtualizer: any
-  virtualItems: any[]
+  rowVirtualizer: { measureElement: (el: HTMLElement | null) => void; getTotalSize: () => number; scrollToIndex: (index: number) => void; measure: () => void; getVirtualItems: () => VirtualItem[] }
+  virtualItems: VirtualItem[]
   isNearEnd: boolean
 }
 
@@ -28,19 +28,20 @@ interface UseVirtualTableReturn<T> {
  * @param parentRef - Optional parent scroll element ref
  * @returns Virtualizer instance and virtual items
  */
-export function useVirtualTable<T>({
+export function useVirtualTable<_T>({
   items,
   onLoadMore,
   scrollRestoreDeps = [],
   parentRef
-}: UseVirtualTableOptions<T>): UseVirtualTableReturn<T> {
+}: UseVirtualTableOptions<_T>): UseVirtualTableReturn<_T> {
   const containerRef = useRef<HTMLDivElement>(null)
   
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef?.current || containerRef.current,
     estimateSize: useCallback(() => VIRTUAL_ROW_HEIGHT, []),
-    overscan: VIRTUAL_OVERSCAN,
+    // Reduce overscan for connections tables (many items, less need for extra rows)
+    overscan: items.length > 100 ? 5 : VIRTUAL_OVERSCAN,
   })
 
   // Force virtualizer to recalculate when items length changes
@@ -50,6 +51,9 @@ export function useVirtualTable<T>({
 
   const virtualItems = rowVirtualizer.getVirtualItems()
   
+  // Track initial mount to prevent auto-loadMore on first render only
+  const isInitialMountRef = useRef(true)
+  
   // Calculate if user is near the end of the list
   const isNearEnd = useMemo(() => {
     if (virtualItems.length === 0) return false
@@ -57,8 +61,14 @@ export function useVirtualTable<T>({
     return lastItem.index >= items.length - VIRTUAL_LOAD_MORE_THRESHOLD
   }, [virtualItems, items.length])
 
-  // Handle scroll to trigger loadMore
+  // Handle scroll to trigger loadMore (skip on initial mount only)
   useEffect(() => {
+    // Skip on initial mount to prevent auto-loadMore on first render
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false
+      return
+    }
+    
     if (!onLoadMore || !isNearEnd) return
     
     // Debounce to prevent excessive calls

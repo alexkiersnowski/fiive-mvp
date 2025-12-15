@@ -27,27 +27,38 @@ export interface EnhancedModeContext extends ModeContext {
     connectionCode?: string;
     ownerId: string;
     is_draft?: boolean; // Included for validation - should always be false for active contexts
+    billing_status?: string;
+    stripe_price_id?: string;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    current_period_end?: string;
+    ownerName?: string; // Owner's full name for restricted member modal
+    ownerEmail?: string; // Owner's email for restricted member modal
   };
   currentUserRole: 'owner' | 'member';
+  isRestricted: boolean; // True if user is restricted due to member limit (3rd+ member on free plan)
 }
 
 // Cache this function so it only runs once per request, even if called multiple times
 export const getActiveContext = cache(async (): Promise<EnhancedModeContext | null> => {
-  const startTime = performance.now();
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const startTime = isDevelopment ? performance.now() : 0;
   const supabase = await createClient();
 
   try {
     // Get the current user (must be first - provides user.id for subsequent queries)
-    const authStartTime = performance.now();
+    const authStartTime = isDevelopment ? performance.now() : 0;
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    console.log(`[Performance] auth.getUser: ${(performance.now() - authStartTime).toFixed(2)}ms`);
+    if (isDevelopment) {
+      console.log(`[Performance] auth.getUser: ${(performance.now() - authStartTime).toFixed(2)}ms`);
+    }
     
     if (userError || !user) {
       return null;
     }
 
     // Fetch profile and membership+org in parallel for maximum performance
-    const parallelStartTime = performance.now();
+    const parallelStartTime = isDevelopment ? performance.now() : 0;
     const [
       { data: profile, error: profileError },
       { data: membershipWithOrgAndCount, error: membershipError }
@@ -70,7 +81,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
           organizations!memberships_org_id_fkey (
             id, name, type, industry, logo_url, 
             website, description, currency_code, 
-            connection_code, owner_id, is_draft
+            connection_code, owner_id, is_draft, billing_status, stripe_price_id, stripe_customer_id, stripe_subscription_id, current_period_end
           )
         `)
         .eq('user_id', user.id)
@@ -78,7 +89,9 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         .single()
     ]);
     
-    console.log(`[Performance] Parallel queries (profile + membership+org): ${(performance.now() - parallelStartTime).toFixed(2)}ms`);
+    if (isDevelopment) {
+      console.log(`[Performance] Parallel queries (profile + membership+org): ${(performance.now() - parallelStartTime).toFixed(2)}ms`);
+    }
 
     if (profileError || !profile) {
       console.error('Profile fetch failed:', profileError);
@@ -107,13 +120,15 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         
         // Fetch member count - optimized to run in parallel with other operations
         // We use head: true for faster count-only queries (no data transfer)
-        const countStartTime = performance.now();
+        const countStartTime = isDevelopment ? performance.now() : 0;
         const { count, error: memberCountError } = await supabase
           .from('memberships')
           .select('*', { count: 'exact', head: true })
           .eq('org_id', organization.id);
         
-        console.log(`[Performance] Member count query: ${(performance.now() - countStartTime).toFixed(2)}ms`);
+        if (isDevelopment) {
+          console.log(`[Performance] Member count query: ${(performance.now() - countStartTime).toFixed(2)}ms`);
+        }
         
         if (!memberCountError) {
           finalMemberCount = count || 0;
@@ -122,15 +137,17 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
     } else {
       // Fallback: try as owner (for cases where membership might not exist)
       // CRITICAL: Filter out draft organizations - they cannot be active contexts
-      const fallbackStartTime = performance.now();
+      const fallbackStartTime = isDevelopment ? performance.now() : 0;
       const { data: ownerOrg, error: ownerError } = await supabase
         .from('organizations')
-        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id, is_draft')
+        .select('id, name, type, industry, logo_url, website, description, currency_code, connection_code, owner_id, is_draft, billing_status, stripe_price_id, stripe_customer_id, stripe_subscription_id, current_period_end')
         .eq('owner_id', user.id)
         .is('is_draft', false)
         .single();
       
-      console.log(`[Performance] Owner fallback query: ${(performance.now() - fallbackStartTime).toFixed(2)}ms`);
+      if (isDevelopment) {
+        console.log(`[Performance] Owner fallback query: ${(performance.now() - fallbackStartTime).toFixed(2)}ms`);
+      }
       
       if (ownerOrg && !ownerError) {
         organization = ownerOrg;
@@ -148,7 +165,15 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
     }
 
     if (!profile || !organization || !membership) {
-      console.error('Missing required data:', { profile: !!profile, organization: !!organization, membership: !!membership });
+      // Only log as warning if we have a profile but missing org/membership (unexpected state)
+      // Silent return if no profile (user might not be logged in or profile not created yet)
+      if (profile && (!organization || !membership)) {
+        console.warn('User has profile but missing organization/membership:', { 
+          profile: !!profile, 
+          organization: !!organization, 
+          membership: !!membership 
+        });
+      }
       return null;
     }
 
@@ -158,25 +183,8 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
       const errorMessage = `SECURITY VIOLATION: Attempted to use draft organization as active context. Org ID: ${organization.id}, User ID: ${user.id}, Org Name: ${organization.name}`;
       console.error(errorMessage);
       
-      // Log to Sentry if available (works in both server and client contexts)
-      try {
-        // Try dynamic import for Sentry (works in server-side Next.js)
-        const Sentry = await import('@sentry/nextjs').catch(() => null);
-        if (Sentry) {
-          Sentry.captureException(new Error(errorMessage), {
-            tags: { type: 'draft_org_context_violation' },
-            extra: { 
-              orgId: organization.id, 
-              userId: user.id, 
-              orgName: organization.name,
-              orgType: organization.type
-            }
-          });
-        }
-      } catch (sentryError) {
-        // Sentry not available or failed to import - continue with console logging
-        console.error('Failed to log to Sentry:', sentryError);
-      }
+      // Log security violation (Sentry integration removed to avoid build warnings)
+      // If Sentry is needed in the future, install @sentry/nextjs and uncomment the import
       
       return null;
     }
@@ -190,6 +198,39 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
     // Derive variant and capabilities from single source of truth
     const variant: Variant = organization.type; // Now type-safe!
     const capabilities = deriveCapabilities(variant, isOwner);
+
+    // Check member access restriction (only for free agencies)
+    let isRestricted = false
+    const billingStatus = organization.billing_status || 'free'
+    const organizationType = organization.type as 'agency' | 'client'
+    let ownerName: string | undefined
+    let ownerEmail: string | undefined
+    
+    if (organizationType === 'agency' && billingStatus === 'free') {
+      const { checkMemberAccess } = await import('@/lib/paywall/checkMemberAccess')
+      const accessResult = await checkMemberAccess({
+        organizationId: organization.id,
+        userId: user.id,
+        billingStatus,
+        organizationType,
+        ownerId: organization.owner_id,
+      })
+      isRestricted = accessResult.isRestricted
+      
+      // Fetch owner profile info for restricted member modal (only if restricted)
+      if (isRestricted && organization.owner_id !== user.id) {
+        const { data: ownerProfile } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, email')
+          .eq('id', organization.owner_id)
+          .single()
+        
+        if (ownerProfile) {
+          ownerName = `${ownerProfile.first_name || ''} ${ownerProfile.last_name || ''}`.trim() || undefined
+          ownerEmail = ownerProfile.email || undefined
+        }
+      }
+    }
 
     const enhancedContextData = {
       // ModeContext fields
@@ -219,13 +260,23 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
         currencyCode: organization.currency_code || undefined,
         connectionCode: organization.connection_code || undefined,
         ownerId: organization.owner_id,
-        is_draft: organization.is_draft || false // Should always be false for active contexts
+        is_draft: organization.is_draft || false, // Should always be false for active contexts
+        billing_status: organization.billing_status || undefined,
+        stripe_price_id: organization.stripe_price_id || undefined,
+        stripeCustomerId: organization.stripe_customer_id || undefined,
+        stripeSubscriptionId: organization.stripe_subscription_id || undefined,
+        current_period_end: organization.current_period_end || undefined,
+        ownerName,
+        ownerEmail
       },
-      currentUserRole: (isOwner ? 'owner' : 'member') as 'owner' | 'member'
+      currentUserRole: (isOwner ? 'owner' : 'member') as 'owner' | 'member',
+      isRestricted
     };
 
-    const totalTime = performance.now() - startTime;
-    console.log(`[Performance] getActiveContext TOTAL: ${totalTime.toFixed(2)}ms`);
+    if (isDevelopment) {
+      const totalTime = performance.now() - startTime;
+      console.log(`[Performance] getActiveContext TOTAL: ${totalTime.toFixed(2)}ms`);
+    }
 
     return enhancedContextData;
   } catch (error) {

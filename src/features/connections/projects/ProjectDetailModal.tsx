@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button'
 import { ProjectDetailContent } from './ProjectDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { X, ArrowsOutSimple, DotsThree, LinkSimple, Trash } from '@phosphor-icons/react'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import { deleteProject } from './actions'
 import type { Project } from '../server'
+import { useConnection } from '../ConnectionContext'
 
 interface ProjectDetailModalProps {
   projectData: {
@@ -59,7 +59,7 @@ interface ProjectDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onExpand: () => void
-  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any }) => void
+  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: Project['assignee'] }) => void
   onProjectDeleted?: (projectId: string) => void
   connectionId: string
   currentOrgId: string
@@ -89,12 +89,46 @@ interface ProjectDetailModalProps {
 }
 
 export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, onClose, onExpand, onProjectUpdate, onProjectDeleted, connectionId, currentOrgId, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailModalProps) {
+  const { isDisconnected } = useConnection()
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   
   // Determine dialog title based on organization type that created the project
   const getDialogTitle = () => {
     return 'Project'
+  }
+  
+  // Handle copy link
+  const handleCopyLink = () => {
+    if (!projectData?.projectId || !connectionId) return
+    if (typeof window === 'undefined') return
+
+    const currentPath = window.location.pathname
+    const routeSegment = currentPath.startsWith('/agencies/')
+      ? 'agencies'
+      : currentPath.startsWith('/clients/')
+        ? 'clients'
+        : variant === 'agency'
+          ? 'clients' // Agencies view clients
+          : 'agencies' // Clients view agencies
+
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      toast.error('Clipboard unavailable')
+      return
+    }
+
+    const fullUrl = `${window.location.origin}/${routeSegment}/${connectionId}/projects/${projectData.projectId}`
+
+    clipboard.writeText(fullUrl)
+      .then(() => {
+        toast.success('Link copied to clipboard')
+        setIsActionsDropdownOpen(false)
+      })
+      .catch((error) => {
+        console.error('Failed to copy project link:', error)
+        toast.error('Failed to copy link')
+      })
   }
   
   // Handle delete project click (opens confirmation dialog)
@@ -156,11 +190,11 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[200px]">
-                <DropdownMenuItem onClick={() => setIsActionsDropdownOpen(false)}>
+                <DropdownMenuItem onClick={handleCopyLink}>
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {variant === 'agency' && (
+                {!isDisconnected && variant === 'agency' && (
                   <>
                 <div className="border-t border-[var(--color-neutral-6)] my-1" />
                 <DropdownMenuItem 
@@ -221,10 +255,12 @@ export function ProjectDetailModal({ projectData, agencyMembers = [], isOpen, on
               createdByOrgId={projectData.createdByOrgId}
               createdByOrgType={projectData.createdByOrgType}
               currentOrgId={currentOrgId}
+              connectionId={connectionId}
               variant={variant}
               activeUser={activeUser}
               initialComments={initialComments}
               onCommentsUpdate={onCommentsUpdate}
+              isDisconnected={isDisconnected}
             />
           </div>
         )}

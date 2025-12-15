@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ListRow } from '@/components/ui/list-row';
 import { ProfileCard } from '@/components/ui/profile-card';
-import { StatusBadge } from '@/components/ui/connection-badge';
 import { Eye, ArrowsClockwise, UserMinus, User, Users } from '@phosphor-icons/react/dist/ssr';
 import { toast } from 'sonner';
 import { handleContactSelect, handleUnassignContact, handleAgencyContactSelect, handleUnassignAgencyContact } from '../client-actions';
@@ -84,7 +83,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
       // Optimistic assign: server now has a value, clear optimistic state
       setOptimisticAgencyContact(null);
     }
-  }, [snapshot.connection.clientPrimaryContact, snapshot.connection.agencyPrimaryContact]);
+  }, [snapshot.connection.clientPrimaryContact, snapshot.connection.agencyPrimaryContact, optimisticPrimaryContact, optimisticAgencyContact]);
   
   const handleContactClick = (contact: {
     id: string;
@@ -320,7 +319,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text={isInternal ? "To be invited" : "Assign contact"}
+                    text={isDisconnected ? "Unassigned" : (isInternal ? "To be invited" : "Assign contact")}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -376,7 +375,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text="Assign contact"
+                    text={isDisconnected ? "Unassigned" : "Assign contact"}
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -406,7 +405,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                     avatarUrl={currentAgencyContact!.avatarUrl}
                     text={`${currentAgencyContact!.firstName} ${currentAgencyContact!.lastName}`}
                     secondaryText={currentAgencyContact!.jobTitle || 'No job title'}
-                    iconButtonEnd={!isDisconnected}
+                    iconButtonEnd={false}
                     onClick={() => handleContactClick({ 
                       id: currentAgencyContact!.id,
                       first_name: currentAgencyContact!.firstName, 
@@ -426,7 +425,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text="Awaiting agency assignment"
+                    text="Unassigned"
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}
@@ -479,7 +478,7 @@ export default function ContactsCard({ snapshot, context }: { snapshot: Connecti
                   <ListRow
                     avatar={true}
                     avatarFallback={<User size={16} weight="fill" className="text-white" />}
-                    text="Assign contact to represent your team"
+                    text="Unassigned"
                     textColor="var(--color-base-text-tertiary)"
                     secondaryText={false}
                     actions={false}

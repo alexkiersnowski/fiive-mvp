@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef, useMemo, useTransition } from 'react';
+import { useState, useCallback, useEffect, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, Link } from '@phosphor-icons/react/ssr';
@@ -13,6 +13,8 @@ import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import { ClientsTable } from '@/features/clients/ClientsTable';
 import { ClientsHeader } from '@/features/clients/ClientsHeader';
 import { createNewClient, connectToExistingClient, refreshClientsData, fetchMoreClients } from '@/features/clients/actions';
+import { PaywallModal } from '@/components/ui/paywall-modal';
+import { getAllowedConnectionIds } from '@/lib/paywall/checkWorkspaceAccess';
 import { 
   accountTypeSchema, 
   addNewClientSchema, 
@@ -32,13 +34,17 @@ interface ClientsContentProps {
   context: EnhancedModeContext;
   initialSearchValue?: string;
   initialSortValue?: string;
+  canAddNewClient?: boolean;
+  canConnectToClient?: boolean;
 }
 
 export function ClientsContent({ 
   snapshot, 
   context, 
   initialSearchValue = '', 
-  initialSortValue = 'newest-first' 
+  initialSortValue = 'created',
+  canAddNewClient = true,
+  canConnectToClient = true
 }: ClientsContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -53,10 +59,10 @@ export function ClientsContent({
   const [hasNextPage, setHasNextPage] = useState(snapshot.hasNextPage);
   const [searchValue, setSearchValue] = useState(initialSearchValue);
   const [debouncedSearchValue, setDebouncedSearchValue] = useState(initialSearchValue);
-  const [sortValue, setSortValue] = useState(initialSortValue || 'newest-first');
+  const [sortValue, setSortValue] = useState(initialSortValue || 'created');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingServerResults, setIsFetchingServerResults] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
   const [isAddNewClientDialogOpen, setIsAddNewClientDialogOpen] = useState(false);
   const [isConnectToClientDialogOpen, setIsConnectToClientDialogOpen] = useState(false);
@@ -65,6 +71,96 @@ export function ClientsContent({
   const [connectedClientLogo, setConnectedClientLogo] = useState<string | undefined>(undefined);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCreatingClient, setIsCreatingClient] = useState(false);
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
+  const [allowedConnectionIds, setAllowedConnectionIds] = useState<string[] | null>(null);
+
+  // Fetch allowed connection IDs for workspace access gating
+  useEffect(() => {
+    const fetchAllowedIds = async () => {
+      const billingStatus = context.organization.billing_status || 'free';
+      const allowedIds = await getAllowedConnectionIds(context.orgId, billingStatus);
+      setAllowedConnectionIds(allowedIds);
+    };
+    fetchAllowedIds();
+  }, [context.orgId, context.organization.billing_status]);
+
+  // Handle paywall query param (from server-side redirect)
+  useEffect(() => {
+    const paywallParam = searchParams.get('paywall');
+    if (paywallParam === 'workspace') {
+      setIsPaywallModalOpen(true);
+      // Clear query param to prevent reopening on refresh
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('paywall');
+      const newUrl = params.toString() ? `/clients?${params.toString()}` : '/clients';
+      router.replace(newUrl, { scroll: false });
+    }
+  }, [searchParams, router]);
+
+  // Client-side filtering function that matches server-side search logic
+  // Used when unfilteredTotalCount <= 100 for instant search without network calls
+  function filterClientsLocally(
+    clientsToFilter: Client[],
+    searchQuery: string
+  ): Client[] {
+    const trimmedQuery = searchQuery.trim();
+    
+    if (!trimmedQuery) {
+      return clientsToFilter;
+    }
+
+    const lowerQuery = trimmedQuery.toLowerCase();
+    const searchTerms = lowerQuery.split(' ').filter(t => t.length > 0);
+
+    return clientsToFilter.filter(client => {
+      const name = (client.name || '').toLowerCase();
+      // Check if all search terms match client name
+      return searchTerms.every(term => name.includes(term));
+    });
+  }
+
+  // Client-side sorting function
+  // Used when unfilteredTotalCount <= 100 for instant sort without network calls
+  function sortClientsLocally(
+    clientsToSort: Client[],
+    sortOption: string
+  ): Client[] {
+    const sorted = [...clientsToSort];
+    
+    switch (sortOption) {
+      case 'created':
+        return sorted.sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA; // Descending (newest first)
+        });
+      case 'alphabetical':
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      case 'contract-end-soonest':
+        return sorted.sort((a, b) => {
+          // Both have NULL contract end - sort by name A-Z
+          if (!a.contractEnd && !b.contractEnd) {
+            return a.name.localeCompare(b.name);
+          }
+          // NULLS LAST
+          if (!a.contractEnd) return 1;
+          if (!b.contractEnd) return -1;
+          // Parse date string (format: "1 Jan 2024" - en-GB format)
+          const dateA = new Date(a.contractEnd).getTime();
+          const dateB = new Date(b.contractEnd).getTime();
+          // Handle invalid dates
+          if (isNaN(dateA) && isNaN(dateB)) return a.name.localeCompare(b.name);
+          if (isNaN(dateA)) return 1; // Invalid dates last
+          if (isNaN(dateB)) return -1; // Invalid dates last
+          return dateA - dateB; // Ascending (soonest first)
+        });
+      default:
+        return sorted;
+    }
+  }
+  
+  // Determine if we should use client-side filtering/sorting (≤100 clients) or server-side (>100 clients)
+  const useClientSideFiltering = unfilteredTotalCount <= 100;
 
   // Sync local state with server snapshot when props change
   useEffect(() => {
@@ -79,20 +175,36 @@ export function ClientsContent({
     });
   }, [snapshot, startTransition]);
 
-  // Debounce server fetch (150ms - reduced from 300ms for faster response)
+  // Debounce logic: immediate for client-side filtering, 150ms for server-side search
   useEffect(() => {
+    if (useClientSideFiltering) {
+      // For client-side filtering, update immediately (no debounce needed)
+      setDebouncedSearchValue(searchValue);
+      return;
+    }
+    
+    // For server-side search, debounce to reduce API calls
     const timer = setTimeout(() => {
       setDebouncedSearchValue(searchValue);
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [searchValue]);
+  }, [searchValue, useClientSideFiltering]);
 
-  // Trigger server fetch when debounced search or sort changes (for complete results)
+  // Trigger server fetch when debounced search or sort changes
+  // For >100 clients: ALWAYS use server-side (both search and sort)
+  // For ≤100 clients: use client-side (no server fetch needed)
   useEffect(() => {
     const currentSearchParam = searchParams.get('search') || '';
-    const currentSortParam = searchParams.get('sort') || 'newest-first';
+    const currentSortParam = searchParams.get('sort') || 'created';
     
+    // If using client-side filtering/sorting, skip server fetch
+    if (useClientSideFiltering) {
+      setIsFetchingServerResults(false);
+      return;
+    }
+    
+    // For >100 clients: trigger server fetch when search or sort changes
     if (debouncedSearchValue !== currentSearchParam || sortValue !== currentSortParam) {
       setIsFetchingServerResults(true);
       const params = new URLSearchParams(searchParams.toString());
@@ -104,11 +216,15 @@ export function ClientsContent({
       params.set('sort', sortValue);
       router.push(`/clients?${params.toString()}`, { scroll: false });
     }
-  }, [debouncedSearchValue, sortValue, router, searchParams]);
-
-  // Display: Use server results directly (no optimistic filtering)
-  const displayedClients = clients;
-  const displayedTotal = totalCount;
+  }, [debouncedSearchValue, sortValue, router, searchParams, useClientSideFiltering]);
+  
+  // Display: Apply client-side filtering and sorting if enabled, otherwise use server results directly
+  const displayedClients = useClientSideFiltering
+    ? sortClientsLocally(filterClientsLocally(clients, searchValue), sortValue)
+    : clients;
+  const displayedTotal = useClientSideFiltering
+    ? displayedClients.length
+    : totalCount;
 
 
   // Track header height for sticky table offset
@@ -150,16 +266,10 @@ export function ClientsContent({
 
   // Sort options
   const sortOptions = [
-    { value: 'newest-first', label: 'Newest first', buttonLabel: 'Newest first' },
+    { value: 'created', label: 'Created', buttonLabel: 'Created' },
     { value: 'alphabetical', label: 'Client (A–Z)', buttonLabel: 'Client (A–Z)' },
-    { value: 'reverse-alphabetical', label: 'Client (Z–A)', buttonLabel: 'Client (Z–A)' },
-    { value: 'contract-end-soonest', label: 'Contract end (soonest first)', buttonLabel: 'Contract end' },
-    { value: 'status-critical-first', label: 'Health (critical first)', buttonLabel: 'Health' }
+    { value: 'contract-end-soonest', label: 'Contract end (soonest first)', buttonLabel: 'Contract end' }
   ];
-
-  const getCurrentSortLabel = () => {
-    return sortOptions.find(option => option.value === sortValue)?.buttonLabel || 'Newest first';
-  };
 
   const loadMore = useCallback(async () => {
     if (!hasNextPage || isLoading || !cursor) return;
@@ -204,6 +314,7 @@ export function ClientsContent({
   }, []);
 
   const handleAddClientClick = () => {
+    // Always open the initial modal - don't block here for onboarding UX
     setIsAddClientDialogOpen(true);
     selectionForm.reset();
   };
@@ -243,9 +354,23 @@ export function ClientsContent({
 
   const handleSelectionSubmit = (data: AccountTypeFormData) => {
     if (data.accountType === 'agency') {
+      // Use pre-fetched paywall check for "Add a new client" option (internal connection)
+      if (!canAddNewClient) {
+        setIsAddClientDialogOpen(false);
+        setIsPaywallModalOpen(true);
+        return;
+      }
+      
       setIsAddClientDialogOpen(false);
       setIsAddNewClientDialogOpen(true);
     } else if (data.accountType === 'client') {
+      // Use pre-fetched paywall check for "Connect to client" option (agency-initiated connection code)
+      if (!canConnectToClient) {
+        setIsAddClientDialogOpen(false);
+        setIsPaywallModalOpen(true);
+        return;
+      }
+      
       setIsAddClientDialogOpen(false);
       setIsConnectToClientDialogOpen(true);
     }
@@ -266,6 +391,11 @@ export function ClientsContent({
           sort: sortValue
         });
 
+        // Refresh allowed connection IDs to include the newly created client
+        const billingStatus = context.organization.billing_status || 'free';
+        const allowedIds = await getAllowedConnectionIds(context.orgId, billingStatus);
+        setAllowedConnectionIds(allowedIds);
+
         // Update table with server response
         startTransition(() => {
           setClients(refreshedSnapshot.clients);
@@ -278,10 +408,16 @@ export function ClientsContent({
         // Close dialog only after everything is complete (spinner stops in finally)
         handleAddNewClientDialogClose();
       } else {
+        // Check if this is a paywall error
+        if (result.paywall) {
+          handleAddNewClientDialogClose();
+          setIsPaywallModalOpen(true);
+      } else {
         // Keep dialog open and show error - no optimistic updates to rollback
         addNewClientForm.setError('clientName', {
           message: result.error || 'Failed to create client. Please try again.'
         });
+        }
       }
     } catch (error) {
       console.error('Unexpected error creating client:', {
@@ -325,6 +461,12 @@ export function ClientsContent({
             search: debouncedSearchValue,
             sort: sortValue
           });
+          
+          // Refresh allowed connection IDs to include the newly connected client
+          const billingStatus = context.organization.billing_status || 'free';
+          const allowedIds = await getAllowedConnectionIds(context.orgId, billingStatus);
+          setAllowedConnectionIds(allowedIds);
+          
         startTransition(() => {
           setClients(refreshedSnapshot.clients);
           setTotalCount(refreshedSnapshot.total);
@@ -339,10 +481,16 @@ export function ClientsContent({
         // Show success modal
         setIsConnectSuccess(true);
       } else {
+        // Check if this is a paywall error
+        if (result.paywall) {
+          handleConnectToClientDialogClose();
+          setIsPaywallModalOpen(true);
+      } else {
         // Show error message in form
         connectToClientForm.setError('connectionCode', {
           message: result.error || 'Invalid connection code'
         });
+        }
       }
     } finally {
       setIsConnecting(false);
@@ -378,7 +526,7 @@ export function ClientsContent({
           sortValue={sortValue}
           isLoading={isLoading}
           isBootstrapping={isFetchingServerResults && displayedClients.length === 0}
-          isSearching={searchValue.trim() !== debouncedSearchValue.trim()}
+          isSearching={!useClientSideFiltering && searchValue.trim() !== debouncedSearchValue.trim()}
           hasNextPage={hasNextPage}
           unfilteredTotalCount={unfilteredTotalCount}
           onLoadMore={loadMore}
@@ -386,6 +534,9 @@ export function ClientsContent({
           parentRef={parentRef}
           headerOffset={headerOffset}
           context={context}
+          allowedConnectionIds={allowedConnectionIds}
+          billingStatus={context.organization.billing_status || 'free'}
+          onPaywallTrigger={() => setIsPaywallModalOpen(true)}
         onClientDeleteOptimistic={(clientId) => {
           // Optimistically remove client from UI immediately (synchronous for instant feedback)
           setClients(prev => prev.filter(client => client.clientId !== clientId));
@@ -616,7 +767,7 @@ export function ClientsContent({
                   </AvatarFallback>
                 </Avatar>
                 
-                <DialogTitle className="display-5-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>Connected to {connectedClientName}</DialogTitle>
+                <DialogTitle className="display-7-medium mb-2" style={{ color: 'var(--color-base-text-primary)' }}>Connected to {connectedClientName}</DialogTitle>
                 <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
                   You can now collaborate through your shared workspace
                 </DialogDescription>
@@ -637,6 +788,12 @@ export function ClientsContent({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
 
     </div>
   );

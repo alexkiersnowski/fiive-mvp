@@ -10,12 +10,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
 import { TaskStatusButton } from '@/components/ui/task-status-button'
 import { TaskBadge } from '@/components/ui/task-badge'
-import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Eye, EyeSlash, Check, CaretDown, User, X } from '@phosphor-icons/react'
 import { parse, format } from 'date-fns'
 import { toast } from 'sonner'
 import { fetchProjectsForConnection, fetchMembersForConnection } from './actions'
+import { Spinner } from '@/components/ui/shadcn-io/spinner'
 
 type TaskStatus = 'to_do' | 'in_progress' | 'on_hold' | 'done'
 
@@ -157,6 +157,36 @@ export function ConvertToTaskModal({
       })
     }
   }, [projects])
+
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        return;
+      }
+
+      // Update project name in projectOptions list
+      setProjectOptions((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+
+      // Update projectValue if it matches the updated project
+      setProjectValue((prev) => {
+        if (prev && prev.id === projectId) {
+          return { ...prev, name: title };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId])
 
   useEffect(() => {
     if (!isOpen) return
@@ -381,6 +411,7 @@ export function ConvertToTaskModal({
     dueDateRaw,
     onSubmit,
     projectValue,
+    request,
     statusValue,
     titleValue,
   ])
@@ -497,6 +528,7 @@ export function ConvertToTaskModal({
                       textClass="text-md-regular"
                       multiline={true}
                       linkifyUrls={true}
+                      maxLength={10000}
                       className="px-0"
                       style={{ fontSize: '15px', lineHeight: '22px' }}
                     />
@@ -507,7 +539,7 @@ export function ConvertToTaskModal({
 
             <div className="w-px bg-neutral-alpha-4 flex-shrink-0 mb-10" />
 
-            <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
+            <div className="flex-[1] flex flex-col gap-2 min-w-0 pl-8 mb-10">
               <h3 className="text-md-medium text-primary">Details</h3>
               <div className="flex flex-col gap-2 mt-2">
                 <div className="flex items-center gap-4 h-6">
@@ -524,24 +556,26 @@ export function ConvertToTaskModal({
                   </div>
                 </div>
 
-                <div className="flex items中心 gap-4 h-6">
+                <div className="flex items-center gap-4 h-6">
                   <div className="w-2/5 min-w-0">
                     <p className="text-sm-regular text-secondary truncate">Project</p>
                   </div>
-                  <div className="w-3/5 min-w-0">
-                    <InlineEdit
-                      type="badge"
-                      value={projectValue ? projectValue.id : ''}
-                      options={projectOptions.map(p => ({ value: p.id, label: p.name }))}
-                      onSave={handleProjectSave}
-                      placeholder="None (account task)"
-                      searchPlaceholder="Search projects…"
-                      clearable={!!projectValue}
-                      popoverWidth="240px"
-                      badgeBorderRadius="4px"
-                      maxHeight="210px"
-                      className="h-6"
-                    />
+                  <div className="w-3/5 min-w-0 max-w-full">
+                    <div className="min-w-0 max-w-full">
+                      <InlineEdit
+                        type="badge"
+                        value={projectValue ? projectValue.id : ''}
+                        options={projectOptions.map(p => ({ value: p.id, label: p.name }))}
+                        onSave={handleProjectSave}
+                        placeholder="None (account task)"
+                        searchPlaceholder="Search projects…"
+                        clearable={!!projectValue}
+                        popoverWidth="240px"
+                        badgeBorderRadius="4px"
+                        maxHeight="210px"
+                        className="h-6"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -652,19 +686,6 @@ export function ConvertToTaskModal({
                     </div>
                   </div>
                 )}
-
-                {request?.project && (
-                  <div className="flex items-center gap-4 h-6">
-                    <div className="w-2/5 min-w-0">
-                      <p className="text-sm-regular text-secondary truncate">Request project</p>
-                    </div>
-                    <div className="w-3/5 min-w-0">
-                      <Badge variant="neutral" className="text-xs">
-                        {request.project.name}
-                      </Badge>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -676,8 +697,13 @@ export function ConvertToTaskModal({
               A new task will be created and linked to this request
             </span>
             <div className="flex items-center gap-2">
-              <Button onClick={handleSubmit} disabled={disableCreate} className="!h-10 cursor-pointer">
-                {isSubmitting ? 'Creating…' : 'Create'}
+              <Button onClick={handleSubmit} disabled={disableCreate} className="!h-10 cursor-pointer relative">
+                <span className={isSubmitting ? "invisible" : ""}>Create</span>
+                {isSubmitting && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Spinner size={16} />
+                  </div>
+                )}
               </Button>
             </div>
           </div>

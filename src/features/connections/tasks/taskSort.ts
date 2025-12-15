@@ -1,26 +1,9 @@
 import type { Task, TaskStatus } from '../server'
 
-export type TaskSortMode = 'newest' | 'status'
-
-const STATUS_PRIORITY: Record<TaskStatus, number> = {
-  in_progress: 0,
-  to_do: 1,
-  on_hold: 2,
-  done: 3
-}
-
-const MAX_PRIORITY = Number.MAX_SAFE_INTEGER
-
 const parseDate = (value?: string | null): number | null => {
   if (!value) return null
   const timestamp = Date.parse(value)
   return Number.isNaN(timestamp) ? null : timestamp
-}
-
-const getDueTimestamp = (task: Task): number | null => {
-  const fromRaw = parseDate(task.dueDateRaw)
-  if (fromRaw !== null) return fromRaw
-  return parseDate(task.dueDate)
 }
 
 const getCreatedTimestamp = (task: Task): number | null => {
@@ -29,141 +12,7 @@ const getCreatedTimestamp = (task: Task): number | null => {
   return parseDate(task.createdAt)
 }
 
-const getCompletedTimestamp = (task: Task): number | null => {
-  const fromRaw = parseDate(task.completedAtRaw)
-  if (fromRaw !== null) return fromRaw
-  return parseDate(task.completedAt)
-}
-
-const getStatusPriority = (status: TaskStatus): number => {
-  return STATUS_PRIORITY[status] ?? MAX_PRIORITY
-}
-
-const comparePinned = (a: Task, b: Task): number => {
-  const aPinned = Boolean(a.isPinned)
-  const bPinned = Boolean(b.isPinned)
-  if (aPinned && !bPinned) return -1
-  if (!aPinned && bPinned) return 1
-  return 0
-}
-
-export const compareTasksByStatus = (a: Task, b: Task): number => {
-  const pinnedDiff = comparePinned(a, b)
-  if (pinnedDiff !== 0) return pinnedDiff
-
-  // Separate Done tasks from non-Done tasks
-  const aIsDone = a.status === 'done'
-  const bIsDone = b.status === 'done'
-  
-  // If one is Done and one isn't, Done always goes last
-  if (aIsDone && !bIsDone) return 1
-  if (!aIsDone && bIsDone) return -1
-  
-  // If both are Done, sort by completed_at (newest → oldest)
-  if (aIsDone && bIsDone) {
-    const aCompleted = getCompletedTimestamp(a)
-    const bCompleted = getCompletedTimestamp(b)
-    
-    if (aCompleted !== null && bCompleted !== null) {
-      return bCompleted - aCompleted // newest first (descending)
-    }
-    if (aCompleted !== null && bCompleted === null) return -1
-    if (aCompleted === null && bCompleted !== null) return 1
-    // Both null - fallback to created_at (newest → oldest)
-    const aCreated = getCreatedTimestamp(a)
-    const bCreated = getCreatedTimestamp(b)
-    if (aCreated !== null && bCreated !== null) {
-      return bCreated - aCreated
-    }
-    return 0
-  }
-
-  // Both are non-Done: use status priority
-  const statusDiff = getStatusPriority(a.status) - getStatusPriority(b.status)
-  if (statusDiff !== 0) return statusDiff
-
-  const aDue = getDueTimestamp(a)
-  const bDue = getDueTimestamp(b)
-
-  if (aDue !== null && bDue !== null && aDue !== bDue) {
-    return aDue - bDue
-  }
-
-  if (aDue !== null && bDue === null) return -1
-  if (aDue === null && bDue !== null) return 1
-
-  return compareTasksByNewest(a, b)
-}
-
-export const compareTasksByNewest = (a: Task, b: Task): number => {
-  const pinnedDiff = comparePinned(a, b)
-  if (pinnedDiff !== 0) return pinnedDiff
-
-  // Separate Done tasks from non-Done tasks
-  const aIsDone = a.status === 'done'
-  const bIsDone = b.status === 'done'
-  
-  // If one is Done and one isn't, Done always goes last
-  if (aIsDone && !bIsDone) return 1
-  if (!aIsDone && bIsDone) return -1
-  
-  // If both are Done, sort by completed_at (newest → oldest)
-  if (aIsDone && bIsDone) {
-    const aCompleted = getCompletedTimestamp(a)
-    const bCompleted = getCompletedTimestamp(b)
-    
-    if (aCompleted !== null && bCompleted !== null) {
-      return bCompleted - aCompleted // newest first (descending)
-    }
-    if (aCompleted !== null && bCompleted === null) return -1
-    if (aCompleted === null && bCompleted !== null) return 1
-    // Both null - fallback to created_at (newest → oldest)
-    const aCreated = getCreatedTimestamp(a)
-    const bCreated = getCreatedTimestamp(b)
-    if (aCreated !== null && bCreated !== null) {
-      return bCreated - aCreated
-    }
-    return 0
-  }
-
-  // Both are non-Done: sort by created_at (newest → oldest)
-  const aCreated = getCreatedTimestamp(a)
-  const bCreated = getCreatedTimestamp(b)
-
-  if (aCreated !== null && bCreated !== null && aCreated !== bCreated) {
-    return bCreated - aCreated
-  }
-
-  if (aCreated !== null && bCreated === null) return -1
-  if (aCreated === null && bCreated !== null) return 1
-
-  const statusDiff = getStatusPriority(a.status) - getStatusPriority(b.status)
-  if (statusDiff !== 0) return statusDiff
-
-  const aDue = getDueTimestamp(a)
-  const bDue = getDueTimestamp(b)
-
-  if (aDue !== null && bDue !== null && aDue !== bDue) {
-    return aDue - bDue
-  }
-
-  if (aDue !== null && bDue === null) return -1
-  if (aDue === null && bDue !== null) return 1
-
-  if (a.id < b.id) return -1
-  if (a.id > b.id) return 1
-  return 0
-}
-
-export const getTaskComparator = (mode: TaskSortMode) => {
-  return mode === 'status' ? compareTasksByStatus : compareTasksByNewest
-}
-
-export const sortTasks = (tasks: Task[], mode: TaskSortMode = 'status'): Task[] => {
-  return [...tasks].sort(getTaskComparator(mode))
-}
-
-export const sortTasksWithPinnedFirst = (tasks: Task[], mode: TaskSortMode = 'status'): Task[] => {
+export const sortTasksWithPinnedFirst = (tasks: Task[]): Task[] => {
   if (tasks.length <= 1) {
     return tasks.slice()
   }
@@ -180,11 +29,79 @@ export const sortTasksWithPinnedFirst = (tasks: Task[], mode: TaskSortMode = 'st
   }
 
   if (pinned.length === 0) {
-    return sortTasks(regular, mode)
+    return regular
   }
 
-  const sortedRegular = sortTasks(regular, mode)
-  return [...pinned, ...sortedRegular]
+  // Regular tasks are already sorted by server (status, then created_at DESC)
+  // Just prepend pinned tasks
+  return [...pinned, ...regular]
+}
+
+/**
+ * Groups tasks by status and sorts within each group by created_at DESC
+ * Status order: in_progress, to_do, on_hold, done
+ * Within each group, tasks are sorted by created_at DESC (newest first)
+ */
+export const groupTasksByStatus = (tasks: Task[]): Record<TaskStatus, Task[]> => {
+  const groups: Record<TaskStatus, Task[]> = {
+    in_progress: [],
+    to_do: [],
+    on_hold: [],
+    done: []
+  }
+
+  // Debug logging for status grouping
+  if (process.env.NODE_ENV !== 'production') {
+    const statusCounts = tasks.reduce((acc, task) => {
+      acc[task.status] = (acc[task.status] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    console.log('[groupTasksByStatus] Grouping tasks', {
+      totalTasks: tasks.length,
+      statusCounts,
+      taskStatuses: tasks.map(t => ({ id: t.id, status: t.status }))
+    })
+  }
+
+  // Group tasks by status
+  for (const task of tasks) {
+    const status = task.status
+    if (!groups[status]) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[groupTasksByStatus] Unknown status:', status, 'for task:', task.id)
+      }
+      // Fallback: treat unknown status as 'to_do'
+      groups['to_do'].push(task)
+    } else {
+      groups[status].push(task)
+    }
+  }
+
+  // Sort tasks within each group by created_at DESC (newest first)
+  for (const status in groups) {
+    groups[status as TaskStatus].sort((a, b) => {
+      const aCreated = getCreatedTimestamp(a)
+      const bCreated = getCreatedTimestamp(b)
+      
+      if (aCreated !== null && bCreated !== null) {
+        return bCreated - aCreated // Descending (newest first)
+      }
+      if (aCreated !== null && bCreated === null) return -1
+      if (aCreated === null && bCreated !== null) return 1
+      return 0
+    })
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[groupTasksByStatus] Grouped result', {
+      in_progress: groups.in_progress.length,
+      to_do: groups.to_do.length,
+      on_hold: groups.on_hold.length,
+      done: groups.done.length
+    })
+  }
+
+  return groups
 }
 
 export type { Task }

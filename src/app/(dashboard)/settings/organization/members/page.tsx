@@ -1,5 +1,6 @@
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { getOrganizationMembers, getOrganizationInvitations } from '../../actions'
+import { checkMemberLimit } from '@/lib/paywall/checkMemberLimit'
 import MembersContent from './MembersContent'
 
 // Cache for 30 seconds to improve performance while keeping data reasonably fresh
@@ -37,10 +38,23 @@ export default async function UserManagementPage() {
     )
   }
 
-  // Fetch organization members and invitations with proper error handling
-  const [membersResult, invitationsResult] = await Promise.allSettled([
+  // Prefetch member limit check in parallel with data fetches for optimal performance
+  // Only check for agencies (clients have no limits)
+  const billingStatus = organization.billing_status || 'free'
+  const organizationType = (organization.type || 'agency') as 'agency' | 'client'
+  
+  // Run all fetches in parallel - member limit check uses fast count queries (head: true, no data transfer)
+  const [membersResult, invitationsResult, memberLimitCheckResult] = await Promise.allSettled([
     getOrganizationMembers(organization.id),
-    getOrganizationInvitations(organization.id)
+    getOrganizationInvitations(organization.id),
+    // Only run check for free agencies (skip for clients/paid agencies to avoid unnecessary query)
+    organizationType === 'agency' && billingStatus === 'free'
+      ? checkMemberLimit({
+          organizationId: organization.id,
+          billingStatus,
+          organizationType,
+        })
+      : Promise.resolve({ allowed: true }), // Resolve immediately for clients/paid agencies
   ])
   
   // Handle members result
@@ -50,6 +64,9 @@ export default async function UserManagementPage() {
   const membersHasNextPage = membersResult.status === 'fulfilled' && membersResult.value.ok
     ? (membersResult.value.hasNextPage || false)
     : false
+  const membersTotalCount = membersResult.status === 'fulfilled' && membersResult.value.ok
+    ? membersResult.value.totalCount
+    : undefined
   
   if (membersResult.status === 'rejected') {
     console.error('Error fetching members:', membersResult.reason)
@@ -64,6 +81,9 @@ export default async function UserManagementPage() {
   const invitationsHasNextPage = invitationsResult.status === 'fulfilled' && invitationsResult.value.ok
     ? (invitationsResult.value.hasNextPage || false)
     : false
+  const invitationsTotalCount = invitationsResult.status === 'fulfilled' && invitationsResult.value.ok
+    ? invitationsResult.value.totalCount
+    : undefined
   
   if (invitationsResult.status === 'rejected') {
     console.error('Error fetching invitations:', invitationsResult.reason)
@@ -74,6 +94,16 @@ export default async function UserManagementPage() {
   // Calculate initialHasNextPage - true if either has more pages
   const initialHasNextPage = membersHasNextPage || invitationsHasNextPage
 
+  // Extract canInviteMembers from prefetched check result
+  const canInviteMembers = memberLimitCheckResult.status === 'fulfilled' 
+    ? memberLimitCheckResult.value.allowed 
+    : true // Default to true on error (fail open)
+
+  // Calculate accurate unfilteredTotalCount using totalCount from server if available,
+  // otherwise fall back to loaded data length (for backwards compatibility)
+  const unfilteredTotalCount = (membersTotalCount !== undefined && invitationsTotalCount !== undefined)
+    ? membersTotalCount + invitationsTotalCount
+    : members.length + invitations.length
 
   // If both fail, show error
   if (members.length === 0 && invitations.length === 0) {
@@ -102,8 +132,11 @@ export default async function UserManagementPage() {
       invitations={invitations}
       organizationId={organization.id}
       currentUserRole={currentUserRole}
-      unfilteredTotalCount={members.length + invitations.length}
+      unfilteredTotalCount={unfilteredTotalCount}
       initialHasNextPage={initialHasNextPage}
+      billingStatus={billingStatus}
+      organizationType={organizationType}
+      canInviteMembers={canInviteMembers}
     />
   )
 }

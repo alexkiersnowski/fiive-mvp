@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { InlineEdit } from '@/components/ui/inline-edit'
-import { RequestBadge } from '@/components/ui/request-badge'
+import { RequestBadge, type RequestVariant } from '@/components/ui/request-badge'
+import type { Request } from '../server'
 import { StatusButton } from '@/components/ui/status-button'
 import { ListRow } from '@/components/ui/list-row'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -12,7 +13,7 @@ import { Check, CaretDown, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple, 
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { CommentInput } from '@/components/ui/comment-input'
 import { CommentItem } from '@/components/ui/comment-item'
 import Link from 'next/link'
@@ -20,6 +21,7 @@ import { updateRequestTitle, updateRequestDescription, updateRequestStatus, upda
 import { ConvertToTaskModal, type ConvertToTaskModalProps, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
 import { convertRequestToTask } from '../tasks/actions'
 import { toast } from 'sonner'
+import { formatRequestDateFullMonth } from '../formatters'
 
 interface Comment {
   id: string
@@ -72,10 +74,10 @@ interface RequestDetailContentProps {
     id: string
     name: string
   } | null
-  status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+  status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
   createdAt?: string
   mode?: 'modal' | 'page'
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any; project?: { id: string; name: string } | null }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee']; project?: { id: string; name: string } | null }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -121,17 +123,18 @@ interface RequestDetailContentProps {
       id: string
       name: string
     } | null
-    status?: 'new' | 'in_review' | 'accepted' | 'canceled'
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
     createdAt?: string
     createdByOrgId?: string
     createdByOrgType?: 'agency' | 'client'
   }) => void
   isGlobalView?: boolean
+  isDisconnected?: boolean
 }
 
 type ConvertRequest = NonNullable<ConvertToTaskModalProps['request']>
 
-export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView }: RequestDetailContentProps) {
+export function RequestDetailContent({ requestId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], projects: initialProjects = [], project, status = 'new', createdAt, mode = 'modal', onRequestUpdate, createdByOrgId, createdByOrgType, currentOrgId: _currentOrgId, connectionId, onRequestDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate, onConvertToTask, isGlobalView: propIsGlobalView, isDisconnected = false }: RequestDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -154,8 +157,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     }
   })()
   
-  // Determine if current org can edit this request (based on lock status)
-  const canEdit = !isLocked
+  // Determine if current org can edit this request (based on lock status and disconnected state)
+  const canEdit = !isLocked && !isDisconnected
   
   // State for actions dropdown
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
@@ -205,7 +208,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   }
   
   // Get just the status suffix (Submitted to your agency/Client submitted or Created by your agency/Agency created)
-  const getRequestStatusText = () => {
+  const _getRequestStatusText = () => {
     if (!createdByOrgType) return ''
     
     if (createdByOrgType === 'agency') {
@@ -311,7 +314,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       console.error('Failed to convert request to task:', error)
       toast.error('Failed to convert request')
     }
-  }, [closeInternalConvertModal, connectionId, onRequestUpdate, requestId, router])
+  }, [closeInternalConvertModal, connectionId, onRequestUpdate, requestId])
 
   const handleConvertClick = useCallback(() => {
     setIsActionsDropdownOpen(false)
@@ -359,14 +362,41 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   // and merge with initial projects from props
   useEffect(() => {
     if (project && project.id && project.name) {
-      // Add current project to list immediately if not already present
+      // Update or add current project to list
       setProjects(prev => {
-        const exists = prev.some(p => p.id === project.id)
-        if (exists) return prev
+        const existingIndex = prev.findIndex(p => p.id === project.id)
+        if (existingIndex >= 0) {
+          // Update existing project name if it changed
+          const existing = prev[existingIndex]
+          if (existing.name === project.name) {
+            return prev // No change needed
+          }
+          const updated = [...prev]
+          updated[existingIndex] = { id: project.id, name: project.name }
+          return updated
+        }
+        // Add new project if not present
         return [{ id: project.id, name: project.name }, ...prev]
       })
     }
   }, [project])
+
+  // Sync project prop when project ID changes (different request selected)
+  // Event listener handles real-time name updates for the same project
+  useEffect(() => {
+    if (project && project.id && project.name) {
+      setRequestProject((prev) => {
+        // Update if project ID changed (different project) or if no previous state
+        // Don't update if same project ID (event listener handles name updates)
+        if (!prev || prev.id !== project.id) {
+          return { id: project.id, name: project.name }
+        }
+        return prev // Keep existing state - event listener will update name if needed
+      })
+    } else {
+      setRequestProject(null)
+    }
+  }, [project]) // Depend on entire project object
   
   // Update projects list when initialProjects prop changes (e.g., when modal opens with fresh data)
   useEffect(() => {
@@ -487,6 +517,77 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   useEffect(() => {
     setComments(initialComments)
   }, [initialComments, mode])
+
+  // Listen for project creation (e.g., when a new project is created in ProjectsCard)
+  useEffect(() => {
+    const handleProjectCreated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[RequestDetailContent] Received projectCreated event:', { projectId, eventConnectionId, connectionId, title });
+      }
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[RequestDetailContent] Ignoring event - connectionId mismatch:', { eventConnectionId, connectionId });
+        }
+        return;
+      }
+
+      // Add new project to projects list (avoid duplicates)
+      setProjects((prev) => {
+        // Check if project already exists
+        if (prev.some(p => p.id === projectId)) {
+          return prev;
+        }
+        // Add new project to the list
+        return [{ id: projectId, name: title }, ...prev];
+      });
+    };
+
+    window.addEventListener('projectCreated', handleProjectCreated as EventListener);
+    return () => {
+      window.removeEventListener('projectCreated', handleProjectCreated as EventListener);
+    };
+  }, [connectionId]);
+
+  // Listen for project updates (e.g., when project title is updated in ProjectDetailModal)
+  useEffect(() => {
+    const handleProjectUpdated = (event: CustomEvent) => {
+      const { projectId, connectionId: eventConnectionId, title } = event.detail;
+      
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[RequestDetailContent] Received projectUpdated event:', { projectId, eventConnectionId, connectionId, title });
+      }
+      
+      // Only handle events for this connection
+      if (eventConnectionId !== connectionId) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[RequestDetailContent] Ignoring event - connectionId mismatch:', { eventConnectionId, connectionId });
+        }
+        return;
+      }
+
+      // Update project name in projects list
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: title } : p))
+      );
+
+      // Update requestProject if it matches the updated project
+      setRequestProject((prev) => {
+        if (prev && prev.id === projectId) {
+          return { ...prev, name: title };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    return () => {
+      window.removeEventListener('projectUpdated', handleProjectUpdated as EventListener);
+    };
+  }, [connectionId])
   
   // Track previous values for undo functionality
   const titleSnapshot = useRef(title)
@@ -561,6 +662,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       document.removeEventListener('focusin', handleFocus, true)
       document.removeEventListener('keydown', handleKeyDown, true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleValue, descriptionValue])
 
   const handleTitleSave = async (value: string) => {
@@ -654,8 +756,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   }
 
   const handleStatusChange = async (newStatus: string) => {
-    const validStatus = ['new', 'in_review', 'accepted', 'canceled'].includes(newStatus) 
-      ? newStatus as 'new' | 'in_review' | 'accepted' | 'canceled'
+    const validStatus = ['new', 'in_review', 'accepted', 'canceled', 'closed'].includes(newStatus) 
+      ? newStatus as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
       : 'new'
     
     // Optimistic update
@@ -740,11 +842,12 @@ export function RequestDetailContent({ requestId, title, description, client, ag
     }
   }
 
-  const statusOptions: { value: 'new' | 'in_review' | 'accepted' | 'canceled', label: string }[] = [
+  const statusOptions: { value: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed', label: string }[] = [
     { value: 'new', label: 'New' },
     { value: 'in_review', label: 'In review' },
     { value: 'accepted', label: 'Accepted' },
-    { value: 'canceled', label: 'Canceled' }
+    { value: 'canceled', label: 'Canceled' },
+    { value: 'closed', label: 'Closed' }
   ]
 
   return (
@@ -827,7 +930,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[200px]">
-              {variant === 'agency' && (
+              {!isDisconnected && variant === 'agency' && (
                 <DropdownMenuItem onClick={handleConvertClick}>
                   <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Convert to task
@@ -840,7 +943,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Copy link
               </DropdownMenuItem>
-              {!isLocked && (
+              {!isDisconnected && !isLocked && (
                 <>
                   <div className="border-t border-[var(--color-neutral-6)] my-1" />
                   <DropdownMenuItem 
@@ -883,39 +986,47 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               />
             </div>
             {variant === 'agency' ? (
-              <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
-                <PopoverTrigger asChild>
-                  <StatusButton variant={statusValue} className="mt-1.5">
-                    <CaretDown size={12} weight="fill" />
-                  </StatusButton>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-full min-w-48 p-0"
-                  align="start"
-                  style={{ width: 'var(--radix-popover-trigger-width)' }}
+              isDisconnected ? (
+                <StatusButton 
+                  variant={statusValue} 
+                  className="mt-1.5 pointer-events-none"
                 >
-                  <Command>
-                    <CommandList>
-                      <CommandEmpty>No status found.</CommandEmpty>
-                      <CommandGroup>
-                        {statusOptions.map((option) => (
-                          <CommandItem
-                            key={option.value}
-                            value={option.value}
-                            onSelect={() => handleStatusChange(option.value as string)}
-                            className="flex items-center justify-between cursor-pointer"
-                          >
-                            <RequestBadge variant={option.value as any} size="sm" showText />
-                            {option.value === statusValue && (
-                              <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
-                            )}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                </StatusButton>
+              ) : (
+                <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
+                  <PopoverTrigger asChild>
+                    <StatusButton variant={statusValue} className="mt-1.5">
+                      <CaretDown size={12} weight="fill" />
+                    </StatusButton>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-full min-w-48 p-0"
+                    align="start"
+                    style={{ width: 'var(--radix-popover-trigger-width)' }}
+                  >
+                    <Command>
+                      <CommandList>
+                        <CommandEmpty>No status found.</CommandEmpty>
+                        <CommandGroup>
+                          {statusOptions.map((option) => (
+                            <CommandItem
+                              key={option.value}
+                              value={option.value}
+                              onSelect={() => handleStatusChange(option.value as string)}
+                              className="flex items-center justify-between cursor-pointer"
+                            >
+                              <RequestBadge variant={option.value as RequestVariant} size="sm" showText />
+                              {option.value === statusValue && (
+                                <Check size={16} weight="bold" style={{ color: 'var(--color-interactive-neutral-default)' }} />
+                              )}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              )
             ) : (
               <StatusButton 
                 variant={statusValue} 
@@ -940,6 +1051,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                   textClass="text-md-regular"
                   multiline={true}
                   linkifyUrls={true}
+                  maxLength={10000}
                   className="px-0"
                   style={{ fontSize: '15px', lineHeight: '22px' }}
                 />
@@ -964,11 +1076,13 @@ export function RequestDetailContent({ requestId, title, description, client, ag
         <>
           <h4 className="text-md-medium text-primary mt-5">Comments</h4>
             
-            {/* Comment Input */}
-            <CommentInput 
-              activeUser={activeUser}
-              onCommentSubmit={handleCommentSubmit}
-            />
+            {/* Comment Input - Hide when disconnected */}
+            {!isDisconnected && (
+              <CommentInput 
+                activeUser={activeUser}
+                onCommentSubmit={handleCommentSubmit}
+              />
+            )}
 
             {/* Comments List */}
             {comments.map((comment) => (
@@ -982,6 +1096,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 createdByUserId={comment.userId}
                 activeUserId={activeUser?.id}
                 onDelete={handleCommentDelete}
+                hideActions={isDisconnected}
               />
             ))}
           </>
@@ -993,7 +1108,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       <div className="w-px bg-neutral-alpha-4 flex-shrink-0 mb-10"/>
 
       {/* Right Column */}
-      <div className="flex-[1] flex flex-col gap-2 flex-shrink-0 pl-8 mb-10">
+      <div className="flex-[1] flex flex-col gap-2 min-w-0 pl-8 mb-10">
           <h3 className="text-md-medium text-primary">
           Details
         </h3>
@@ -1053,25 +1168,27 @@ export function RequestDetailContent({ requestId, title, description, client, ag
             <div className="w-2/5 min-w-0">
               <p className="text-sm-regular text-secondary truncate">Project</p>
             </div>
-            <div className="w-3/5 min-w-0">
-              <InlineEdit
-                type="badge"
-                value={requestProject ? requestProject.id : 'general'}
-                options={[
-                  { value: 'general', label: 'General request' },
-                  ...projects.map(p => ({ value: p.id, label: p.name }))
-                ]}
-                onSave={handleProjectSave}
-                searchPlaceholder="Search projects…"
-                clearable={false}
-                dividerIndex={0}
-                placeholder="General request"
-                popoverWidth="240px"
-                badgeBorderRadius="4px"
-                maxHeight="210px"
-                className="h-6"
-                nonInteractive={!canEdit}
-              />
+            <div className="w-3/5 min-w-0 max-w-full">
+                <div className="min-w-0 max-w-full">
+                  <InlineEdit
+                    type="badge"
+                    value={requestProject ? requestProject.id : 'general'}
+                    options={[
+                      { value: 'general', label: 'General request' },
+                      ...projects.map(p => ({ value: p.id, label: p.name }))
+                    ]}
+                    onSave={handleProjectSave}
+                    searchPlaceholder="Search projects…"
+                    clearable={false}
+                    dividerIndex={0}
+                    placeholder="General request"
+                    popoverWidth="240px"
+                    badgeBorderRadius="4px"
+                    maxHeight="210px"
+                    className="h-6"
+                  nonInteractive={isDisconnected || !canEdit}
+                  />
+                </div>
             </div>
           </div>
 
@@ -1081,7 +1198,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">Created</p>
             </div>
             <div className="w-3/5 min-w-0">
-              <p className="text-sm-regular text-primary truncate ml-1">{createdAt || 'N/A'}</p>
+              <p className="text-sm-regular text-primary truncate ml-1">{createdAt ? formatRequestDateFullMonth(createdAt) : 'N/A'}</p>
             </div>
           </div>
 
@@ -1103,17 +1220,17 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                   text={assigneeValue ? assigneeValue.name : 'Unassigned'}
                   textColor={assigneeValue ? 'var(--color-base-text-primary)' : 'var(--color-base-text-tertiary)'}
                   comboboxSelectedValue={assigneeValue?.id ?? null}
-                  comboboxOptions={variant === 'agency' ? agencyMembers.map(member => ({
+                  comboboxOptions={isDisconnected ? undefined : (variant === 'agency' ? agencyMembers.map(member => ({
                     value: member.id,
                     label: `${member.firstName} ${member.lastName}`,
                     avatar: member.avatarUrl
-                  })) : undefined}
-                  comboboxPlaceholder={variant === 'agency' ? "Search members…" : undefined}
-                  onComboboxSelect={variant === 'agency' ? handleAssigneeSelect : undefined}
-                  clearable={variant === 'agency' ? !!assigneeValue : false}
-                  onClear={variant === 'agency' ? handleClearAssignee : undefined}
+                  })) : undefined)}
+                  comboboxPlaceholder={isDisconnected ? undefined : (variant === 'agency' ? "Search members…" : undefined)}
+                  onComboboxSelect={isDisconnected ? undefined : (variant === 'agency' ? handleAssigneeSelect : undefined)}
+                  clearable={isDisconnected ? false : (variant === 'agency' ? !!assigneeValue : false)}
+                  onClear={isDisconnected ? undefined : (variant === 'agency' ? handleClearAssignee : undefined)}
                   borderRadius="4px"
-                  nonInteractive={variant === 'client'}
+                  nonInteractive={isDisconnected || variant === 'client'}
                 />
               </div>
             </div>

@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 
 // Connection workspace types

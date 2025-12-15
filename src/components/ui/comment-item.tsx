@@ -17,9 +17,10 @@ export interface CommentItemProps {
   createdByUserId?: string
   activeUserId?: string
   onDelete?: (commentId: string) => void
+  hideActions?: boolean
 }
 
-export function CommentItem({ id, userName, userAvatar, createdAt, text, createdByUserId, activeUserId, onDelete }: CommentItemProps) {
+export function CommentItem({ id, userName, userAvatar, createdAt, text, createdByUserId, activeUserId, onDelete, hideActions = false }: CommentItemProps) {
   const [isCommentDropdownOpen, setIsCommentDropdownOpen] = useState(false)
   
   const handleDeleteComment = () => {
@@ -27,8 +28,8 @@ export function CommentItem({ id, userName, userAvatar, createdAt, text, created
     setIsCommentDropdownOpen(false)
   }
   
-  // Only show delete button if the active user created this comment
-  const canDelete = createdByUserId && activeUserId && createdByUserId === activeUserId
+  // Only show delete button if the active user created this comment and actions are not hidden
+  const canDelete = !hideActions && createdByUserId && activeUserId && createdByUserId === activeUserId
 
   // URL detection and linkification utility for comment text
   const linkifyText = (text: string): React.ReactNode[] => {

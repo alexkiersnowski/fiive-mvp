@@ -99,7 +99,7 @@ function ConnectionLayoutContent({
         <div style={{ paddingTop: '16px' }}>
           <Alert className="relative" style={{ backgroundColor: 'var(--color-neutral-3)', padding: '20px' }}>
             <Users size={16} />
-            <AlertTitle className="text-sm-medium" style={{ color: 'var(--color-base-text-primary)' }}>You're managing your client workspace</AlertTitle>
+            <AlertTitle className="text-sm-medium" style={{ color: 'var(--color-base-text-primary)' }}>You&apos;re managing your client workspace</AlertTitle>
             <AlertDescription className="text-sm-regular mt-0.5" style={{ color: 'var(--color-base-text-secondary)' }}>
             This workspace is internal to your agency. You can manage the entire relationship privately, or invite your client to connect through their portal if you want to collaborate in a shared workspace.
             </AlertDescription>
@@ -120,7 +120,7 @@ function ConnectionLayoutContent({
           <Alert className="relative" style={{ backgroundColor: 'var(--color-neutral-3)', padding: '20px' }}>
             <PencilSimpleSlash size={16} />
             <AlertDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
-              This workspace is read-only. To resume collaboration, reconnect using your client's connection code.
+              This workspace is read-only. To resume collaboration, reconnect using your {currentUserType === 'client' ? 'agency' : 'client'}&apos;s connection code.
             </AlertDescription>
           </Alert>
         </div>

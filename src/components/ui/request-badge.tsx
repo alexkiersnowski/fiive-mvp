@@ -3,7 +3,7 @@ import { Badge } from "./badge"
 import { cn } from "@/lib/utils"
 import { CaretDown } from "@phosphor-icons/react"
 
-export type RequestVariant = "new" | "in_review" | "accepted" | "canceled"
+export type RequestVariant = "new" | "in_review" | "accepted" | "canceled" | "closed"
 export type BadgeSize = "sm" | "lg"
 
 interface RequestBadgeProps {
@@ -32,6 +32,10 @@ const requestStyles = {
   canceled: {
     backgroundColor: "var(--color-neutral-10)",
     borderRadius: "var(--radius-1-max, 3px)"
+  },
+  closed: {
+    backgroundColor: "var(--color-neutral-10)",
+    borderRadius: "var(--radius-1-max, 3px)"
   }
 }
 
@@ -47,6 +51,9 @@ const textStyles = {
   },
   canceled: {
     color: "var(--color-base-text-inverse)"
+  },
+  closed: {
+    color: "var(--color-base-text-inverse)"
   }
 }
 
@@ -54,7 +61,8 @@ const tooltipLabels = {
   new: "New",
   in_review: "In review",
   accepted: "Accepted",
-  canceled: "Canceled"
+  canceled: "Canceled",
+  closed: "Closed"
 }
 
 export function RequestBadge({ variant, size = "sm", className, showText = false, showIconRight = false, customLabel }: RequestBadgeProps) {

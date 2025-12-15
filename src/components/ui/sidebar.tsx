@@ -4,10 +4,11 @@ import NavItem from './nav-item'
 import { Button } from './button'
 import { Alert, AlertDescription } from './alert'
 import { Badge } from './badge'
-import { SquaresFour, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, CreditCard, BuildingOffice, UsersThree, User, Shield, Link } from '@phosphor-icons/react'
+import { SquaresFour, ChatCentered, CheckCircle, StarFour, CaretLeft, CaretRight, ArrowLeft, ArrowRight, CreditCard, BuildingOffice, UsersThree, User, Shield, Link } from '@phosphor-icons/react'
 import { useState, useEffect, memo, useCallback, useMemo, useRef } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 import { useRouter } from 'next/navigation'
+import NextLink from 'next/link'
 import { buildNav } from '@/lib/mode/buildNav'
 import type { Capabilities } from '@/lib/mode/types'
 
@@ -26,6 +27,7 @@ interface SidebarProps {
   disableTextAnimation?: boolean
   currentUserRole?: 'owner' | 'member'
   capabilities?: Capabilities
+  billingStatus?: string
   navItems?: Array<{
     href: string
     label: string
@@ -49,12 +51,16 @@ const SidebarComponent = memo(function SidebarComponent({
   disableTextAnimation = false,
   currentUserRole = 'member',
   capabilities,
+  billingStatus,
   navItems
 }: SidebarProps) {
   const router = useRouter()
   const [isHovered, setIsHovered] = useState(false)
   const [showAlert, setShowAlert] = useState(!isCollapsed)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Normalize billingStatus - should always be provided from server, but handle undefined
+  const normalizedBillingStatus = billingStatus || 'free'
 
   const handleMouseEnter = useCallback(() => {
     setIsHovered(true)
@@ -144,9 +150,9 @@ const SidebarComponent = memo(function SidebarComponent({
       { href: '/settings/organization/members', label: 'User management', icon: <UsersThree size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'members' }
     ]
     
-    // Only show billing for owners
-    if (currentUserRole === 'owner') {
-      baseItems.push({ href: '/settings/organization/billing', label: 'Billing & subscription', icon: <CreditCard size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'billing' })
+    // Only show billing for agency owners (clients don't have billing in MVP)
+    if (currentUserRole === 'owner' && capabilities?.canSeeClients) {
+      baseItems.push({ href: '/settings/organization/billing', label: 'Plan & billing', icon: <CreditCard size={18} className="fill-base-icons-primary" />, isSelected: selectedItem === 'billing' })
     }
     
     return baseItems
@@ -196,32 +202,86 @@ const SidebarComponent = memo(function SidebarComponent({
   const isSecondary = variant === 'secondary' || isConnectionSettingsPage
 
   // Memoize the founding member alert component
-  const foundingMemberAlert = useMemo(() => (
-    <Alert className="flex flex-col gap-2 rounded-md bg-neutral-alpha-2 border-neutral-alpha-4 p-3">
-      <Badge 
-        variant="secondary" 
-        className="self-start flex items-center gap-1 bg-orange-3 font-medium text-xs tracking-wide"
-        style={{ color: 'var(--color-orange-11)' }}
-      >
-        <StarFour 
-          size={12} 
-          weight="fill"
-          style={{ fill: 'var(--color-orange-11)' }}
-        />
-        Founding member
-      </Badge>
-      <AlertDescription className="text-xs-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
-        You&apos;re one of the Founding 50 defining the future of Fiive
-      </AlertDescription>
-      <Button 
-        variant="link" 
-        className="self-start p-0 h-auto underline cursor-pointer text-xs-regular"
-        style={{ color: 'var(--color-base-text-primary)' }}
-      >
-        Share feedback
-      </Button>
-    </Alert>
-  ), [])
+  const foundingMemberAlert = useMemo(() => {
+    const isFree = normalizedBillingStatus === 'free'
+    const isClientView = capabilities?.canSeeClients === false
+    
+    return (
+      <Alert className="flex flex-col gap-1 rounded-md bg-neutral-alpha-2 border-neutral-alpha-4 p-3">
+        {isFree ? (
+          <>
+            <Badge 
+              variant="secondary" 
+              className="self-start flex items-center gap-1 bg-orange-3 font-medium text-xs tracking-wide"
+              style={{ color: '#D87335' }}
+            >
+              <StarFour 
+                size={12} 
+                weight="fill"
+                style={{ fill: '#D87335' }}
+              />
+              Early access
+            </Badge>
+            <AlertDescription className="text-xs-regular px-1.5 mt-1" style={{ color: 'var(--color-base-text-secondary)' }}>
+              {isClientView ? "Your feedback influences what we build next" : "You're exploring Fiive. Secure your place as one of the first 100 Founding Members."}
+            </AlertDescription>
+            {isClientView ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-start h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75"
+                style={{ marginLeft: '-4px' }}
+                onClick={() => window.location.href = 'mailto:support@fiive.co'}
+              >
+                <span className="mr-1">Give feedback</span>
+                <ArrowRight size={16} weight="regular" />
+              </Button>
+            ) : (
+              <NextLink href="/settings/organization/billing">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="self-start h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75"
+                  style={{ marginLeft: '-4px' }}
+                >
+                  <span className="mr-1">Get early access</span>
+                  <ArrowRight size={16} weight="regular" />
+                </Button>
+              </NextLink>
+            )}
+          </>
+        ) : (
+          <>
+            <Badge 
+              variant="secondary" 
+              className="self-start flex items-center gap-1 bg-orange-3 font-medium text-xs tracking-wide"
+              style={{ color: '#D87335' }}
+            >
+              <StarFour 
+                size={12} 
+                weight="fill"
+                style={{ fill: '#D87335' }}
+              />
+              Founding member
+            </Badge>
+            <AlertDescription className="text-xs-regular px-1.5 mt-1" style={{ color: 'var(--color-base-text-secondary)' }}>
+              You&apos;re one of the Founding 100 defining the future of Fiive
+            </AlertDescription>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-start h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75"
+              style={{ marginLeft: '-4px' }}
+              onClick={() => window.location.href = 'mailto:support@fiive.co'}
+            >
+              <span className="mr-1">Share your ideas</span>
+              <ArrowRight size={16} weight="regular" />
+            </Button>
+          </>
+        )}
+      </Alert>
+    )
+  }, [normalizedBillingStatus, capabilities?.canSeeClients])
 
   return (
     <div 
@@ -298,7 +358,19 @@ const SidebarComponent = memo(function SidebarComponent({
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'var(--color-orange-3)'
                 }}
-                aria-label="Founding 50 feedback"
+                onClick={() => {
+                  const isFree = normalizedBillingStatus === 'free'
+                  const isClientView = capabilities?.canSeeClients === false
+                  if (isFree && isClientView) {
+                    window.location.href = 'mailto:support@fiive.co'
+                  } else if (isFree) {
+                    router.push('/settings/organization/billing')
+                  } else {
+                    window.location.href = 'mailto:support@fiive.co'
+                  }
+                }}
+                aria-label={normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Early access') : 'Founding 50 feedback'}
+                suppressHydrationWarning
               >
                 <StarFour 
                   size={18} 
@@ -308,7 +380,7 @@ const SidebarComponent = memo(function SidebarComponent({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={8}>
-              Founding 50 feedback
+              {normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Early access') : 'Founding 50 feedback'}
             </TooltipContent>
           </Tooltip>
         ) : (

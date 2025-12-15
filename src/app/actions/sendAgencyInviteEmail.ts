@@ -32,9 +32,9 @@ export async function sendAgencyInviteEmail({
   // Generate email HTML from template
   const html = inviteAgencyTemplate({ clientName, inviteUrl })
 
-  // Determine sender email (use environment variable or default to Fiive <noreply@fiive.co>)
+  // Determine sender email (use environment variable or default to Fiive <notifications@fiive.co>)
   // Format: "Display Name <email@domain.com>" - Resend handles SPF/DKIM automatically for verified domains
-  const fromEmail = process.env.RESEND_FROM_EMAIL || 'Fiive <noreply@fiive.co>'
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'Fiive <notifications@fiive.co>'
 
   // Send email via Resend
   const { data, error } = await resend.emails.send({

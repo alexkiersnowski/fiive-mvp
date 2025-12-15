@@ -7,16 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ListRow } from '@/components/ui/list-row';
-import { Plus, ArrowRight, EyeSlash } from '@phosphor-icons/react/dist/ssr';
+import { ArrowRight, EyeSlash } from '@phosphor-icons/react/dist/ssr';
 import type { StatsCardProps } from '../types';
 
-export default function AgencyProjects({ snapshot, context }: StatsCardProps) {
+export default function AgencyProjects({ snapshot, context: _context }: StatsCardProps) {
   const router = useRouter();
   const title = 'Live projects';
-  const description = 'No projects yet. Your agency manages projects. Add an agency to start collaborating on projects.';
-  
-  // Check if user has any connections (clients have agencies)
-  const hasConnections = snapshot.clients.total > 0;
+  const description = 'Projects are created by your agency, giving you a shared view of work and progress.';
 
   const handleAgencyClick = (connectionId: string) => {
     console.log('Navigating to connection:', connectionId);
@@ -28,7 +25,7 @@ export default function AgencyProjects({ snapshot, context }: StatsCardProps) {
   };
 
   return (
-    <Card className={`w-full h-full pt-5 px-5 flex flex-col gap-3 ${hasConnections ? 'pb-5' : 'pb-6'}`}>
+    <Card className="w-full h-full pt-5 px-5 flex flex-col gap-3 pb-5">
       <div className="flex items-center justify-between">
         <CardTitle className="text-xl-medium" style={{ color: 'var(--color-base-text-primary)' }}>
           {title}
@@ -46,7 +43,7 @@ export default function AgencyProjects({ snapshot, context }: StatsCardProps) {
               }}
             >
               <EyeSlash size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Not client visible</span>
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Internal only</span>
             </Badge>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
@@ -87,27 +84,16 @@ export default function AgencyProjects({ snapshot, context }: StatsCardProps) {
       
       {/* Button */}
       <div className="mt-auto flex justify-end">
-        {hasConnections ? (
-          <Link href="/agencies" className="ml-auto">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-auto p-2 text-xs-bold cursor-pointer back-button hover:bg-interactive-surface-hover transition-all duration-75"
-            >
-              <span className="mr-1">View all agencies</span>
-              <ArrowRight size={16} weight="regular" />
-            </Button>
-          </Link>
-        ) : (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
+        <Link href="/agencies" className="ml-auto">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto p-2 text-xs-bold cursor-pointer back-button hover:bg-interactive-surface-hover transition-all duration-75"
           >
-            <Plus size={16} weight="regular" />
-            Add agency
+            <span className="mr-1">View all agencies</span>
+            <ArrowRight size={16} weight="regular" />
           </Button>
-        )}
+        </Link>
       </div>
     </Card>
   );

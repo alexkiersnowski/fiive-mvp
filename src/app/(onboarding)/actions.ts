@@ -84,7 +84,7 @@ export async function handleProfileCreation(data: { email?: string; firstName: s
     3000 // 3 second timeout for profile updates
   )
   
-  const { data: profileData, error: profileError } = result as { data: unknown; error: unknown }
+  const { data: _profileData, error: profileError } = result as { data: unknown; error: unknown }
   
   if (profileError) {
     console.error('Profile update error details:', {
@@ -211,7 +211,7 @@ export async function handleMemberInviteCompletion(data: { email?: string; first
     3000
   )
   
-  const { data: profileData, error: profileError } = profileResult as { data: unknown; error: unknown }
+  const { data: _profileData, error: profileError } = profileResult as { data: unknown; error: unknown }
   
   if (profileError) {
     console.error('Profile update error details:', {
@@ -488,7 +488,7 @@ export async function handleClaimProfileUpdate(data: { email?: string; firstName
     3000 // 3 second timeout for profile updates
   )
   
-  const { data: profileData, error: profileError } = result as { data: unknown; error: unknown }
+  const { data: _profileData, error: profileError } = result as { data: unknown; error: unknown }
   
   if (profileError) {
     // Extract error message from Supabase error object

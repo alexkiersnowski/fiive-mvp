@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { useEffect } from "react"
 import { z } from "zod"
+import Image from "next/image"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
@@ -69,7 +70,25 @@ export default function AuthLayout({
     try {
       await onSubmit(data)
     } catch (error) {
-      console.error('Form submission error:', error)
+      // Next.js redirect() throws a special error - don't treat it as an error
+      if (error && typeof error === 'object' && 'digest' in error) {
+        const digest = (error as { digest?: unknown }).digest
+        if (typeof digest === 'string' && digest.includes('NEXT_REDIRECT')) {
+          // This is a redirect - let it propagate
+          throw error
+        }
+      }
+      
+      // Extract error message
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'An unexpected error occurred. Please try again.'
+      
+      // Set error on form field for inline display only
+      form.setError('email', {
+        type: 'server',
+        message: errorMessage
+      })
     }
   }
   return (
@@ -81,14 +100,14 @@ export default function AuthLayout({
         paddingTop: '24px', 
         paddingBottom: '24px' 
       }}>
-        <img 
+        <Image 
           src="/logos/fiive-logo.svg" 
           alt="Fiive" 
           width={96}
           height={24}
           style={{ height: '24px' }}
           draggable={false}
-          loading="eager"
+          priority
         />
       </div>
 
@@ -159,7 +178,7 @@ export default function AuthLayout({
                       <p className="text-sm-regular" style={{ color: 'var(--color-base-text-secondary)' }}>
                         By proceeding you agree to the{' '}
                         <a 
-                          href="/terms" 
+                          href="https://www.fiive.co/legal/terms" 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-sm-regular underline"
@@ -169,7 +188,7 @@ export default function AuthLayout({
                         </a>
                         {' '}and{' '}
                         <a 
-                          href="/privacy" 
+                          href="https://www.fiive.co/legal/privacy" 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-sm-regular underline"
@@ -206,15 +225,37 @@ export default function AuthLayout({
       {/* Right side - Graphic container (1/3 width) */}
       <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
         <div className="w-full h-full p-2">
-          <div className="w-full h-full bg-brand-gradient-1 rounded-sm flex items-center justify-center">
-            <img 
+          <div 
+            className="w-full h-full rounded-sm flex items-center justify-center relative overflow-hidden"
+            style={{ backgroundColor: 'var(--color-neutral-3)' }}
+          >
+            {/* Circular gradient blur element */}
+            <div
+              className="absolute"
+              suppressHydrationWarning
+              style={{
+                background: 'linear-gradient(180deg, #FF8C1A 0%, #FF8985 40%, #51D9CC 100%)',
+                borderRadius: '50%',
+                width: '250%',
+                height: '150%',
+                
+                filter: 'blur(100px)',
+                right: '-125%',
+                top: '-5%',
+                opacity: 1,
+              }}
+            />
+            {/* Watermark image on top */}
+            <Image 
               src="/logos/brand-watermark.svg" 
               alt="Fiive" 
               width={240}
               height={240}
-              className="max-w-full h-60 object-contain"
+              className="max-w-full h-60 object-contain relative z-10"
+              style={{ opacity: 0.78 }}
               draggable={false}
               loading="eager"
+              suppressHydrationWarning
             />
           </div>
         </div>

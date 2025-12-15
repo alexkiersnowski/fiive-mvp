@@ -1,22 +1,21 @@
 "use client"
 
 import { useState, useMemo, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
-import { ListRow } from '@/components/ui/list-row'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MultiEmailInput } from '@/components/ui/multi-email-input'
 import { Badge } from '@/components/ui/badge'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { SearchInput } from '@/components/ui/search-input'
-import { DotsThree, UserMinus, PaperPlaneTilt, XCircle, Plus } from '@phosphor-icons/react'
+import { ListRow } from '@/components/ui/list-row'
+import { DotsThree, UserMinus, PaperPlaneTilt, XCircle, Plus, Lock } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { updateMemberRole, removeMember, validateAndInviteMembers, resendInvitation, cancelInvitation, getOrganizationInvitations, getOrganizationMembers, OrganizationMember, OrganizationInvitation } from '../../actions'
 import { Spinner } from '@/components/ui/shadcn-io/spinner'
 import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import type { VirtualItem } from '@tanstack/react-virtual'
 
 const PAGE_SIZE = 100
 
@@ -135,13 +134,17 @@ interface MembersTableProps {
   parentRef?: React.RefObject<HTMLDivElement | null>
   unfilteredTotalCount?: number
   isBootstrapping?: boolean
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: (virtualRows: VirtualItem[]) => void
   hasNextPage?: boolean
   isLoading?: boolean
   headerOffset?: number
   searchQuery?: string
   onSearchChange?: (query: string) => void
   onInviteClick?: () => void
+  billingStatus?: string
+  organizationType?: 'agency' | 'client'
+  onPaywallTrigger?: () => void
+  maxEmailsForInvite?: number
 }
 
 const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTableProps>(function MembersTable({ 
@@ -157,12 +160,15 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
   isLoading = false,
   headerOffset = 0,
   searchQuery: externalSearchQuery = '',
-  onSearchChange,
-  onInviteClick: externalOnInviteClick
+  onSearchChange: _onSearchChange,
+  onInviteClick: _externalOnInviteClick,
+  billingStatus = 'free',
+  organizationType = 'agency',
+  onPaywallTrigger,
+  maxEmailsForInvite
 }, ref) {
-  const [internalSearchQuery, setInternalSearchQuery] = useState('')
-  const searchQuery = externalSearchQuery || internalSearchQuery
-  const setSearchQuery = onSearchChange || setInternalSearchQuery
+  const [_internalSearchQuery, _setInternalSearchQuery] = useState('')
+  const searchQuery = externalSearchQuery || _internalSearchQuery
   const [localMembers, setLocalMembers] = useState(members)
   const [localInvitations, setLocalInvitations] = useState(invitations)
   
@@ -208,14 +214,57 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
     return [...memberItems, ...invitationItems]
   }, [localMembers, localInvitations])
   
-  const memberCount = unifiedItems.length
-  
   // Determine if current user can manage roles (only owners can)
   const canManageRoles = currentUserRole === 'owner'
   
+  // Helper function to check if a member is restricted
+  // Only applies to free agencies
+  // Allowed: Owner (always) + First non-owner member (by created_at) = 2 total
+  const isMemberRestricted = useCallback((member: OrganizationMember, allMembers: OrganizationMember[]): boolean => {
+    // Only check for free agencies
+    if (billingStatus !== 'free' || organizationType !== 'agency') {
+      return false
+    }
+    
+    // Owner is never restricted
+    if (member.effective_role === 'owner') {
+      return false
+    }
+    
+    // Get owner ID from organization (first member with effective_role === 'owner')
+    const owner = allMembers.find(m => m.effective_role === 'owner')
+    if (!owner) {
+      // No owner found - shouldn't happen, but don't restrict
+      return false
+    }
+    
+    // Filter out owner and sort non-owner members by created_at (ascending)
+    const nonOwnerMembers = allMembers
+      .filter(m => m.effective_role !== 'owner')
+      .sort((a, b) => {
+        const dateA = new Date(a.created_at).getTime()
+        const dateB = new Date(b.created_at).getTime()
+        if (dateA !== dateB) {
+          return dateA - dateB
+        }
+        // Tiebreaker: use membership_id
+        return a.membership_id.localeCompare(b.membership_id)
+      })
+    
+    // First non-owner member (index 0) is allowed, rest (index 1+) are restricted
+    const firstNonOwnerMember = nonOwnerMembers[0]
+    if (!firstNonOwnerMember) {
+      // No non-owner members - shouldn't happen, but don't restrict
+      return false
+    }
+    
+    // Member is restricted if they are NOT the first non-owner member
+    return member.membership_id !== firstNonOwnerMember.membership_id
+  }, [billingStatus, organizationType])
+  
   // Guarded load more callback
   const guardedLoadMore = useCallback(
-    (virtualRows: any[]) => {
+    (virtualRows: VirtualItem[]) => {
       if (!hasNextPage || isLoading) return
       onLoadMore?.(virtualRows)
     },
@@ -488,7 +537,13 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
 
   const handleInviteEmails = async () => {
     if (inviteEmails.length === 0) {
-      toast.error('Please enter at least one email address')
+      setGeneralError('Please enter at least one email address')
+      return
+    }
+
+    // Check member limit before submitting (for free agencies)
+    if (maxEmailsForInvite !== undefined && inviteEmails.length > maxEmailsForInvite) {
+      setGeneralError("You can only invite 1 additional member on the Starter plan")
       return
     }
 
@@ -503,30 +558,56 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
       })
 
       if (result.ok) {
-        toast.success(result.message || 'Invitations sent successfully')
-        setInviteDialogOpen(false)
-        setInviteEmails([])
-        setEmailErrors({})
-        setGeneralError('')
-        // Refresh invitations data from server
-        try {
-          const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
-          if (invitationsResult.ok) {
-            setLocalInvitations(invitationsResult.data || [])
+        // Check if there are partial failures (some emails succeeded, some failed)
+        if (result.errors && Object.keys(result.errors).length > 0) {
+          // Partial success - show success message but keep dialog open with errors
+          toast.success(result.message || 'Some invitations sent successfully')
+          setEmailErrors(result.errors)
+          setGeneralError('')
+          // Refresh invitations data from server to show successful ones
+          try {
+            const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
+            if (invitationsResult.ok) {
+              setLocalInvitations(invitationsResult.data || [])
+            }
+          } catch (error) {
+            console.error('Failed to refresh invitations:', error)
           }
-        } catch (error) {
-          console.error('Failed to refresh invitations:', error)
+        } else {
+          // Complete success - close dialog
+          toast.success(result.message || 'Invitations sent successfully')
+          setInviteDialogOpen(false)
+          setInviteEmails([])
+          setEmailErrors({})
+          setGeneralError('')
+          // Refresh invitations data from server
+          try {
+            const invitationsResult = await getOrganizationInvitations(organizationId, { limit: PAGE_SIZE, offset: 0 })
+            if (invitationsResult.ok) {
+              setLocalInvitations(invitationsResult.data || [])
+            }
+          } catch (error) {
+            console.error('Failed to refresh invitations:', error)
+          }
         }
       } else {
-        // Keep dialog open and show errors
-        if (result.errors) {
-          // Per-email errors
-          setEmailErrors(result.errors)
-        } else if (result.message) {
-          // General error (like rate limit) - show inline in dialog
-          setGeneralError(result.message)
+        // Check if this is a paywall error
+        if (result.paywall) {
+          setInviteDialogOpen(false)
+          setEmailErrors({})
+          setGeneralError('')
+          onPaywallTrigger?.()
         } else {
-          toast.error('Failed to send invitations')
+          // Keep dialog open and show errors
+          if (result.errors) {
+            // Per-email errors
+            setEmailErrors(result.errors)
+          } else if (result.message) {
+            // General error (like rate limit) - show inline in dialog
+            setGeneralError(result.message)
+          } else {
+            toast.error('Failed to send invitations')
+          }
         }
       }
     } catch (error) {
@@ -543,6 +624,7 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
       const member = item
       const fullName = `${member.first_name} ${member.last_name}`
       const isOwner = member.effective_role === 'owner'
+      const isRestricted = isMemberRestricted(member, localMembers)
       
       return (
         <>
@@ -557,21 +639,38 @@ const MembersTable = forwardRef<{ openInviteDialog: () => void }, MembersTablePr
             />
           </TableCell>
           <TableCell className="w-[33.33%] py-0">
-            <div className="flex items-center">
+            <div className="flex items-center gap-3">
               <span className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
                 {member.email}
               </span>
+              {isRestricted && (
+                <Badge 
+                  variant="outline" 
+                  className="text-xs border-0"
+                  style={{
+                    borderRadius: 'var(--radius-1-max)',
+                    backgroundColor: 'var(--color-semantic-warning-3)',
+                    color: 'var(--color-semantic-warning-11)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <Lock size={12} weight="fill" />
+                  Starter limit
+                </Badge>
+              )}
             </div>
           </TableCell>
           <TableCell className="w-[33.33%] py-0 pointer-events-auto">
             <Combobox
-              options={isOwner ? [{ value: "owner", label: "Owner" }] : roleOptions}
+              options={isOwner ? [{ value: "owner", label: "Owner" }] : isRestricted ? [{ value: "member", label: "Member" }] : roleOptions}
               value={member.effective_role}
               onValueChange={(value) => handleRoleChange(member.membership_id, value)}
               placeholder="Select role..."
               searchPlaceholder=""
               emptyText="No role found."
-              readOnly={isOwner || isUpdating || !canManageRoles}
+              readOnly={isOwner || isRestricted || isUpdating || !canManageRoles}
               className="w-full"
               style={{ 
                 height: '32px',

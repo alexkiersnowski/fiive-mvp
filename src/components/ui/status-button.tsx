@@ -1,9 +1,8 @@
 import * as React from "react"
-import { CaretDown } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { Slot } from "@radix-ui/react-slot"
 
-export type StatusVariant = "new" | "in_review" | "accepted" | "canceled"
+export type StatusVariant = "new" | "in_review" | "accepted" | "canceled" | "closed"
 
 interface StatusButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant: StatusVariant
@@ -35,13 +34,19 @@ const statusStyles = {
     color: "var(--color-base-text-inverse)",
     hoverBg: "",
     label: "Canceled"
+  },
+  closed: {
+    backgroundColor: "var(--color-neutral-10)",
+    color: "var(--color-base-text-inverse)",
+    hoverBg: "",
+    label: "Closed"
   }
 }
 
 export function StatusButton({ variant, className, children, asChild = false, customLabel, ...props }: StatusButtonProps) {
   const style = statusStyles[variant]
   
-  const hoverClass = variant === 'canceled' 
+  const hoverClass = (variant === 'canceled' || variant === 'closed')
     ? '' 
     : `hover:bg-[${style.hoverBg}]`
   

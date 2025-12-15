@@ -4,11 +4,10 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { ListRow } from '@/components/ui/list-row'
-import { DotsThree, LinkSimple, Trash, CaretDown, Check } from '@phosphor-icons/react'
+import { DotsThree, LinkSimple, Trash, Check } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
 import { ProjectBadge } from '@/components/ui/project-badge'
@@ -70,7 +69,7 @@ interface ProjectDetailContentProps {
   requestsCount?: number
   tasksCount?: number
   mode?: 'modal' | 'page'
-  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: any; startDate?: string; endDate?: string }) => void
+  onProjectUpdate?: (projectId: string, updates: { title?: string; description?: string; status?: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'; assignee?: Project['assignee']; startDate?: string; endDate?: string }) => void
   createdByOrgId?: string
   createdByOrgType?: 'agency' | 'client'
   currentOrgId: string
@@ -86,9 +85,10 @@ interface ProjectDetailContentProps {
   }
   initialComments?: Comment[]
   onCommentsUpdate?: (comments: Comment[]) => void
+  isDisconnected?: boolean
 }
 
-export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, createdAt, requestsCount = 0, tasksCount = 0, mode = 'modal', onProjectUpdate, createdByOrgId, createdByOrgType, currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser, initialComments = [], onCommentsUpdate }: ProjectDetailContentProps) {
+export function ProjectDetailContent({ projectId, title, description, client, agency, submittedBy: _submittedBy, assignee, agencyMembers = [], type, status = 'planned', startDate, endDate, createdAt: _createdAt, requestsCount = 0, tasksCount = 0, mode = 'modal', onProjectUpdate, createdByOrgId: _createdByOrgId, createdByOrgType: _createdByOrgType, currentOrgId: _currentOrgId, connectionId, onProjectDeleted, partnerName, variant = 'agency', activeUser: _activeUser, initialComments: _initialComments = [], onCommentsUpdate: _onCommentsUpdate, isDisconnected = false }: ProjectDetailContentProps) {
   const router = useRouter()
   const pathname = usePathname()
   
@@ -143,14 +143,14 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
   }
   
   // Determine dialog title based on organization type that created the project
-  const getDialogTitle = () => {
+  const _getDialogTitle = () => {
     return 'Project'
   }
   
   const [titleValue, setTitleValue] = useState(title)
   const [descriptionValue, setDescriptionValue] = useState(description)
   const [statusValue, setStatusValue] = useState(status)
-  const [projectType, setProjectType] = useState(type || 'general')
+  const [_projectType, setProjectType] = useState(type || 'general')
   const [titleResetKey, setTitleResetKey] = useState(0)
   const [assigneeValue, setAssigneeValue] = useState(assignee)
   const [startDateValue, setStartDateValue] = useState(startDate || '')
@@ -243,6 +243,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
       document.removeEventListener('focusin', handleFocus, true)
       document.removeEventListener('keydown', handleKeyDown, true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleValue, descriptionValue])
 
   const handleTitleSave = async (value: string) => {
@@ -308,7 +309,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
   }
 
-  const handleProjectTypeSave = (value: string) => {
+  const _handleProjectTypeSave = (value: string) => {
     setProjectType(value)
     // TODO: Save to database
     console.log('Saving project type:', value)
@@ -350,7 +351,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
   }
 
-  const handleAssigneeSelect = async (memberId: string) => {
+  const _handleAssigneeSelect = async (memberId: string) => {
     const selectedMember = agencyMembers.find(member => member.id === memberId)
     if (selectedMember) {
       const newAssignee = {
@@ -385,7 +386,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
     }
   }
 
-  const handleClearAssignee = async () => {
+  const _handleClearAssignee = async () => {
     // Optimistic update
     const previousAssignee = assigneeValue
     setAssigneeValue(null)
@@ -554,7 +555,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                 <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Copy link
               </DropdownMenuItem>
-              {variant === 'agency' && (
+              {!isDisconnected && variant === 'agency' && (
                 <>
               <div className="border-t border-[var(--color-neutral-6)] my-1" />
               <DropdownMenuItem 
@@ -582,21 +583,30 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
         <div className="flex-shrink-0 pb-4 pr-8">
           <div className="flex items-start gap-3">
             <div data-inline-edit="title" className="flex-1 min-w-0">
-              <InlineEdit
-                key={titleResetKey}
-                type="text"
-                value={titleValue}
-                onSave={handleTitleSave}
-                placeholder="Project name"
-                textClass="display-7-medium text-primary"
-                multiline={true}
-                maxLength={255}
-                preventNewLines={true}
-                className="px-0"
-                nonInteractive={variant === 'client'}
-              />
+              {isDisconnected || variant === 'client' ? (
+                <p className="display-7-medium text-primary px-0">
+                  {titleValue}
+                </p>
+              ) : (
+                <InlineEdit
+                  key={titleResetKey}
+                  type="text"
+                  value={titleValue}
+                  onSave={handleTitleSave}
+                  placeholder="Project name"
+                  textClass="display-7-medium text-primary"
+                  multiline={true}
+                  maxLength={255}
+                  preventNewLines={true}
+                  className="px-0"
+                />
+              )}
             </div>
-            {variant === 'agency' ? (
+            {isDisconnected || variant !== 'agency' ? (
+              <div className="mt-1.5">
+                <ProjectBadge variant={statusValue} size="lg" showText={true} />
+              </div>
+            ) : (
               <Popover open={isStatusDropdownOpen} onOpenChange={setIsStatusDropdownOpen}>
                 <PopoverTrigger asChild>
                   <button
@@ -637,10 +647,6 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                   </Command>
                 </PopoverContent>
               </Popover>
-            ) : (
-              <div className="mt-1.5">
-                <ProjectBadge variant={statusValue} size="lg" showText={true} />
-              </div>
             )}
           </div>
         </div>
@@ -649,7 +655,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
         <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
           <div className="flex flex-col gap-5">
             <div data-inline-edit="description">
-              {variant === 'client' ? (
+              {isDisconnected || variant === 'client' ? (
                 <div
                   className="text-md-regular px-0 whitespace-pre-wrap"
                   style={{ fontSize: '15px', lineHeight: '22px' }}
@@ -669,6 +675,7 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
                   textClass="text-md-regular"
                   multiline={true}
                   linkifyUrls={true}
+                  maxLength={10000}
                   className="px-0"
                   style={{ fontSize: '15px', lineHeight: '22px' }}
                 />
@@ -712,19 +719,19 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">Start date</p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
-              <InlineEdit
-                type="date"
-                value={startDateValue}
-                placeholder="Add date"
-                dateFormat="d MMM yyyy"
-                onSave={handleStartDateSave}
-                className="h-[28px] cursor-pointer truncate"
-              />
-              ) : (
+              {isDisconnected || variant !== 'agency' ? (
                 <span className="text-sm-regular text-primary ml-1">
-                  {startDateValue || "No date"}
+                  {startDateValue || "No start date"}
                 </span>
+              ) : (
+                <InlineEdit
+                  type="date"
+                  value={startDateValue}
+                  placeholder="Add date"
+                  dateFormat="d MMM yyyy"
+                  onSave={handleStartDateSave}
+                  className="h-[28px] cursor-pointer truncate"
+                />
               )}
             </div>
           </div>
@@ -735,19 +742,19 @@ export function ProjectDetailContent({ projectId, title, description, client, ag
               <p className="text-sm-regular text-secondary truncate">End date</p>
             </div>
             <div className="w-3/5 min-w-0">
-              {variant === 'agency' ? (
-              <InlineEdit
-                type="date"
-                value={endDateValue}
-                placeholder="Add date"
-                dateFormat="d MMM yyyy"
-                onSave={handleEndDateSave}
-                className="h-[28px] cursor-pointer truncate"
-              />
-              ) : (
+              {isDisconnected || variant !== 'agency' ? (
                 <span className="text-sm-regular text-primary ml-1">
-                  {endDateValue || "No date"}
+                  {endDateValue || "No end date"}
                 </span>
+              ) : (
+                <InlineEdit
+                  type="date"
+                  value={endDateValue}
+                  placeholder="Add date"
+                  dateFormat="d MMM yyyy"
+                  onSave={handleEndDateSave}
+                  className="h-[28px] cursor-pointer truncate"
+                />
               )}
             </div>
           </div>

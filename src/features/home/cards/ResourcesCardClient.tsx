@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -241,7 +242,9 @@ export default function ResourcesCardClient({ context, initialResources }: Resou
               }}
             >
               <EyeSlash size={12} weight="fill" style={{ color: 'var(--color-neutral-11, #44474f)' }} />
-              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>Not client visible</span>
+              <span className="ml-1" style={{ color: 'var(--color-neutral-11, #44474f)' }}>
+                {isAgency ? 'Not client visible' : 'Internal only'}
+              </span>
             </Badge>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
@@ -259,7 +262,7 @@ export default function ResourcesCardClient({ context, initialResources }: Resou
           <div className="h-full overflow-auto pr-1 flex flex-col gap-1.5 mt-1 pb-4">
             {resources.map((resource) => {
               const primaryText = resource.label?.trim() || formatHostname(resource.url);
-              const displayUrl = normalizeUrl(resource.url);
+              const _displayUrl = normalizeUrl(resource.url);
               const faviconUrl = getFaviconUrl(resource.url);
               const handleResourceClick = () => {
                 const targetUrl = normalizeUrl(resource.url);
@@ -272,11 +275,14 @@ export default function ResourcesCardClient({ context, initialResources }: Resou
                   key={resource.id}
                   iconStart={
                     faviconUrl ? (
-                      <img
+                      <Image
                         src={faviconUrl}
                         alt=""
-                        className="h-4 w-4 rounded-xs"
+                        width={16}
+                        height={16}
+                        className="rounded-xs"
                         referrerPolicy="no-referrer"
+                        unoptimized
                         onError={(event) => {
                           event.currentTarget.style.display = 'none';
                         }}

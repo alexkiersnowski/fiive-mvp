@@ -23,6 +23,7 @@ import type { StatusVariant } from '@/components/ui/connection-badge';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/shadcn-io/spinner';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { PaywallModal } from '@/components/ui/paywall-modal';
 
 interface ConnectionHeaderProps {
   snapshot: ConnectionSnapshot;
@@ -37,8 +38,8 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
   const { context } = useConnection();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [partnerName, setPartnerName] = useState(snapshot.partner.name);
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [_logoFile, setLogoFile] = useState<File | null>(null);
+  const [_isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -48,6 +49,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
   const [isCanceling, setIsCanceling] = useState(false);
   const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
 
   // Form for reconnect dialog
   const reconnectForm = useForm<{ connectionCode: string }>({
@@ -78,6 +80,19 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
   // Determine back link and label based on partner type
   const backHref = snapshot.partner.type === 'client' ? '/clients' : '/agencies';
   const backLabel = snapshot.partner.type === 'client' ? 'All clients' : 'All agencies';
+
+  // Handle invite client button click with paywall check
+  // Free agencies cannot invite clients - only clients can invite agencies (distribution model)
+  const handleInviteClientClick = () => {
+    const billingStatus = context.organization.billing_status || 'free';
+    if (billingStatus === 'free' && context.variant === 'agency') {
+      // Free agencies cannot invite clients - show paywall
+      setIsPaywallModalOpen(true);
+      return;
+    }
+    // Paid agencies can invite clients - open invite dialog
+    setInviteDialogOpen(true);
+  };
   
   // Handle name save
   const handleNameSave = async (value: string) => {
@@ -486,7 +501,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
               variant="default"
               size="lg"
               className="cursor-pointer text-sm flex items-center gap-2"
-              onClick={() => setInviteDialogOpen(true)}
+              onClick={handleInviteClientClick}
             >
               Invite client
             </Button>
@@ -577,7 +592,7 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
               <DialogDescription 
                 className="text-sm-regular mb-0"
               >
-                This will permanently delete the client and all related data. It won't affect any live connections or shared workspaces.
+                This will permanently delete the client and all related data. It won&apos;t affect any live connections or shared workspaces.
               </DialogDescription>
               <div className="flex justify-end" style={{ marginTop: '12px', gap: '12px' }}>
                 <Button 
@@ -671,6 +686,12 @@ export function ConnectionHeader({ snapshot }: ConnectionHeaderProps) {
           </Dialog>
         </div>
       </div>
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   );
 }

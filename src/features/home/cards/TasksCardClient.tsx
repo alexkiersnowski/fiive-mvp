@@ -6,7 +6,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TaskBadge } from "@/components/ui/task-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowRight, Plus } from "@phosphor-icons/react/dist/ssr";
+import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import {
   Table,
   TableBody,
@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TaskDetailModal } from "@/features/connections/tasks/TaskDetailModal";
+import { PaywallModal } from "@/components/ui/paywall-modal";
 import { fetchTaskByIdGlobal, fetchCommentsForTaskGlobal, fetchTasksSnapshot } from "@/features/tasks/actions";
 import { toast } from "sonner";
 import type { Task } from "@/features/tasks/types";
@@ -24,6 +25,8 @@ import type { Comment } from "@/features/connections/server";
 import { dispatchTaskDueDateChanged, dispatchTaskStatusChanged, dispatchTaskDeleted } from "./stats/TasksDueCard";
 import { dispatchTaskAssignedChanged, dispatchTaskAssignedDeleted } from "./stats/TasksAssignedCard";
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client';
+import { formatRequestDate } from '@/features/connections/formatters';
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 
 interface TasksCardClientProps extends StatsCardProps {
   tasks: Task[];
@@ -37,22 +40,25 @@ interface TasksCardClientProps extends StatsCardProps {
     jobTitle?: string;
   }>;
   initialComments?: Record<string, Comment[]>;
+  allowedConnectionIds?: string[] | null; // Array of allowed connection IDs (null = no limit for paid plans)
 }
+
 
 export default function TasksCardClient({
   tasks,
   prefetchedNextTask = null,
-  snapshot,
+  snapshot: _snapshot,
   context,
   agencyMembers = [],
   initialComments = {},
+  allowedConnectionIds = null,
 }: TasksCardClientProps) {
   const router = useRouter();
   const isAgency = context.variant === "agency";
   const title = "Tasks";
   const description = isAgency
-    ? "No tasks yet. Start adding action items for your team or clients and choose which tasks are visible to clients."
-    : "No tasks yet. Your agency manages all tasks. Submit a request to kick things off or share what you need next.";
+    ? "Add action items for your team or client, and choose what stays client-visible."
+    : "Your agency manages all tasks. Submit a request to get started.";
   const linkText = "View all tasks";
 
   // Local state for tasks (to allow optimistic updates)
@@ -67,6 +73,9 @@ export default function TasksCardClient({
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   // Initialize comments with prefetched data
   const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>(initialComments);
+  
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
   
   // Track client org user IDs for event dispatching (only for client context)
   const [clientOrgUserIds, setClientOrgUserIds] = useState<Set<string>>(new Set());
@@ -113,35 +122,130 @@ export default function TasksCardClient({
     }));
   }, [initialComments]);
 
-  const handleRowClick = useCallback(async (taskId: string) => {
-    // Try to get task from local state first
-    const localTask = localTasks.find(t => t.id === taskId);
-    
-    if (localTask) {
-      // Use local task data
-      setSelectedTask(localTask);
-      setIsTaskDetailModalOpen(true);
+  // Listen for task creation events (e.g., from RequestsCard converting a request to task)
+  useEffect(() => {
+    const handleTaskCreated = async (event: CustomEvent) => {
+      const { taskId, connectionId: eventConnectionId, title, description, status, project, assignee, dueDateRaw, clientVisible, client: eventClient, agency: eventAgency } = event.detail;
       
-      // Use prefetched comments if available, otherwise fetch
-      if (commentsByTask[taskId]) {
-        // Comments already available, no need to fetch
-      } else {
-        // Fetch comments if not prefetched
-        try {
-          const comments = await fetchCommentsForTaskGlobal(taskId);
+      // Create optimistic task entry immediately
+      const isoNow = new Date().toISOString();
+      const displayDate = formatRequestDate(isoNow) || isoNow;
+
+      // Find assignee member if available
+      const assigneeMember = assignee?.id
+        ? agencyMembers.find((member) => member.id === assignee.id)
+        : undefined;
+
+      // Create optimistic task with client/agency info from event
+      const optimisticTask: Task = {
+        id: taskId,
+        connectionId: eventConnectionId,
+        title,
+        description: description || '',
+        status: status || 'to_do',
+        project: project ?? null,
+        submittedBy: {
+          id: context.user.id,
+          name: `${context.user.firstName} ${context.user.lastName}`.trim() || 'You',
+          email: context.user.email,
+          avatarUrl: context.user.avatarUrl,
+          jobTitle: context.user.jobTitle,
+          orgId: context.organization.id,
+          orgName: context.organization.name,
+          orgLogo: context.organization.logoUrl,
+        },
+        assignee: assigneeMember
+          ? {
+              id: assigneeMember.id,
+              name: `${assigneeMember.firstName} ${assigneeMember.lastName}`.trim() || assigneeMember.email,
+              email: assigneeMember.email,
+              avatarUrl: assigneeMember.avatarUrl,
+            }
+          : null,
+        client: eventClient || {
+          id: '',
+          name: 'Loading...',
+        },
+        agency: eventAgency,
+        createdAt: displayDate,
+        dueDate: dueDateRaw ? formatRequestDate(dueDateRaw) : null,
+        dueDateRaw: dueDateRaw ?? null,
+        createdByUserId: context.user.id,
+        createdByOrgId: context.organization.id,
+        createdByOrgType: context.variant === 'agency' ? 'agency' : 'client',
+        clientVisible: clientVisible ?? false,
+        clientVisibilityLocked: false, // Will be corrected by server fetch
+      };
+
+      // Optimistically add to the list
+      setLocalTasks(prev => {
+        const filtered = prev.filter((item) => item.id !== taskId);
+        const next = [optimisticTask, ...filtered];
+        const displayed = next.slice(0, 4);
+        
+        // If we had 4 displayed and now have 5+, push the 5th to prefetched
+        if (next.length > 4) {
+          setPrefetchedTask(next[4]);
+        }
+        
+        return displayed;
+      });
+
+      // Fetch the actual task from server to replace optimistic entry
+      try {
+        const [fetched, comments] = await Promise.all([
+          fetchTaskByIdGlobal(taskId, context),
+          fetchCommentsForTaskGlobal(taskId),
+        ]);
+        
+        if (fetched) {
+          // Update comments
           setCommentsByTask(prev => ({
             ...prev,
             [taskId]: comments
           }));
-        } catch (error) {
-          console.error('Error fetching comments:', error);
+
+          // Replace optimistic entry with server data
+          setLocalTasks(prev => {
+            const filtered = prev.filter((item) => item.id !== taskId);
+            const next = [fetched, ...filtered];
+            const displayed = next.slice(0, 4);
+            
+            // If we had 4 displayed and now have 5+, push the 5th to prefetched
+            if (next.length > 4) {
+              setPrefetchedTask(next[4]);
+            }
+            
+            return displayed;
+          });
         }
+      } catch (error) {
+        console.error('Error fetching task after creation:', error);
+        // Keep optimistic entry if fetch fails
       }
-    } else {
-      // Fetch task if not in local state
-      try {
-        const task = await fetchTaskByIdGlobal(taskId, context);
-        if (task) {
+    };
+
+    window.addEventListener('taskCreated', handleTaskCreated as unknown as EventListener);
+    return () => {
+      window.removeEventListener('taskCreated', handleTaskCreated as unknown as EventListener);
+    };
+  }, [context, agencyMembers]);
+
+  const handleRowClick = useCallback(async (taskId: string) => {
+    // Try to get task from local state first
+    const localTask = localTasks.find(t => t.id === taskId);
+    
+    if (!localTask) {
+      // If not in local state, fetch from server (will trigger paywall check)
+      await runWithPaywallCheck(
+        async () => {
+          const task = await fetchTaskByIdGlobal(taskId, context);
+          if (!task) {
+            throw new Error('Task not found');
+          }
+          return task;
+        },
+        (task) => {
           setSelectedTask(task);
           setIsTaskDetailModalOpen(true);
           
@@ -150,21 +254,52 @@ export default function TasksCardClient({
             // Comments already available, no need to fetch
           } else {
             // Fetch comments if not prefetched
-            const comments = await fetchCommentsForTaskGlobal(taskId);
-            setCommentsByTask(prev => ({
-              ...prev,
-              [taskId]: comments
-            }));
+            fetchCommentsForTaskGlobal(taskId).then(comments => {
+              setCommentsByTask(prev => ({
+                ...prev,
+                [taskId]: comments
+              }));
+            }).catch(error => {
+              console.error('Error fetching comments:', error);
+            });
           }
-        } else {
-          toast.error('Task not found');
+        },
+        () => {
+          setIsPaywallModalOpen(true);
         }
-      } catch (error) {
-        console.error('Error fetching task:', error);
-        toast.error('Failed to load task');
+      );
+      return;
+    }
+
+    // Check paywall client-side using prefetched allowedConnectionIds
+    const billingStatus = context.organization.billing_status || 'free';
+    if (context.variant === 'agency' && billingStatus === 'free' && allowedConnectionIds != null) {
+      if (!allowedConnectionIds.includes(localTask.connectionId)) {
+        // Restricted connection - show paywall immediately
+        setIsPaywallModalOpen(true);
+        return;
       }
     }
-  }, [localTasks, context, commentsByTask]);
+
+    // Allowed - open modal instantly with local data
+    setSelectedTask(localTask);
+    setIsTaskDetailModalOpen(true);
+    
+    // Use prefetched comments if available, otherwise fetch
+    if (commentsByTask[taskId]) {
+      // Comments already available, no need to fetch
+    } else {
+      // Fetch comments if not prefetched
+      fetchCommentsForTaskGlobal(taskId).then(comments => {
+        setCommentsByTask(prev => ({
+          ...prev,
+          [taskId]: comments
+        }));
+      }).catch(error => {
+        console.error('Error fetching comments:', error);
+      });
+    }
+  }, [localTasks, context, commentsByTask, allowedConnectionIds]);
 
   const handleTaskDetailModalClose = useCallback(() => {
     setIsTaskDetailModalOpen(false);
@@ -181,7 +316,7 @@ export default function TasksCardClient({
     }
   }, [selectedTask, context.variant]);
 
-  const handleTaskUpdate = useCallback((taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: any; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; completedAt?: string | null; completedAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => {
+  const handleTaskUpdate = useCallback((taskId: string, updates: { title?: string; description?: string; status?: 'to_do' | 'in_progress' | 'on_hold' | 'done'; assignee?: Task['assignee']; project?: { id: string; name: string } | null; dueDate?: string | null; dueDateRaw?: string | null; completedAt?: string | null; completedAtRaw?: string | null; clientVisible?: boolean; clientVisibilityLocked?: boolean }) => {
     // Find the original task to check what changed
     const originalTask = localTasks.find(t => t.id === taskId);
     const oldDueDate = originalTask?.dueDateRaw ?? null;
@@ -299,8 +434,7 @@ export default function TasksCardClient({
       // Fetch starting from cursor 5 with limit 1
       fetchTasksSnapshot(context, {
         limit: 1,
-        cursor: '5',
-        sort: 'due_date',
+        offset: 5,
       }).then(nextSnapshot => {
         if (nextSnapshot.tasks.length > 0) {
           const newPrefetched = nextSnapshot.tasks[0];
@@ -476,27 +610,15 @@ export default function TasksCardClient({
       )}
 
       <div className="mt-auto flex justify-end">
-        {hasTasks ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
-            onClick={() => router.push("/tasks")}
-          >
-            <span className="mr-1">{linkText}</span>
-            <ArrowRight size={16} weight="regular" />
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 shadow-none cursor-pointer transition-all duration-75"
-            onClick={() => router.push("/tasks")}
-          >
-            <Plus size={16} weight="regular" />
-            {isAgency ? "Add task" : "View all tasks"}
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75 mt-1"
+          onClick={() => router.push("/tasks")}
+        >
+          <span className="mr-1">{linkText}</span>
+          <ArrowRight size={16} weight="regular" />
+        </Button>
       </div>
 
       {/* Task Detail Modal */}
@@ -548,8 +670,15 @@ export default function TasksCardClient({
             }));
           }}
           isGlobalView={true}
+          organizationType={context.organization.type as 'agency' | 'client'}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </Card>
   );
 }

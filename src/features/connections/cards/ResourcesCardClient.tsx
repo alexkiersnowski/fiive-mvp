@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -290,7 +291,7 @@ export default function ResourcesCardClient({ snapshot, context, initialResource
           <div className="h-full overflow-auto pr-1 flex flex-col gap-1.5 mt-1 pb-4">
             {resources.map((resource) => {
               const primaryText = resource.label?.trim() || formatHostname(resource.url);
-              const displayUrl = normalizeUrl(resource.url);
+              const _displayUrl = normalizeUrl(resource.url);
               const faviconUrl = getFaviconUrl(resource.url);
               const handleResourceClick = () => {
                 const targetUrl = normalizeUrl(resource.url);
@@ -303,10 +304,13 @@ export default function ResourcesCardClient({ snapshot, context, initialResource
                   key={resource.id}
                   iconStart={
                     faviconUrl ? (
-                      <img
+                      <Image
                         src={faviconUrl}
                         alt=""
-                        className="h-4 w-4 rounded-xs"
+                        width={16}
+                        height={16}
+                        className="rounded-xs"
+                        unoptimized
                         referrerPolicy="no-referrer"
                         onError={(event) => {
                           event.currentTarget.style.display = 'none';

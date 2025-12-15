@@ -48,7 +48,7 @@ export default async function ConnectionLayoutWrapper({
   // ConnectionLayout will handle null snapshot gracefully for detail pages and settings page
   const headersList = await headers();
   const pathnameHeader = headersList.get('x-pathname');
-  const referer = headersList.get('referer') || '';
+  const _referer = headersList.get('referer') || '';
   
   // Only use pathname header if available (more reliable than referer)
   // If pathname header is not available, we'll always fetch snapshot to be safe

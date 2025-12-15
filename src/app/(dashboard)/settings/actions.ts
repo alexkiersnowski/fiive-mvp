@@ -3,9 +3,10 @@
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { uploadAvatar, uploadLogo, deleteAvatarFolder } from '@/lib/supabase/storage'
+import { uploadAvatar, uploadLogo, deleteAvatarFolder, deleteLogoFolder } from '@/lib/supabase/storage'
 import { randomBytes, createHash } from 'crypto'
 import { escapeForILike } from '@/lib/utils'
+import { SITE_URL } from '@/lib/env'
 
 // Rate limiting configuration
 const RATE_LIMITS = {
@@ -60,9 +61,12 @@ type ActionResult<T = any> = {
   ok: boolean
   data?: T
   message?: string
+  paywall?: boolean
 }
 
 // Helper function for organization ownership verification
+// Optimized to use idx_organizations_id_owner composite index for fast id + owner_id lookups
+// Also verifies user has membership access via idx_memberships_user_id
 async function verifyOrganizationOwnership(organizationId: string, userId: string): Promise<ActionResult> {
   const supabase = await createClient()
   
@@ -89,6 +93,7 @@ async function verifyOrganizationOwnership(organizationId: string, userId: strin
 }
 
 // Helper function for organization access verification (any member)
+// Optimized to use idx_organizations_id_owner for id lookups and idx_memberships_user_id for membership verification
 async function verifyOrganizationAccess(organizationId: string, userId: string): Promise<ActionResult> {
   const supabase = await createClient()
   
@@ -265,7 +270,7 @@ export async function requestEmailChange(data: {
   const { error } = await supabase.auth.updateUser(
     { email },
     { 
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback?next=/settings/account/access` 
+      emailRedirectTo: `${SITE_URL}/auth/callback?next=/settings/account/access` 
     }
   )
 
@@ -453,7 +458,7 @@ export async function deleteOwnAccount(data: { email: string }) {
   if (!orgError && organizations && organizations.length > 0) {
     return { 
       ok: false, 
-      message: "Organization owners cannot delete their accounts. Please transfer ownership first or delete the workspace from Billing & Subscription." 
+      message: "Organization owners cannot delete their accounts. Please transfer ownership first or delete the workspace from Plan & billing." 
     }
   }
 
@@ -562,6 +567,212 @@ export async function deleteOwnAccount(data: { email: string }) {
   }
 }
 
+// Delete workspace - soft deletes organization and hard deletes all related data
+export async function deleteWorkspace(data: { organizationId: string }) {
+  const supabase = await createClient()
+
+  // Verify the user is authenticated
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { 
+      ok: false, 
+      message: "Unauthorized" 
+    }
+  }
+
+  try {
+    // Step 1: Verify user is owner of the organization
+    const { data: organization, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, owner_id, billing_status, stripe_customer_id, stripe_subscription_id")
+      .eq("id", data.organizationId)
+      .is("deleted_at", null)
+      .single()
+
+    if (orgError || !organization) {
+      return { 
+        ok: false, 
+        message: "Organization not found" 
+      }
+    }
+
+    if (organization.owner_id !== user.id) {
+      return { 
+        ok: false, 
+        message: "Only the organization owner can delete the workspace" 
+      }
+    }
+
+    // Step 2: Safety checks - verify no real connections and no billing footprint
+    // (These should already be validated in UI, but double-check for safety)
+    const { data: realConnections, error: connectionsError } = await supabase
+      .from("connections")
+      .select("id")
+      .in("connection_status", ['invited', 'connected', 'disconnected'])
+      .or(`agency_id.eq.${data.organizationId},client_id.eq.${data.organizationId}`)
+      .limit(1)
+
+    if (connectionsError) {
+      console.error('Error checking for real connections:', connectionsError)
+      return { 
+        ok: false, 
+        message: "Failed to verify workspace deletion eligibility" 
+      }
+    }
+
+    if (realConnections && realConnections.length > 0) {
+      return { 
+        ok: false, 
+        message: "Cannot delete workspace with active connections. Please contact support." 
+      }
+    }
+
+    // Check billing footprint
+    if (organization.billing_status !== 'free' || organization.stripe_customer_id || organization.stripe_subscription_id) {
+      return { 
+        ok: false, 
+        message: "Cannot delete workspace with billing history. Please contact support." 
+      }
+    }
+
+    // Step 3: Get all user IDs in the organization (for avatar cleanup and auth.user deletion)
+    // Include owner (from organizations.owner_id) and all members (from memberships)
+    const { data: memberships, error: membershipsError } = await supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("org_id", data.organizationId)
+
+    if (membershipsError) {
+      console.error('Error fetching memberships:', membershipsError)
+      return { 
+        ok: false, 
+        message: "Failed to fetch workspace members" 
+      }
+    }
+
+    // Get all user IDs from memberships, plus the owner ID
+    const membershipUserIds = memberships?.map(m => m.user_id).filter(Boolean) as string[] || []
+    const ownerId = organization.owner_id
+    
+    // Combine owner and members, remove duplicates
+    const userIds = Array.from(new Set([ownerId, ...membershipUserIds])).filter(Boolean) as string[]
+
+    // Step 4: Get draft organization IDs created by this workspace (for logo cleanup)
+    const { data: draftOrgs, error: draftOrgsError } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("created_by_org_id", data.organizationId)
+      .eq("is_draft", true)
+
+    if (draftOrgsError) {
+      console.warn('Error fetching draft organizations:', draftOrgsError)
+      // Continue - we'll still try to delete main org logo
+    }
+
+    const draftOrgIds = draftOrgs?.map(org => org.id).filter(Boolean) as string[] || []
+
+    // Step 5: Delete organization logo folder from storage (best-effort)
+    // Must happen BEFORE organization is soft-deleted so RLS can verify it exists
+    const logoStorageResult = await deleteLogoFolder(data.organizationId)
+    if (!logoStorageResult.success) {
+      console.warn('Failed to delete logo folder for workspace:', {
+        organizationId: data.organizationId,
+        error: logoStorageResult.error,
+      })
+      // Continue - storage cleanup is best-effort
+    }
+
+    // Step 6: Delete logo folders for all draft organizations (best-effort, in parallel)
+    // Must happen BEFORE draft orgs are deleted so RLS can verify they exist
+    const draftLogoDeletionPromises = draftOrgIds.map(draftOrgId =>
+      deleteLogoFolder(draftOrgId).catch(error => {
+        console.warn('Failed to delete logo folder for draft org:', {
+          draftOrgId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return { success: false, error: String(error) }
+      })
+    )
+
+    await Promise.all(draftLogoDeletionPromises)
+    // Continue even if some logo deletions fail - best-effort cleanup
+
+    // Step 7: Delete avatar folders for all org members (best-effort, in parallel)
+    // MVP: 1 user = 1 org, so safe to delete all avatars
+    const avatarDeletionPromises = userIds.map(userId => 
+      deleteAvatarFolder(userId).catch(error => {
+        console.warn('Failed to delete avatar folder for user:', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return { success: false, error: String(error) }
+      })
+    )
+    
+    await Promise.all(avatarDeletionPromises)
+    // Continue even if some avatar deletions fail - best-effort cleanup
+
+    // Step 8: Call RPC function to handle database deletions
+    const { error: rpcError } = await supabase.rpc('delete_workspace', {
+      p_org_id: data.organizationId,
+      p_user_id: user.id,
+    })
+
+    if (rpcError) {
+      console.error('Error deleting workspace via RPC:', rpcError)
+      
+      // Extract error message
+      const errorMessage = 
+        (rpcError && ('message' in rpcError ? rpcError.message : undefined)) ||
+        (rpcError && ('details' in rpcError ? (rpcError as { details?: string }).details : undefined)) ||
+        (rpcError && ('hint' in rpcError ? (rpcError as { hint?: string }).hint : undefined)) ||
+        'Failed to delete workspace. Please try again.'
+
+      return { 
+        ok: false, 
+        message: errorMessage 
+      }
+    }
+
+    // Step 9: Hard delete all auth.users for org members using admin client
+    // MVP: all users belong only to this org, so safe to delete all
+    const adminSupabase = createAdminClient()
+    const authDeletionPromises = userIds.map(userId =>
+      adminSupabase.auth.admin.deleteUser(userId).catch(error => {
+        console.error('Error deleting auth user:', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        // Log but continue - membership/profile already deleted
+      })
+    )
+
+    await Promise.all(authDeletionPromises)
+    // Continue even if some auth.user deletions fail - database cleanup is done
+
+    // Step 10: Sign out the current user after successful deletion
+    const { error: signOutError } = await supabase.auth.signOut()
+    
+    if (signOutError) {
+      console.error('Error signing out after workspace deletion:', signOutError)
+      // Workspace is deleted, but sign out failed - this is acceptable
+    }
+
+    // Revalidate paths (though user will be signed out)
+    revalidatePath("/settings/organization/details")
+    revalidatePath("/home")
+    
+    return { ok: true }
+
+  } catch (error) {
+    console.error('Unexpected error during workspace deletion:', error)
+    return { 
+      ok: false, 
+      message: "An unexpected error occurred while deleting the workspace" 
+    }
+  }
+}
+
 // Member Management Types
 export interface OrganizationMember {
   id: string
@@ -612,6 +823,7 @@ export async function getOrganizationMembers(
   ok: boolean
   data?: OrganizationMember[]
   hasNextPage?: boolean
+  totalCount?: number
   message?: string
 }> {
   const { limit = 100, offset = 0, searchQuery = '' } = options
@@ -644,40 +856,50 @@ export async function getOrganizationMembers(
     }
   }
 
-  // When searching, first find matching profile IDs using trigram indexes (gold standard pattern)
-  // CRITICAL: Only search profiles that belong to members of THIS organization for performance
-  let matchingUserIds: string[] = []
-  if (searchQuery.trim()) {
-    // First, get all user_ids that belong to this organization's memberships
-    // This limits the search scope dramatically
-    const { data: orgMemberships, error: membershipsError } = await supabase
-      .from('memberships')
-      .select('user_id')
-      .eq('org_id', organizationId)
-    
-    if (membershipsError || !orgMemberships || orgMemberships.length === 0) {
-      // No memberships found - return empty result
-      matchingUserIds = []
-    } else {
-      const orgUserIds = orgMemberships.map(m => m.user_id).filter(Boolean) as string[]
-      
-      if (orgUserIds.length === 0) {
-        matchingUserIds = []
-      } else {
-        const trimmedQuery = searchQuery.trim()
-        const escaped = escapeForILike(trimmedQuery)
-        const searchPattern = `%${escaped}%`
-        const searchTerms = trimmedQuery.toLowerCase().split(' ').filter(t => t.length > 0)
-        
-        // Query profiles table directly (uses trigram indexes for fast search)
-        // BUT only search profiles that belong to this organization's members
-        // Handle multi-word searches: "John Smith" should match first_name="John" AND last_name="Smith"
-        // Also match if full search term appears in either first_name, last_name, or email
-        let profilesQuery = supabase
-          .from('profiles')
-          .select('id, first_name, last_name, email')
-          .is('deleted_at', null)
-          .in('id', orgUserIds) // CRITICAL: Only search profiles in this organization
+  // Single optimized query: Start from memberships (filtered by org_id), JOIN with profiles, apply ILIKE filters
+  // This eliminates the 3-query pattern and lets PostgreSQL optimize the entire query as one unit
+  // PostgreSQL can use idx_memberships_org_id first, then JOIN with profiles, then apply trigram indexes
+  // Strictly scoped to organization - no fallback, no guessing, no global profile queries
+  // PostgREST doesn't support filtering nested foreign key relationships in .or() clauses
+  // Solution: Query from profiles table, filter by user_id through memberships relationship
+  // This allows us to use standard PostgREST filtering syntax while maintaining org scoping
+  let query = supabase
+    .from("profiles")
+    .select(`
+      id,
+      first_name,
+      last_name,
+      email,
+      job_title,
+      avatar_url,
+      deleted_at,
+      memberships!inner(
+        id,
+        role,
+        created_at,
+        org_id,
+        organizations!inner(
+          id,
+          name,
+          logo_url,
+          owner_id
+        )
+      )
+    `)
+    .eq("memberships.org_id", organizationId)
+    .is("deleted_at", null)
+
+  // Track role search for post-transformation filtering
+  const trimmedQuery = searchQuery.trim()
+  const lowerQuery = trimmedQuery.toLowerCase()
+  const isRoleSearch = lowerQuery === 'owner' || lowerQuery === 'member'
+  const searchIncludesRole = !isRoleSearch && (lowerQuery.includes('owner') || lowerQuery.includes('member'))
+
+  // Apply search filters directly on profiles table fields (standard PostgREST syntax)
+  if (trimmedQuery && !isRoleSearch) {
+    const escaped = escapeForILike(trimmedQuery)
+    const searchPattern = `%${escaped}%`
+    const searchTerms = lowerQuery.split(' ').filter(t => t.length > 0)
     
     if (searchTerms.length > 1) {
       // Multi-word search: try to match first word in first_name AND second word in last_name
@@ -687,10 +909,8 @@ export async function getOrganizationMembers(
       const firstPattern = `%${firstTermEscaped}%`
       const secondPattern = `%${secondTermEscaped}%`
       
-      // Match: (first_name contains first term AND last_name contains second term)
-      // OR (first_name contains second term AND last_name contains first term)
-      // OR (first_name contains full term) OR (last_name contains full term) OR (email contains full term)
-      profilesQuery = profilesQuery.or(
+      // Standard PostgREST .or() syntax on profiles table fields
+      query = query.or(
         `and(first_name.ilike.${firstPattern},last_name.ilike.${secondPattern}),` +
         `and(first_name.ilike.${secondPattern},last_name.ilike.${firstPattern}),` +
         `first_name.ilike.${searchPattern},` +
@@ -699,111 +919,56 @@ export async function getOrganizationMembers(
       )
     } else {
       // Single word search: match in first_name, last_name, or email
-      profilesQuery = profilesQuery.or(
+      query = query.or(
         `first_name.ilike.${searchPattern},` +
         `last_name.ilike.${searchPattern},` +
         `email.ilike.${searchPattern}`
       )
     }
-    
-        const { data: matchingProfiles, error: profilesError } = await profilesQuery
-        
-        if (!profilesError && matchingProfiles) {
-          // For multi-word searches, also filter in memory to ensure all terms match
-          if (searchTerms.length > 1) {
-            matchingUserIds = matchingProfiles
-              .filter(profile => {
-                const firstName = (profile.first_name || '').toLowerCase()
-                const lastName = (profile.last_name || '').toLowerCase()
-                const email = (profile.email || '').toLowerCase()
-                const fullName = `${firstName} ${lastName}`.trim()
-                
-                // Check if all search terms appear somewhere in the name or email
-                return searchTerms.every(term => 
-                  firstName.includes(term) || 
-                  lastName.includes(term) || 
-                  fullName.includes(term) ||
-                  email.includes(term)
-                )
-              })
-              .map(p => p.id)
-          } else {
-            matchingUserIds = matchingProfiles.map(p => p.id)
-          }
-        }
-      }
-    }
   }
 
-  // Build query for members with their profiles and organization info
-  // Filter out soft-deleted profiles (deleted_at IS NULL)
-  let query = supabase
-    .from("memberships")
-    .select(`
-      id,
-      role,
-      created_at,
-      profiles!inner(
-        id,
-        first_name,
-        last_name,
-        email,
-        job_title,
-        avatar_url,
-        deleted_at
-      ),
-      organizations!inner(
-        id,
-        name,
-        logo_url,
-        owner_id
-      )
-    `)
-    .eq("org_id", organizationId)
-    .is("profiles.deleted_at", null)
-
-  // Apply search filter: filter memberships by matching user IDs
-  if (searchQuery.trim()) {
-    if (matchingUserIds.length > 0) {
-      query = query.in('user_id', matchingUserIds)
-    } else {
-      // No matches found - return empty result by using impossible UUID
-      query = query.eq('user_id', '00000000-0000-0000-0000-000000000000')
-    }
-  }
-
-  // Order and paginate
-  const { data: members, error: membersError } = await query
-    .order("profiles(first_name)")
+  // Order and paginate - standard PostgREST ordering on profiles table
+  const { data: profiles, error: profilesError } = await query
+    .order("first_name", { ascending: true })
     .range(offset, offset + limit - 1)
 
+  // Rename error variable for consistency
+  const membersError = profilesError
+
   if (membersError) {
-    console.error('Error fetching organization members:', membersError)
+    console.error('Error fetching organization members:', {
+      error: membersError,
+      message: membersError?.message,
+      details: membersError?.details,
+      hint: membersError?.hint,
+      code: membersError?.code
+    })
     return { 
       ok: false, 
-      message: "Failed to fetch members" 
+      message: `Failed to fetch members: ${membersError?.message || 'Unknown error'}` 
     }
   }
 
   // Transform the data to match our interface
-  const transformedMembers: OrganizationMember[] = members?.map(member => {
-    const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles
-    const organization = Array.isArray(member.organizations) ? member.organizations[0] : member.organizations
+  // Data structure is now: profiles with nested memberships and organizations
+  let transformedMembers: OrganizationMember[] = profiles?.map(profile => {
+    const membership = Array.isArray(profile.memberships) ? profile.memberships[0] : profile.memberships
+    const organization = Array.isArray(membership.organizations) ? membership.organizations[0] : membership.organizations
     
     // Compute effective role: if user is owner, show 'owner', otherwise show membership role
-    const effective_role = organization.owner_id === profile.id ? 'owner' : member.role
+    const effective_role = organization.owner_id === profile.id ? 'owner' : membership.role
     
     return {
       id: profile.id,
-      membership_id: member.id,
+      membership_id: membership.id,
       first_name: profile.first_name || '',
       last_name: profile.last_name || '',
       email: profile.email || '',
       job_title: profile.job_title || undefined,
       avatar_url: profile.avatar_url || undefined,
-      role: member.role,
+      role: membership.role,
       effective_role: effective_role,
-      created_at: member.created_at,
+      created_at: membership.created_at,
       organization: {
         id: organization.id,
         name: organization.name || '',
@@ -812,13 +977,57 @@ export async function getOrganizationMembers(
     }
   }) || []
 
+  // Apply role-based filtering if needed (after transformation since effective_role is computed)
+  if (isRoleSearch) {
+    transformedMembers = transformedMembers.filter(member => 
+      member.effective_role.toLowerCase() === lowerQuery
+    )
+  } else if (searchIncludesRole) {
+    // If search query includes "owner" or "member" but isn't exact match, filter by role as well
+    transformedMembers = transformedMembers.filter(member => {
+      const firstName = (member.first_name || '').toLowerCase()
+      const lastName = (member.last_name || '').toLowerCase()
+      const email = (member.email || '').toLowerCase()
+      const effectiveRole = (member.effective_role || '').toLowerCase()
+      
+      return (
+        firstName.includes(lowerQuery) ||
+        lastName.includes(lowerQuery) ||
+        email.includes(lowerQuery) ||
+        effectiveRole.includes(lowerQuery)
+      )
+    })
+  }
+
   // Determine if there are more pages
   const hasNextPage = transformedMembers.length === limit
+
+  // Get total count when loading first page without search (for accurate unfilteredTotalCount)
+  let totalCount: number | undefined = undefined
+  if (offset === 0 && !searchQuery.trim()) {
+    // Count profiles with memberships matching the same filters as the main query
+    // This ensures we count only non-deleted profiles with memberships in this org
+    const countQuery = supabase
+      .from("profiles")
+      .select(`
+        id,
+        memberships!inner(org_id)
+      `, { count: 'exact', head: true })
+      .eq("memberships.org_id", organizationId)
+      .is("deleted_at", null)
+    
+    const { count, error: countError } = await countQuery
+    
+    if (!countError && count !== null) {
+      totalCount = count
+    }
+  }
 
   return { 
     ok: true, 
     data: transformedMembers,
-    hasNextPage
+    hasNextPage,
+    totalCount
   }
 }
 
@@ -1027,7 +1236,7 @@ export async function removeMember(data: {
     }
 
     // Step 1: Soft-delete the profile (keep email for audit trail)
-    const { error: profileError, data: profileUpdateData } = await adminSupabase
+    const { error: profileError } = await adminSupabase
       .from("profiles")
       .update({ 
         deleted_at: new Date().toISOString(),
@@ -1143,6 +1352,41 @@ export async function validateAndInviteMembers(data: {
     }
 
     const supabase = await createClient()
+
+    // Get billing status and organization type for paywall check
+    const { data: organization, error: orgError } = await supabase
+      .from("organizations")
+      .select("billing_status, type")
+      .eq("id", data.organizationId)
+      .single()
+
+    if (orgError || !organization) {
+      return {
+        ok: false,
+        message: "Organization not found"
+      }
+    }
+
+    const billingStatus = organization.billing_status || 'free'
+    const organizationType = (organization.type === 'agency' || organization.type === 'client') 
+      ? organization.type 
+      : 'agency' // Default to agency for safety
+
+    // Check member limit paywall (only applies to agencies)
+    const { checkMemberLimit } = await import('@/lib/paywall/checkMemberLimit')
+    const memberLimitCheck = await checkMemberLimit({
+      organizationId: data.organizationId,
+      billingStatus,
+      organizationType,
+    })
+
+    if (!memberLimitCheck.allowed) {
+      return {
+        ok: false,
+        paywall: true,
+        message: "Free organizations are limited to 2 members. Upgrade to invite more team members."
+      }
+    }
 
     // Validate emails exist
     if (!data.emails || data.emails.length === 0) {
@@ -1294,7 +1538,7 @@ export async function validateAndInviteMembers(data: {
 
     // All emails are valid - proceed with invites
     // Get existing invitations to handle expired ones
-    const { data: existingInvitations, error: existingError } = await supabase
+    const { data: existingInvitations } = await supabase
       .from("membership_invitations")
       .select("invited_email, status, expires_at")
       .eq("org_id", data.organizationId)
@@ -1327,6 +1571,26 @@ export async function validateAndInviteMembers(data: {
         newEmails.push(email)
       }
     })
+
+    // Check if adding new invitations would exceed member limit (for free agencies)
+    if (organizationType === 'agency' && billingStatus === 'free' && newEmails.length > 0) {
+      const { countOrganizationMembers, countOrganizationInvitations } = await import('@/lib/paywall/checkMemberLimit')
+      const [memberCount, invitationCount] = await Promise.all([
+        countOrganizationMembers(data.organizationId),
+        countOrganizationInvitations(data.organizationId),
+      ])
+      
+      const totalAfterInvites = memberCount + invitationCount + newEmails.length
+      
+      // Free agency organizations limited to 2 members total (including owner)
+      if (totalAfterInvites > 2) {
+        return {
+          ok: false,
+          paywall: true,
+          message: "You can only invite 1 additional member on the Starter plan"
+        }
+      }
+    }
 
   // Handle new emails - create new invitations
   // Store raw tokens for email links (keyed by email)
@@ -1449,49 +1713,124 @@ export async function validateAndInviteMembers(data: {
   }
 
   // Fetch organization name for email template
-  const { data: organization, error: orgError } = await supabase
+  const { data: orgForEmail } = await supabase
     .from('organizations')
     .select('name')
     .eq('id', data.organizationId)
     .single()
 
-  const orgName = organization?.name || 'our organization'
+  const orgName = orgForEmail?.name || 'our organization'
 
-  // Send Resend invite emails for all processed emails
+  // Send Resend invite emails using Batch API (single request for all emails)
+  // This eliminates rate limiting issues and improves performance significantly
   const allProcessedEmails = [...newEmails, ...expiredEmails, ...pendingEmails]
   
-  // Import email sending function
-  const { sendMemberInviteEmail } = await import('@/app/actions/sendMemberInviteEmail')
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+  // Import batch email sending function
+  const { sendMemberInviteEmailsBatch } = await import('@/app/actions/sendMemberInviteEmail')
   
-  for (const email of allProcessedEmails) {
-    try {
-      const rawToken = rawTokensMap.get(email.toLowerCase().trim())
-      if (!rawToken) {
-        console.error(`No raw token found for ${email}`)
-        continue
-      }
-
-      const inviteUrl = `${baseUrl}/member-invite/claim?token=${rawToken}`
-      
-      await sendMemberInviteEmail({
-        to: email,
-        organizationName: orgName,
-        inviteUrl
+  // Prepare email payloads for batch API and track emails with missing tokens
+  const emailPayloads: Array<{ to: string; organizationName: string; inviteUrl: string }> = []
+  const emailsWithMissingTokens: Array<{ email: string; success: boolean; error: string }> = []
+  
+  allProcessedEmails.forEach((email) => {
+    const normalizedEmail = email.toLowerCase().trim()
+    const rawToken = rawTokensMap.get(normalizedEmail)
+    
+    if (!rawToken) {
+      console.error(`[validateAndInviteMembers] No raw token found for ${email}`)
+      emailsWithMissingTokens.push({
+        email,
+        success: false,
+        error: 'No token found',
       })
-    } catch (error) {
-      console.error(`Error sending invite email to ${email}:`, error)
-      // Continue with other emails even if one fails
+      return
     }
+
+    const inviteUrl = `${SITE_URL}/member-invite/claim?token=${rawToken}`
+    
+    emailPayloads.push({
+      to: email,
+      organizationName: orgName,
+      inviteUrl,
+    })
+  })
+
+  // Send all emails in a single batch API call
+  let emailResults: Array<{ email: string; success: boolean; error?: string }> = []
+  
+  // If we have emails to send, call batch API
+  if (emailPayloads.length > 0) {
+    try {
+      emailResults = await sendMemberInviteEmailsBatch(emailPayloads)
+    } catch (error) {
+      // If batch API call fails entirely, mark all batch emails as failed
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[validateAndInviteMembers] Batch API call failed:', errorMessage)
+      emailResults = emailPayloads.map(({ to }) => ({
+        email: to,
+        success: false,
+        error: `Batch send failed: ${errorMessage}`,
+      }))
+    }
+  }
+  
+  // Combine batch results with emails that had missing tokens
+  emailResults = [...emailResults, ...emailsWithMissingTokens]
+  
+  // Process results to track successes and failures
+  const successfulEmails: string[] = []
+  const failedEmails: Array<{ email: string; error: string }> = []
+  
+  for (const result of emailResults) {
+    if (result.success) {
+      successfulEmails.push(result.email)
+    } else {
+      failedEmails.push({ email: result.email, error: result.error || 'Unknown error' })
+    }
+  }
+
+  // Log summary
+  console.log(`[validateAndInviteMembers] Email send results: ${successfulEmails.length} succeeded, ${failedEmails.length} failed`)
+  if (failedEmails.length > 0) {
+    console.error('[validateAndInviteMembers] Failed emails:', failedEmails)
   }
 
   // Revalidate the members page
   revalidatePath("/settings/organization/members")
   
-  const totalProcessed = newEmails.length + expiredEmails.length + pendingEmails.length
-  const message = totalProcessed === 1 
+  // Return detailed results
+  const totalSuccessful = successfulEmails.length
+  const totalFailed = failedEmails.length
+  
+  // If all emails failed, return error
+  if (totalSuccessful === 0 && totalFailed > 0) {
+    return {
+      ok: false,
+      message: `Failed to send all ${totalFailed} invitation${totalFailed !== 1 ? 's' : ''}. Please try again.`,
+      errors: failedEmails.reduce((acc, { email, error }) => {
+        acc[email] = error
+        return acc
+      }, {} as Record<string, string>)
+    }
+  }
+  
+  // If some emails failed, return partial success with details
+  if (totalFailed > 0) {
+    const message = `${totalSuccessful} invitation${totalSuccessful !== 1 ? 's' : ''} sent successfully${totalFailed > 0 ? `, ${totalFailed} failed` : ''}`
+    return {
+      ok: true,
+      message,
+      errors: failedEmails.reduce((acc, { email, error }) => {
+        acc[email] = error
+        return acc
+      }, {} as Record<string, string>)
+    }
+  }
+  
+  // All emails succeeded
+  const message = totalSuccessful === 1 
     ? 'Invitation sent successfully' 
-    : `${totalProcessed} invitations sent successfully`
+    : `${totalSuccessful} invitations sent successfully`
     
   return { 
     ok: true,
@@ -1510,7 +1849,7 @@ export async function validateAndInviteMembers(data: {
 export async function getOrganizationInvitations(
   organizationId: string,
   options: { limit?: number; offset?: number; searchQuery?: string } = {}
-): Promise<ActionResult<OrganizationInvitation[]> & { hasNextPage?: boolean }> {
+): Promise<ActionResult<OrganizationInvitation[]> & { hasNextPage?: boolean; totalCount?: number }> {
   const { limit = 100, offset = 0, searchQuery = '' } = options
   
   // Verify authentication
@@ -1543,11 +1882,25 @@ export async function getOrganizationInvitations(
 
   // Apply server-side search if searchQuery is provided
   // Uses trigram index on lower(invited_email) for fast email search
-  if (searchQuery.trim()) {
-    const escapedSearch = escapeForILike(searchQuery.trim())
+  const trimmedQuery = searchQuery.trim()
+  const lowerQuery = trimmedQuery.toLowerCase()
+  const isRoleSearch = lowerQuery === 'owner' || lowerQuery === 'member'
+  
+  if (trimmedQuery && !isRoleSearch) {
+    const escapedSearch = escapeForILike(trimmedQuery)
     const searchTerm = `%${escapedSearch}%`
     // Use ilike on invited_email - trigram index will be used automatically
     query = query.ilike("invited_email", searchTerm)
+  } else if (isRoleSearch) {
+    // For role search, invitations are always "member" role
+    // Filter to only show if searching for "member"
+    if (lowerQuery === 'member') {
+      // Keep all invitations (they're all member role)
+      // No additional filter needed
+    } else {
+      // Searching for "owner" - invitations can't be owners, so return empty
+      query = query.eq("id", "00000000-0000-0000-0000-000000000000") // Impossible match
+    }
   }
 
   // Order and paginate
@@ -1566,10 +1919,27 @@ export async function getOrganizationInvitations(
   // Determine if there are more pages
   const hasNextPage = (invitations || []).length === limit
 
+  // Get total count when loading first page without search (for accurate unfilteredTotalCount)
+  let totalCount: number | undefined = undefined
+  if (offset === 0 && !searchQuery.trim()) {
+    const countQuery = supabase
+      .from("membership_invitations")
+      .select("*", { count: 'exact', head: true })
+      .eq("org_id", organizationId)
+      .eq("status", "pending")
+    
+    const { count, error: countError } = await countQuery
+    
+    if (!countError && count !== null) {
+      totalCount = count
+    }
+  }
+
   return { 
     ok: true, 
     data: invitations || [],
-    hasNextPage
+    hasNextPage,
+    totalCount
   }
 }
 
@@ -1592,7 +1962,6 @@ export async function resendInvitation(data: {
   }
 
   const supabase = await createClient()
-  const adminSupabase = createAdminClient()
 
   // Get the invitation details first (including updated_at for rate limiting)
   const { data: invitation, error: invitationError } = await supabase
@@ -1663,8 +2032,7 @@ export async function resendInvitation(data: {
   // Send email via Resend
   try {
     const { sendMemberInviteEmail } = await import('@/app/actions/sendMemberInviteEmail')
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-    const inviteUrl = `${baseUrl}/member-invite/claim?token=${rawToken}`
+    const inviteUrl = `${SITE_URL}/member-invite/claim?token=${rawToken}`
     
     await sendMemberInviteEmail({
       to: invitation.invited_email,

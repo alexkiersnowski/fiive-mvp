@@ -1,31 +1,35 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SearchInput } from '@/components/ui/search-input'
 import AvatarButton from '@/components/ui/avatar-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { ListRow } from '@/components/ui/list-row'
 import { Badge } from '@/components/ui/badge'
-import { RequestBadge } from '@/components/ui/request-badge'
-import { InlineEdit } from '@/components/ui/inline-edit'
+import type { InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Plus, SortAscending, DotsThree, MagnifyingGlass, FlowArrow, LinkSimple, Trash, User, CaretDown, Check, Eye, Users } from '@phosphor-icons/react'
+import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { PaywallModal } from '@/components/ui/paywall-modal'
+import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateRequestAssignee, updateRequestStatus } from '@/features/connections/requests/actions'
-import type { Request } from './types'
-import { useVirtualTable, VirtualTableBody } from '@/components/virtual-table'
+import type { Request, SearchResults } from './types'
+import { StatusGroupHeader } from './StatusGroupHeader'
+import { ClientGroupHeader } from './ClientGroupHeader'
+import { GlobalRequestRow } from './GlobalRequestRow'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { RequestStatus } from './requestGrouping'
 
 interface RequestsTableProps {
   userAvatar?: string
   userInitials?: string
   onRequestClick?: (requestId: string) => void
   onNewRequest?: () => void
-  requests?: Request[]
+  requests: Request[] // Flat array of requests (only used in search mode)
+  requestsByClientStatus?: Map<string, Request[]> // Map<`${status}-${clientOrgId}`, Request[]> - accordion cache
+  isLoadingClientStatus?: Map<string, boolean> // Map<`${status}-${clientOrgId}`, boolean> - loading states
+  onFetchClientRequests?: (status: string, clientOrgId: string, forceFetch?: boolean) => void // Fetch-on-expand callback
   agencyMembers?: Array<{
     id: string
     firstName: string
@@ -34,9 +38,9 @@ interface RequestsTableProps {
     avatarUrl?: string
     jobTitle?: string
   }>
-  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled'; assignee?: any }) => void
+  onRequestUpdate?: (requestId: string, updates: { title?: string; description?: string; status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'; assignee?: Request['assignee'] }) => void
   currentOrgId: string
-  onLoadMore?: (virtualRows: any[]) => void
+  onLoadMore?: () => void // Only used in search mode
   onSearchChange?: (query: string) => void
   totalCount?: number
   unfilteredTotalCount?: number
@@ -48,29 +52,37 @@ interface RequestsTableProps {
   isAgency?: boolean
   onRequestDeleted?: (requestId: string) => void
   onConvertToTask?: (request: Request) => void
-  sortOptions?: Array<{
-    value: string
-    label: string
-    buttonLabel: string
-  }>
-  sortValue?: string
-  onSortChange?: (value: string) => void
+  allowedConnectionIds?: string[] | null
+  allConnectionsMetadata?: Map<string, { name: string; logoUrl?: string }>
+  statusCounts: Map<string, number> // From metadata fetch
+  clientCounts: Map<string, number> // From metadata fetch (clientOrgId -> count, keyed by `${status}-${clientOrgId}`)
+  collapsedStatuses: Set<string> // Client-side collapse state
+  collapsedClients: Map<string, Set<string>> // Map<status, Set<clientOrgId>>
+  onToggleStatus: (status: string) => void // Simple state update
+  onToggleClient: (status: string, clientOrgId: string) => void // Simple state update
+  hasOptimisticData?: (cacheKey: string) => boolean // Check if cache key has optimistic data
+  searchQuery?: string // Optional search query for client-side filtering (browse mode)
+  searchResults?: SearchResults | null // Server-side search results (search mode)
+  isSearching?: boolean // Search loading state
+  assignedFilterResults?: SearchResults | null // Server-side assigned filter results (assigned filter mode)
+  isLoadingAssignedFilter?: boolean // Assigned filter loading state
 }
 
-export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests = [], agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, sortOptions = [], sortValue: propSortValue = 'created', onSortChange }: RequestsTableProps) {
-  const router = useRouter()
-  
-  const [searchQuery, setSearchQuery] = useState('')
-  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
+export default function RequestsTable({ userAvatar = '', userInitials = 'U', onRequestClick, onNewRequest, requests, requestsByClientStatus = new Map(), isLoadingClientStatus = new Map(), onFetchClientRequests, agencyMembers = [], onRequestUpdate, currentOrgId, onLoadMore, onSearchChange, totalCount, unfilteredTotalCount = 0, parentRef, headerOffset = 0, assignedToMe = false, onToggleAssignedToMe, isBootstrapping = false, isAgency = false, onRequestDeleted, onConvertToTask, allowedConnectionIds: _allowedConnectionIds = null, allConnectionsMetadata = new Map(), statusCounts, clientCounts, collapsedStatuses, collapsedClients, onToggleStatus, onToggleClient, hasOptimisticData, searchQuery: searchQueryProp, searchResults, isSearching = false, assignedFilterResults, isLoadingAssignedFilter = false }: RequestsTableProps) {
+  const pathname = usePathname()
+  const baseRoute = pathname.includes('/clients/') ? 'clients' : 'agencies'
   const [openActionsDropdown, setOpenActionsDropdown] = useState<string | null>(null)
   
-  // Assignee ref for combobox functionality
-  const assigneeListRowRef = useRef<HTMLDivElement & { triggerCombobox: () => void } | null>(null)
-  const [isAssigneeUnassigned, setIsAssigneeUnassigned] = useState(false)
+  // Paywall modal state
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false)
+  
+  const statusInlineRefs = useRef<Record<string, InlineEditRef | null>>({})
   
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
   const isMutingStatus = useRef(false)
+  
+  // Auto-expand refs removed - no longer needed with server-side search mode
   
   // Profile Card state
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -87,8 +99,25 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     };
   } | null>(null)
 
-  // Use total count from database, fallback to displayed requests count if not provided
-  const requestCount = totalCount !== undefined ? totalCount : requests.length
+  // Calculate total request count from statusCounts (sum of all statuses)
+  // This gives us the accurate total across all connections, regardless of what's loaded
+  // In search mode, use the count from search results instead
+  const requestCount = useMemo(() => {
+    // If in search mode, calculate count from search results
+    if (searchResults) {
+      return searchResults.clients.reduce((sum, client) => sum + client.requests.length, 0);
+    }
+    // If in assigned filter mode, calculate count from assigned filter results
+    if (assignedFilterResults) {
+      return assignedFilterResults.clients.reduce((sum, client) => sum + client.requests.length, 0);
+    }
+    // Otherwise, use accordion mode: sum all status counts
+    let total = 0;
+    for (const count of statusCounts.values()) {
+      total += typeof count === 'number' ? count : 0;
+    }
+    return total;
+  }, [statusCounts, searchResults, assignedFilterResults])
   
   // Transform agency members to combobox options (memoized to prevent recreation)
   const comboboxOptions = useMemo(() => 
@@ -101,15 +130,8 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     [agencyMembers]
   )
 
-  // Current sort label (memoized based on sortValue)
-  const currentSortLabel = useMemo(() => 
-    sortOptions.find(option => option.value === propSortValue)?.buttonLabel || 'Created',
-    [sortOptions, propSortValue]
-  )
-
-  const handleSortChange = (newSortValue: string) => {
-    onSortChange?.(newSortValue)
-  }
+  // Sort is always "Created" for MVP
+  const currentSortLabel = 'Created'
 
   // Assignee handlers with loading guard
   const handleAssigneeSelect = async (requestId: string, memberId: string) => {
@@ -133,10 +155,24 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       // Set loading guard
       isMutingAssignee.current = true
       
-      try {
-        await updateRequestAssignee(requestId, memberId)
-        // Real-time subscription will handle UI updates
-      } catch (error) {
+      await runWithPaywallCheck(
+        async () => {
+          await updateRequestAssignee(requestId, memberId)
+        },
+        () => {
+          // Success - real-time subscription will handle UI updates
+        },
+        () => {
+          setIsPaywallModalOpen(true)
+          // Revert parent state on paywall
+          if (onRequestUpdate) {
+            const originalRequest = requests.find(r => r.id === requestId)
+            if (originalRequest) {
+              onRequestUpdate(requestId, { assignee: originalRequest.assignee })
+            }
+          }
+        }
+      ).catch((error) => {
         if (process.env.NODE_ENV !== 'production') {
           console.error('Failed to update assignee:', error)
         }
@@ -148,10 +184,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             onRequestUpdate(requestId, { assignee: originalRequest.assignee })
           }
         }
-      } finally {
+      }).finally(() => {
         // Clear loading guard
         isMutingAssignee.current = false
-      }
+      })
     }
   }
 
@@ -193,43 +229,57 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
     // Prevent rapid-fire mutations
     if (isMutingStatus.current) return
     
-    const validStatuses = ['new', 'in_review', 'accepted', 'canceled'] as const
-    if (!validStatuses.includes(newStatus as any)) {
+    const validStatuses = ['new', 'in_review', 'accepted', 'canceled', 'closed'] as const
+    if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('Invalid status:', newStatus)
       }
       return
     }
     
-    const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled'
+    const typedStatus = newStatus as 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
     
     // Notify parent for bidirectional updates (table → modal)
     if (onRequestUpdate) {
       onRequestUpdate(requestId, { status: typedStatus })
     }
     
-    // Set loading guard
-    isMutingStatus.current = true
-    
-    try {
-      await updateRequestStatus(requestId, typedStatus)
-      // Real-time subscription will handle UI updates
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Failed to update status:', error)
-      }
-      toast.error('Failed to update status')
-      // Revert parent state on error
-      if (onRequestUpdate) {
-        const originalRequest = requests.find(r => r.id === requestId)
-        if (originalRequest) {
-          onRequestUpdate(requestId, { status: originalRequest.status })
+      // Set loading guard
+      isMutingStatus.current = true
+      
+      await runWithPaywallCheck(
+        async () => {
+          await updateRequestStatus(requestId, typedStatus)
+        },
+        () => {
+          // Success - real-time subscription will handle UI updates
+        },
+        () => {
+          setIsPaywallModalOpen(true)
+          // Revert parent state on paywall
+          if (onRequestUpdate) {
+            const originalRequest = requests.find(r => r.id === requestId)
+            if (originalRequest) {
+              onRequestUpdate(requestId, { status: originalRequest.status })
+            }
+          }
         }
-      }
-    } finally {
-      // Clear loading guard
-      isMutingStatus.current = false
-    }
+      ).catch((error) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to update status:', error)
+        }
+        toast.error('Failed to update status')
+        // Revert parent state on error
+        if (onRequestUpdate) {
+          const originalRequest = requests.find(r => r.id === requestId)
+          if (originalRequest) {
+            onRequestUpdate(requestId, { status: originalRequest.status })
+          }
+        }
+      }).finally(() => {
+        // Clear loading guard
+        isMutingStatus.current = false
+      })
   }
 
   // Profile Card handler
@@ -256,9 +306,6 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
 
   const handleCopyLink = (requestId: string, connectionId: string) => {
-    // Determine baseRoute based on isAgency prop
-    // Agencies view clients, clients view agencies
-    const baseRoute = isAgency ? 'clients' : 'agencies'
     const fullUrl = `${window.location.origin}/${baseRoute}/${connectionId}/requests/${requestId}`
     navigator.clipboard.writeText(fullUrl).then(() => {
       toast.success('Link copied to clipboard')
@@ -268,69 +315,79 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
   }
   
   const handleDeleteRequest = async (requestId: string) => {
-    // Optimistically notify parent immediately (removes from UI instantly)
-    // Parent handles API call, error recovery, and toast notifications
+    // Parent handles optimistic update, toast, and server action
     onRequestDeleted?.(requestId)
   }
 
-  // Virtual scroll setup using shared hook
-  const { containerRef, rowVirtualizer, virtualItems, isNearEnd } = useVirtualTable({
-    items: requests,
-    onLoadMore,
-    scrollRestoreDeps: [searchQuery],
-    parentRef
-  })
-  
-  // Check if there are active filters
-  const hasActiveFilters = searchQuery.trim().length > 0 || assignedToMe
-  
-  // isNearEnd available for future use (e.g., showing loading indicator)
+  // Status order for accordion rendering
+  const statusOrder: RequestStatus[] = ['new', 'in_review', 'accepted', 'closed', 'canceled']
 
-  // Empty state logic: ONLY show empty state when no requests exist at all
-  // When requests exist but search returns no results, VirtualTableBody will show "No results found"
-  // This matches the behavior of the connection-specific RequestsTable
-  const isEmptyState = !isBootstrapping && unfilteredTotalCount === 0;
+  // Build client groups by status from allConnectionsMetadata
+  // This gives us all client headers even if requests aren't loaded yet
+  // Filter by search query if provided (client-side filtering)
+  const clientGroupsByStatus = useMemo(() => {
+    const groups: Record<string, Array<{ orgId: string; name: string; logoUrl?: string }>> = {
+      new: [],
+      in_review: [],
+      accepted: [],
+      closed: [],
+      canceled: [],
+    }
 
-  // Empty state component matching ClientsTable design
-  const emptyState = isEmptyState ? (
-    <TableRow 
-      className="hover:bg-transparent"
-      style={{ 
-        backgroundColor: 'var(--color-base-surface-page-background)', 
-        borderBottomColor: 'var(--color-neutral-5)',
-        height: '100%'
-      }}
-    >
-      <TableCell 
-        colSpan={8} 
-        className="text-left" 
-        style={{ height: 'calc(100vh - 267px)', minHeight: '400px', paddingLeft: '120px' }}
-      >
-        <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
-          <div className="flex flex-col items-start gap-2">
-            <h2 className="display-8-medium">Your best work starts here</h2>
-            <span className="text-sm-regular text-neutral-11">
-              {isAgency 
-                ? 'Clients can submit requests from their portal, or you can add one for them.'
-                : 'Ask questions, share updates, or request new work directly from your agency.'
-              }
-            </span>
-          </div>
-          {onNewRequest && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
-              onClick={onNewRequest}
-            >
-              <Plus size={16} weight="regular" />
-              {isAgency ? 'New request' : 'Submit request'}
-            </Button>
-          )}
-        </div>
-      </TableCell>
-    </TableRow>
-  ) : null
+    // Get all unique client orgs from metadata
+    let clientOrgs = Array.from(allConnectionsMetadata.entries())
+      .map(([orgId, metadata]) => ({
+        orgId,
+        name: metadata.name,
+        logoUrl: metadata.logoUrl,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+
+    // Filter by search query if provided (client-side filtering for browse mode only)
+    // In search mode (searchResults !== null), server handles filtering
+    if (searchQueryProp && searchQueryProp.trim().length > 0 && searchResults === null) {
+      const searchLower = searchQueryProp.trim().toLowerCase()
+      clientOrgs = clientOrgs.filter(client => 
+        client.name.toLowerCase().includes(searchLower)
+      )
+    }
+
+    // Add all clients to all status groups (they'll show counts from clientCounts)
+    for (const status of statusOrder) {
+      groups[status] = clientOrgs
+    }
+
+    return groups
+  }, [allConnectionsMetadata, searchQueryProp, searchResults])
+
+  // Auto-expand logic removed - using server-side search mode instead
+  // Search mode handles expansion automatically with pre-loaded data
+
+  // No search mode rendering - always use accordion mode
+  
+  // Empty state: only show if we're not bootstrapping AND there are truly no requests
+  // In accordion mode, always show headers (even with 0 counts) so users can see the structure
+  // Show empty state if search is active but no clients match the search query
+  const hasMatchingClients = useMemo(() => {
+    if (!searchQueryProp || searchQueryProp.trim().length === 0) return true
+    // Check if any status group has matching clients
+    return Object.values(clientGroupsByStatus).some(clients => clients.length > 0)
+  }, [searchQueryProp, clientGroupsByStatus])
+  
+  const isEmptyState = !isBootstrapping && 
+    searchQueryProp && 
+    searchQueryProp.trim().length > 0 &&
+    !hasMatchingClients;
+
+  // Determine render mode priority:
+  // 1. Search Mode (only if we have search results OR actively searching with a query)
+  // 2. Assigned Filter Mode (only if we have filter results OR actively loading with filter enabled)
+  // 3. Browse Mode (default)
+  // Only show skeleton if actively searching AND we don't have results yet
+  // Don't show skeleton when transitioning back to browse mode
+  const hasActiveSearchQuery = (searchQueryProp || '').trim().length > 0;
+  const isSearchMode = searchResults !== null || (isSearching && hasActiveSearchQuery);
+  const isAssignedFilterMode = assignedFilterResults !== null || (isLoadingAssignedFilter && assignedToMe);
 
   return (
     <div className="w-full min-w-0">
@@ -358,10 +415,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-3">
                 <SearchInput
-                  placeholder="Search requests…"
-                  value={searchQuery}
+                  placeholder="Search requests by client…"
+                  value={searchQueryProp || ''}
                   onChange={(value) => {
-                    setSearchQuery(value)
                     onSearchChange?.(value)
                   }}
                   count={requestCount}
@@ -420,92 +476,25 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                     {isAgency ? 'Assigned to me' : 'Submitted by me'}
                   </TooltipContent>
                 </Tooltip>
-                <DropdownMenu modal={false} open={isSortDropdownOpen} onOpenChange={setIsSortDropdownOpen}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={`text-sm-regular h-[32px] flex items-center gap-2 shadow-none cursor-pointer transition-all duration-75 ${
-                        isSortDropdownOpen
-                          ? 'bg-interactive-surface-hover hover:bg-interactive-surface-hover'
-                          : 'hover:bg-interactive-surface-hover'
-                      }`}
-                    >
-                      <SortAscending size={16} />
-                      {currentSortLabel}
-                      <CaretDown size={16} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64">
-                    {sortOptions.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onClick={(e) => {
-                          handleSortChange(option.value)
-                          setIsSortDropdownOpen(false)
-                          const trigger = e.currentTarget.closest('[data-radix-dropdown-menu-trigger]') as HTMLElement
-                          setTimeout(() => {
-                            trigger?.blur()
-                          }, 0)
-                        }}
-                        className="flex items-center justify-between"
-                      >
-                        <span>{option.label}</span>
-                        {propSortValue === option.value && <Check size={16} className="text-inherit" />}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button
+                  variant="outline"
+                  className="cursor-default text-sm-regular h-[32px] flex items-center gap-2 shadow-none pointer-events-none"
+                >
+                  <SortAscending size={16} />
+                  {currentSortLabel}
+                </Button>
               </div>
             </div>
+            {/* Border with 20px margins to match content padding */}
+            <div className="absolute bottom-0 left-5 right-5 border-b border-[var(--color-neutral-4)]" />
           </div>
 
-          {/* Table Header */}
-          {(unfilteredTotalCount > 0 || hasActiveFilters) && (
-            <div className="px-5">
-              <Table className="table-fixed w-full border-collapse">
-                <TableHeader>
-                  <TableRow
-                    className="hover:bg-transparent"
-                    style={{
-                      borderBottom: '1px solid var(--color-neutral-4)',
-                    }}
-                  >
-                    <TableHead className="w-[25%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Title
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Status
-                    </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      {isAgency ? 'Client' : 'Agency'}
-                    </TableHead>
-                    <TableHead className="w-[15%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Submitted by
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Project
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      {isAgency ? 'Assignee' : 'Owner'}
-                    </TableHead>
-                    <TableHead className="w-[12%] py-0 text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                      Created
-                    </TableHead>
-                    <TableHead className="w-[44px] py-0 p-0 text-xs-medium text-[var(--color-base-text-tertiary)]">
-                      <span className="sr-only">Actions</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-              </Table>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Scrollable Table Body Section */}
       <div
         className="w-full overflow-x-auto"
-        ref={containerRef}
         style={{ backgroundColor: 'var(--color-neutral-2)' }}
       >
         <div
@@ -519,261 +508,658 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
             backgroundColor: 'var(--color-base-surface-page-background)',
           }}
         >
-          <div className="px-5 pb-5">
-          {/* During initial assigned=me bootstrap, suppress empty-state flash with skeleton block */}
-          {isBootstrapping && requests.length === 0 ? (
-            <div>
-              <div className="h-[44px] rounded-md bg-[var(--color-neutral-6)] animate-pulse" />
+          <div className="pb-5 px-5">
+          {isBootstrapping ? (
+            <div className="space-y-0">
+              {/* Status Group Skeleton - 1x only, starts the block */}
+              <div
+                className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                style={{
+                  gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                }}
+              >
+                <div className="flex items-center justify-center">
+                  <Skeleton className="w-3 h-3" />
+                </div>
+                <div className="flex items-center gap-3 px-3">
+                  <Skeleton className="w-12 h-5 rounded" />
+                  <Skeleton className="w-16 h-4 rounded" />
+                </div>
+                {/* Empty cells to match grid structure */}
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div className="px-3"></div>
+                <div></div>
+              </div>
+              {/* Client Group + 4 Request Rows - repeatable pattern (2-3 times) */}
+              {[1, 2, 3].map((clientIndex) => (
+                <div key={clientIndex}>
+                  {/* Client Group Skeleton */}
+                  <div
+                    className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-5 h-5 rounded-full" />
+                      <Skeleton className="w-24 h-4 rounded" />
+                      <Skeleton className="w-12 h-4 rounded" />
+                    </div>
+                    {/* Empty cells to match grid structure */}
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Request Row Skeletons - 4 per client group */}
+                  {[1, 2, 3, 4].map((requestIndex) => (
+                    <div
+                      key={`${clientIndex}-${requestIndex}`}
+                      className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                      style={{
+                        gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                      }}
+                    >
+                      {/* Empty drag handle cell */}
+                      <div></div>
+                      {/* Title */}
+                      <div className="px-3">
+                        <Skeleton className="w-32 h-4 rounded" />
+                      </div>
+                      {/* Status */}
+                      <div className="px-3">
+                        <Skeleton className="w-20 h-4 rounded" />
+                      </div>
+                      {/* Assignee */}
+                      <div className="px-3">
+                        <Skeleton className="w-16 h-4 rounded" />
+                      </div>
+                      {/* Project */}
+                      <div className="px-3">
+                        <Skeleton className="w-24 h-4 rounded" />
+                      </div>
+                      {/* Created */}
+                      <div className="px-3">
+                        <Skeleton className="w-20 h-4 rounded" />
+                      </div>
+                      <div></div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : isSearchMode ? (
+            // Search Mode: Server-side search with atomic results
+            <div className="space-y-0">
+              {isSearching && hasActiveSearchQuery && searchResults === null ? (
+                // Loading state: Show skeleton only if we have active search query and no results yet
+                <div className="space-y-0">
+                  {/* Status Group Skeleton */}
+                  <div
+                    className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-12 h-5 rounded" />
+                      <Skeleton className="w-16 h-4 rounded" />
+                    </div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Client Group + Request Row Skeletons - repeatable pattern (3 clients, 4 rows each) */}
+                  {[1, 2, 3].map((clientIndex) => (
+                    <div key={clientIndex}>
+                      {/* Client Group Skeleton */}
+                      <div
+                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                        style={{
+                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                        }}
+                      >
+                        <div className="flex items-center justify-center">
+                          <Skeleton className="w-3 h-3" />
+                        </div>
+                        <div className="flex items-center gap-3 px-3">
+                          <Skeleton className="w-5 h-5 rounded-full" />
+                          <Skeleton className="w-24 h-4 rounded" />
+                          <Skeleton className="w-12 h-4 rounded" />
+                        </div>
+                        {/* Empty cells to match grid structure */}
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div></div>
+                      </div>
+                      {/* Request Row Skeletons - 4 per client group */}
+                      {[1, 2, 3, 4].map((requestIndex) => (
+                        <div
+                          key={`${clientIndex}-${requestIndex}`}
+                          className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                          style={{
+                            gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                          }}
+                        >
+                          {/* Empty drag handle cell */}
+                          <div></div>
+                          {/* Title */}
+                          <div className="px-3">
+                            <Skeleton className="w-32 h-4 rounded" />
+                          </div>
+                          {/* Status */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          {/* Assignee */}
+                          <div className="px-3">
+                            <Skeleton className="w-16 h-4 rounded" />
+                          </div>
+                          {/* Project */}
+                          <div className="px-3">
+                            <Skeleton className="w-24 h-4 rounded" />
+                          </div>
+                          {/* Created */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          <div></div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : searchResults ? (
+                // Search results: Render accordion structure with pre-loaded data
+                // Always show all status headers, even with 0 results
+                statusOrder.map((status) => {
+                  // Filter clients that have requests in this status
+                  const clientsInStatus = searchResults.clients.filter((client: SearchResults['clients'][0]) => 
+                    client.requests.some((req: Request) => req.status === status)
+                  );
+
+                  // Calculate status count from search results
+                  const statusCount = searchResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
+                    sum + client.requests.filter((req: Request) => req.status === status).length, 0
+                  );
+
+                  // Always render status header, even if count is 0
+                  return (
+                    <React.Fragment key={status}>
+                      <StatusGroupHeader
+                        status={status}
+                        statusCount={statusCount}
+                        isCollapsed={collapsedStatuses.has(status)}
+                        onToggle={() => onToggleStatus(status)}
+                      />
+                      {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
+                        // Filter requests for this status
+                        const requestsInStatus = clientResult.requests.filter((req: Request) => req.status === status);
+                        
+                        if (requestsInStatus.length === 0) {
+                          return null;
+                        }
+
+                        // Check if this client is collapsed in search mode
+                        // Set tracks expanded clients, so if NOT in Set, it's collapsed
+                        // Default to expanded (all clients should be in Set), but allow toggling
+                        const isClientCollapsed = !collapsedClients.get(status)?.has(clientResult.client_id);
+
+                        return (
+                          <React.Fragment key={clientResult.client_id}>
+                            <ClientGroupHeader
+                              clientId={clientResult.client_id}
+                              clientName={isAgency ? clientResult.client_name : undefined}
+                              clientLogoUrl={isAgency ? clientResult.client_logo_url : undefined}
+                              agencyId={!isAgency ? clientResult.client_id : undefined}
+                              agencyName={!isAgency ? clientResult.client_name : undefined}
+                              agencyLogoUrl={!isAgency ? clientResult.client_logo_url : undefined}
+                              count={requestsInStatus.length}
+                              isCollapsed={isClientCollapsed}
+                              onToggle={() => onToggleClient(status, clientResult.client_id)}
+                              isAgency={isAgency}
+                            />
+                            {/* Render all requests - data is pre-loaded, only when expanded */}
+                            {!isClientCollapsed && requestsInStatus.map((request: Request) => (
+                              <GlobalRequestRow
+                                key={request.id}
+                                request={request}
+                                isAgency={isAgency}
+                                comboboxOptions={comboboxOptions}
+                                agencyMembers={agencyMembers}
+                                statusInlineRefs={statusInlineRefs}
+                                onStatusChange={handleStatusChange}
+                                onAssigneeSelect={handleAssigneeSelect}
+                                onClearAssignee={handleClearAssignee}
+                                onRowClick={handleRowClick}
+                                onCopyLink={handleCopyLink}
+                                onDeleteRequest={handleDeleteRequest}
+                                onContactClick={handleContactClick}
+                                openActionsDropdown={openActionsDropdown}
+                                setOpenActionsDropdown={setOpenActionsDropdown}
+                                currentOrgId={currentOrgId}
+                                onConvertToTask={onConvertToTask}
+                              />
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })
+              ) : null}
+            </div>
+          ) : isAssignedFilterMode ? (
+            // Assigned Filter Mode: Server-side filter with atomic results
+            <div className="space-y-0">
+              {isLoadingAssignedFilter || (assignedToMe && !assignedFilterResults) ? (
+                // Loading state: Show skeleton while loading OR when assignedToMe is true but no results yet
+                <div className="space-y-0">
+                  {/* Status Group Skeleton */}
+                  <div
+                    className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                    style={{
+                      gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Skeleton className="w-3 h-3" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3">
+                      <Skeleton className="w-12 h-5 rounded" />
+                      <Skeleton className="w-16 h-4 rounded" />
+                    </div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div className="px-3"></div>
+                    <div></div>
+                  </div>
+                  {/* Client Group + Request Row Skeletons - repeatable pattern (3 clients, 4 rows each) */}
+                  {[1, 2, 3].map((clientIndex) => (
+                    <div key={clientIndex}>
+                      {/* Client Group Skeleton */}
+                      <div
+                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                        style={{
+                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                        }}
+                      >
+                        <div className="flex items-center justify-center">
+                          <Skeleton className="w-3 h-3" />
+                        </div>
+                        <div className="flex items-center gap-3 px-3">
+                          <Skeleton className="w-5 h-5 rounded-full" />
+                          <Skeleton className="w-24 h-4 rounded" />
+                          <Skeleton className="w-12 h-4 rounded" />
+                        </div>
+                        {/* Empty cells to match grid structure */}
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div className="px-3"></div>
+                        <div></div>
+                      </div>
+                      {/* Request Row Skeletons - 4 per client group */}
+                      {[1, 2, 3, 4].map((requestIndex) => (
+                        <div
+                          key={`${clientIndex}-${requestIndex}`}
+                          className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                          style={{
+                            gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                          }}
+                        >
+                          {/* Empty drag handle cell */}
+                          <div></div>
+                          {/* Title */}
+                          <div className="px-3">
+                            <Skeleton className="w-32 h-4 rounded" />
+                          </div>
+                          {/* Status */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          {/* Assignee */}
+                          <div className="px-3">
+                            <Skeleton className="w-16 h-4 rounded" />
+                          </div>
+                          {/* Project */}
+                          <div className="px-3">
+                            <Skeleton className="w-24 h-4 rounded" />
+                          </div>
+                          {/* Created */}
+                          <div className="px-3">
+                            <Skeleton className="w-20 h-4 rounded" />
+                          </div>
+                          <div></div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : assignedFilterResults ? (
+                // Assigned filter results: Render accordion structure with pre-loaded data
+                // Always show all status headers, even with 0 results
+                statusOrder.map((status) => {
+                  // Filter clients that have requests in this status
+                  const clientsInStatus = assignedFilterResults.clients.filter((client: SearchResults['clients'][0]) => 
+                    client.requests.some((req: Request) => req.status === status)
+                  );
+
+                  // Calculate status count from assigned filter results
+                  const statusCount = assignedFilterResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
+                    sum + client.requests.filter((req: Request) => req.status === status).length, 0
+                  );
+
+                  // Always render status header, even if count is 0
+                  return (
+                    <React.Fragment key={status}>
+                      <StatusGroupHeader
+                        status={status}
+                        statusCount={statusCount}
+                        isCollapsed={collapsedStatuses.has(status)}
+                        onToggle={() => onToggleStatus(status)}
+                      />
+                      {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
+                        // Filter requests for this status
+                        const requestsInStatus = clientResult.requests.filter((req: Request) => req.status === status);
+                        
+                        if (requestsInStatus.length === 0) {
+                          return null;
+                        }
+
+                        // Check if this client is collapsed in assigned filter mode
+                        // Set tracks expanded clients, so if NOT in Set, it's collapsed
+                        // Default to expanded (all clients should be in Set), but allow toggling
+                        const isClientCollapsed = !collapsedClients.get(status)?.has(clientResult.client_id);
+
+                        return (
+                          <React.Fragment key={clientResult.client_id}>
+                            <ClientGroupHeader
+                              clientId={clientResult.client_id}
+                              clientName={isAgency ? clientResult.client_name : undefined}
+                              clientLogoUrl={isAgency ? clientResult.client_logo_url : undefined}
+                              agencyId={!isAgency ? clientResult.client_id : undefined}
+                              agencyName={!isAgency ? clientResult.client_name : undefined}
+                              agencyLogoUrl={!isAgency ? clientResult.client_logo_url : undefined}
+                              count={requestsInStatus.length}
+                              isCollapsed={isClientCollapsed}
+                              onToggle={() => onToggleClient(status, clientResult.client_id)}
+                              isAgency={isAgency}
+                            />
+                            {/* Render all requests - data is pre-loaded, only when expanded */}
+                            {!isClientCollapsed && requestsInStatus.map((request: Request) => (
+                              <GlobalRequestRow
+                                key={request.id}
+                                request={request}
+                                isAgency={isAgency}
+                                comboboxOptions={comboboxOptions}
+                                agencyMembers={agencyMembers}
+                                statusInlineRefs={statusInlineRefs}
+                                onStatusChange={handleStatusChange}
+                                onAssigneeSelect={handleAssigneeSelect}
+                                onClearAssignee={handleClearAssignee}
+                                onRowClick={handleRowClick}
+                                onCopyLink={handleCopyLink}
+                                onDeleteRequest={handleDeleteRequest}
+                                onContactClick={handleContactClick}
+                                openActionsDropdown={openActionsDropdown}
+                                setOpenActionsDropdown={setOpenActionsDropdown}
+                                currentOrgId={currentOrgId}
+                                onConvertToTask={onConvertToTask}
+                              />
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })
+              ) : null}
+            </div>
+          ) : isEmptyState ? (
+            <div 
+              className="text-left" 
+              style={{ height: 'calc(100vh - 352px)', minHeight: '400px', paddingLeft: '120px', paddingTop: '40px' }}
+            >
+              <div className="flex flex-col items-start justify-center h-full gap-4" style={{ transform: 'translateY(-40px)' }}>
+                <div className="flex flex-col items-start gap-2">
+                  <h2 className="display-8-medium">Your best work starts here</h2>
+                  <span className="text-sm-regular text-neutral-11">
+                    {isAgency 
+                      ? 'Clients can submit requests from their portal, or you can add one for them.'
+                      : 'Ask questions, share updates, or request new work directly from your agency.'
+                    }
+                  </span>
+                </div>
+                {onNewRequest && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-6 shadow-none cursor-pointer transition-all duration-75 mt-4"
+                    onClick={onNewRequest}
+                  >
+                    <Plus size={16} weight="regular" />
+                    {isAgency ? 'New request' : 'Submit request'}
+                  </Button>
+                )}
+              </div>
             </div>
           ) : (
-            <VirtualTableBody
-            items={requests}
-            virtualItems={virtualItems}
-            rowVirtualizer={rowVirtualizer}
-            onRowClick={(request) => handleRowClick(request.id)}
-            emptyState={isEmptyState ? emptyState : undefined}
-            renderRow={(request) => (
-              <>
-                <TableCell className="w-[25%] py-0 truncate">
-                  {request.title}
-                </TableCell>
-
-                {isAgency ? (
-                  <TableCell 
-                    className="w-[12%] py-0" 
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <InlineEdit
-                      type="badge"
-                      value={request.status}
-                      options={[
-                        { value: 'new', label: 'New' },
-                        { value: 'in_review', label: 'In review' },
-                        { value: 'accepted', label: 'Accepted' },
-                        { value: 'canceled', label: 'Canceled' },
-                      ]}
-                      onSave={(newStatus) => handleStatusChange(request.id, newStatus)}
-                      badgeComponent="request"
-                      className="truncate h-6 rounded-[8px]"
+            // Accordion mode: direct hierarchical rendering
+            // Always show status headers, even if counts are 0 or clients list is empty
+            <div className="space-y-0">
+              {statusOrder.map((status) => {
+                const isStatusCollapsed = collapsedStatuses.has(status)
+                const statusCount = statusCounts.get(status) ?? 0
+                const clients = clientGroupsByStatus[status] || []
+                
+                // Always render status header, even if count is 0
+                return (
+                  <React.Fragment key={status}>
+                    <StatusGroupHeader
+                      status={status}
+                      statusCount={statusCount}
+                      isCollapsed={isStatusCollapsed}
+                      onToggle={() => onToggleStatus(status)}
                     />
-                  </TableCell>
-                ) : (
-                  <TableCell className="w-[12%] py-0">
-                    <RequestBadge 
-                      variant={request.status as 'new' | 'in_review' | 'accepted' | 'canceled'} 
-                      size="sm" 
-                      showText={true}
-                      customLabel={request.status === 'new' ? 'Submitted' : undefined}
-                      className="inline-flex"
-                    />
-                  </TableCell>
-                )}
-
-                {/* Client/Agencies column */}
-                <TableCell className="w-[15%] py-0">
-                  <div className="flex items-center gap-2">
-                    {isAgency ? (
-                      <>
-                        <Avatar className="w-5 h-5">
-                          <AvatarImage src={request.client.logoUrl} alt={request.client.name} />
-                          <AvatarFallback 
-                            className="text-[10px] font-medium text-white"
-                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                          >
-                            {request.client.name.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {request.client.name}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Avatar className="w-5 h-5">
-                          <AvatarImage src={request.agency?.logoUrl} alt={request.agency?.name || ''} />
-                          <AvatarFallback 
-                            className="text-[10px] font-medium text-white"
-                            style={{ background: 'var(--color-neutral-9, #8B8D98)' }}
-                          >
-                            {request.agency?.name?.charAt(0).toUpperCase() || 'A'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm-regular truncate" style={{ color: 'var(--color-base-text-primary)' }}>
-                          {request.agency?.name || 'Unknown'}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </TableCell>
-
-                <TableCell 
-                  className="w-[15%] py-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <ListRow
-                    avatar
-                    avatarUrl={request.submittedBy.avatarUrl}
-                    text={request.submittedBy.name}
-                    variant="stacked"
-                    className="min-w-0"
-                    onClick={() => {
-                      const nameParts = request.submittedBy.name.split(' ')
-                      handleContactClick({
-                        id: request.submittedBy.id,
-                        first_name: nameParts[0] || '',
-                        last_name: nameParts.slice(1).join(' ') || '',
-                        email: request.submittedBy.email,
-                        avatar_url: request.submittedBy.avatarUrl || '',
-                        job_title: request.submittedBy.jobTitle || '',
-                        organization: {
-                          id: request.submittedBy.orgId,
-                          name: request.submittedBy.orgName,
-                          logo_url: request.submittedBy.orgLogo || ''
-                        }
-                      })
-                    }}
-                  />
-                </TableCell>
-
-                <TableCell className="w-[12%] py-0">
-                  {request.project ? (
-                    <Badge variant="neutral" className="text-xs">
-                      {request.project.name}
-                    </Badge>
-                  ) : (
-                    <Badge variant="neutral" className="text-xs">
-                      General request
-                    </Badge>
-                  )}
-                </TableCell>
-
-                <TableCell 
-                  className="w-[12%] py-0"
-                  onClick={isAgency ? (e: React.MouseEvent) => e.stopPropagation() : (request.assignee ? (e: React.MouseEvent) => e.stopPropagation() : undefined)}
-                >
-                  {isAgency ? (
-                    <ListRow
-                      ref={assigneeListRowRef}
-                      avatar={true}
-                      avatarUrl={!isAssigneeUnassigned && request.assignee ? request.assignee.avatarUrl : undefined}
-                      avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                      text={!request.assignee ? "Unassigned" : request.assignee.name}
-                      textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                      variant="stacked"
-                      className="min-w-0 min-h-[32px]"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                      onClick={() => {
-                        // Assignee click handled by combobox
-                      }}
-                      comboboxOptions={comboboxOptions}
-                      onComboboxSelect={(memberId) => handleAssigneeSelect(request.id, memberId)}
-                      comboboxPlaceholder="Search members..."
-                      comboboxWidth="240px"
-                      clearable={!!request.assignee}
-                      onClear={() => handleClearAssignee(request.id)}
-                    />
-                  ) : (
-                    <ListRow
-                      avatar={true}
-                      avatarUrl={request.assignee ? request.assignee.avatarUrl : undefined}
-                      avatarFallback={!request.assignee ? <User size={16} weight="fill" className="text-white" /> : undefined}
-                      text={!request.assignee ? "Unassigned" : request.assignee.name}
-                      textColor={!request.assignee ? "var(--color-base-text-tertiary)" : "var(--color-base-text-primary)"}
-                      variant="stacked"
-                      className="min-w-0"
-                      comboboxSelectedValue={request.assignee?.id ?? null}
-                      nonInteractive={!request.assignee}
-                      onClick={request.assignee ? () => {
-                        const nameParts = request.assignee!.name.split(' ')
-                        const assigneeMember = agencyMembers.find(member => member.id === request.assignee!.id)
-                        handleContactClick({
-                          id: request.assignee!.id,
-                          first_name: nameParts[0] || '',
-                          last_name: nameParts.slice(1).join(' ') || '',
-                          email: request.assignee!.email,
-                          avatar_url: request.assignee!.avatarUrl || '',
-                          job_title: assigneeMember?.jobTitle,
-                          organization: {
-                            id: request.agency?.id || '',
-                            name: request.agency?.name || '',
-                            logo_url: request.agency?.logoUrl || ''
-                          }
-                        })
-                      } : undefined}
-                    />
-                  )}
-                </TableCell>
-
-                <TableCell className="w-[12%] py-0 truncate">
-                  {request.createdAt}
-                </TableCell>
-
-                <TableCell 
-                  className="w-[44px] p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-center h-full">
-                    <DropdownMenu modal={false} open={openActionsDropdown === request.id} onOpenChange={(open) => setOpenActionsDropdown(open ? request.id : null)}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`p-0 h-6 w-6 cursor-pointer transition-colors duration-75 ${
-                            openActionsDropdown === request.id
-                              ? 'bg-[var(--color-interactive-surface-hover)] hover:bg-[var(--color-interactive-surface-hover)]'
-                              : 'hover:bg-[var(--color-interactive-surface-hover)]'
-                          }`}
-                        >
-                          <DotsThree size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleRowClick(request.id)
-                        }}>
-                          <MagnifyingGlass size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          View details
-                        </DropdownMenuItem>
-                        {isAgency && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setOpenActionsDropdown(null)
-                              onConvertToTask?.(request)
+                    {!isStatusCollapsed && clients.length > 0 && clients.map((client) => {
+                      const cacheKey = `${status}-${client.orgId}`
+                      // Client is expanded if it's in the Set, collapsed otherwise (default to collapsed)
+                      const isClientCollapsed = !collapsedClients.get(status)?.has(client.orgId)
+                      
+                      // 1. Get the raw value. DO NOT default to [].
+                      // If this returns undefined, it means we haven't fetched it yet.
+                      const clientRequests = requestsByClientStatus.get(cacheKey)
+                      
+                      const isLoading = isLoadingClientStatus.get(cacheKey) || false
+                      const knownCount = clientCounts.get(cacheKey) ?? 0
+                      
+                      // 2. Derive the state
+                      const isExpanded = !isClientCollapsed
+                      const hasData = clientRequests !== undefined
+                      const isEmpty = hasData && clientRequests.length === 0
+                      
+                      // Separate optimistic requests from real requests if we have data
+                      const optimisticRequests = hasData ? clientRequests.filter(r => r.id.startsWith('temp-')) : []
+                      const realRequests = hasData ? clientRequests.filter(r => !r.id.startsWith('temp-')) : []
+                      
+                      return (
+                        <React.Fragment key={client.orgId}>
+                          <ClientGroupHeader
+                            clientId={client.orgId}
+                            clientName={isAgency ? client.name : undefined}
+                            clientLogoUrl={isAgency ? client.logoUrl : undefined}
+                            agencyId={!isAgency ? client.orgId : undefined}
+                            agencyName={!isAgency ? client.name : undefined}
+                            agencyLogoUrl={!isAgency ? client.logoUrl : undefined}
+                            count={knownCount}
+                            isCollapsed={isClientCollapsed}
+                            onToggle={() => {
+                              const wasCollapsed = isClientCollapsed
+                              onToggleClient(status, client.orgId)
+                              // Fetch if expanding (was collapsed, now will be expanded)
+                              // Always fetch if we haven't fetched yet (undefined) OR cache is incomplete
+                              if (wasCollapsed && !isLoading && onFetchClientRequests) {
+                                const cacheKey = `${status}-${client.orgId}`
+                                const hasOptimistic = hasOptimisticData?.(cacheKey) ?? false
+                                const expectedCount = knownCount
+                                const cachedCount = hasData ? clientRequests.length : 0
+                                
+                                // Fetch if: haven't fetched yet OR optimistic data exists OR cache is incomplete
+                                if (!hasData || hasOptimistic || cachedCount < expectedCount) {
+                                  onFetchClientRequests(status, client.orgId)
+                                }
+                              }
                             }}
-                          >
-                            <FlowArrow size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                            Convert to task
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => {
-                          setOpenActionsDropdown(null)
-                          handleCopyLink(request.id, request.connectionId)
-                        }}>
-                          <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
-                          Copy link
-                        </DropdownMenuItem>
-                        {request.createdByOrgId === currentOrgId && (
-                          <>
-                            <div className="border-t border-[var(--color-neutral-6)] my-1" />
-                            <DropdownMenuItem 
-                              onClick={() => {
-                                handleDeleteRequest(request.id)
-                                setOpenActionsDropdown(null)
-                              }}
-                              style={{ color: 'var(--color-red-11)' }}
-                            >
-                              <Trash size={16} style={{ color: 'var(--color-red-11)' }} />
-                              Delete request
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </>
-            )}
-          />
+                            isAgency={isAgency}
+                          />
+                          {isExpanded && (
+                            <>
+                              {/* CASE 1: We have never fetched this OR we have optimistic requests but no real data yet.
+                                  Show optimistic requests (if any) above the skeleton. */}
+                              {(!hasData || (hasData && optimisticRequests.length > 0 && realRequests.length === 0 && isLoading)) && (
+                                <>
+                                  {/* Render optimistic requests FIRST (at the top) if they exist */}
+                                  {optimisticRequests.map((request) => (
+                                    <GlobalRequestRow
+                                      key={request.id}
+                                      request={request}
+                                      isAgency={isAgency}
+                                      comboboxOptions={comboboxOptions}
+                                      agencyMembers={agencyMembers}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteRequest={handleDeleteRequest}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      currentOrgId={currentOrgId}
+                                      onConvertToTask={onConvertToTask}
+                                    />
+                                  ))}
+                                  
+                                  {/* Show skeleton while loading (existing skeleton logic) */}
+                                  <div className="space-y-0">
+                                    {[1, 2, 3].map((i) => (
+                                      <div
+                                        key={i}
+                                        className="border-b border-[var(--color-neutral-4)] h-[44px] grid items-center"
+                                        style={{
+                                          gridTemplateColumns: '44px 4fr 3fr 3fr 3fr 3fr 44px',
+                                        }}
+                                      >
+                                        <div></div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-32 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-20 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-16 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-24 h-4 rounded" />
+                                        </div>
+                                        <div className="px-3">
+                                          <Skeleton className="w-20 h-4 rounded" />
+                                        </div>
+                                        <div></div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                              
+                              {/* CASE 2: We fetched, and it's truly empty (no optimistic requests either). */}
+                              {hasData && isEmpty && optimisticRequests.length === 0 && (
+                                <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
+                                  No requests found
+                                </div>
+                              )}
+                              
+                              {/* CASE 3: We have data (optimistic or real). Render optimistic requests first, then real requests. */}
+                              {hasData && !isEmpty && !(optimisticRequests.length > 0 && realRequests.length === 0 && isLoading) && (
+                                <>
+                                  {/* Render optimistic requests FIRST (at the top) */}
+                                  {optimisticRequests.map((request) => (
+                                    <GlobalRequestRow
+                                      key={request.id}
+                                      request={request}
+                                      isAgency={isAgency}
+                                      comboboxOptions={comboboxOptions}
+                                      agencyMembers={agencyMembers}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteRequest={handleDeleteRequest}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      currentOrgId={currentOrgId}
+                                      onConvertToTask={onConvertToTask}
+                                    />
+                                  ))}
+                                  
+                                  {/* Render real requests (below optimistic) */}
+                                  {realRequests.map((request) => (
+                                    <GlobalRequestRow
+                                      key={request.id}
+                                      request={request}
+                                      isAgency={isAgency}
+                                      comboboxOptions={comboboxOptions}
+                                      agencyMembers={agencyMembers}
+                                      statusInlineRefs={statusInlineRefs}
+                                      onStatusChange={handleStatusChange}
+                                      onAssigneeSelect={handleAssigneeSelect}
+                                      onClearAssignee={handleClearAssignee}
+                                      onRowClick={handleRowClick}
+                                      onCopyLink={handleCopyLink}
+                                      onDeleteRequest={handleDeleteRequest}
+                                      onContactClick={handleContactClick}
+                                      openActionsDropdown={openActionsDropdown}
+                                      setOpenActionsDropdown={setOpenActionsDropdown}
+                                      currentOrgId={currentOrgId}
+                                      onConvertToTask={onConvertToTask}
+                                    />
+                                  ))}
+                                </>
+                              )}
+                            </>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                    {!isStatusCollapsed && clients.length === 0 && (
+                      <div className="px-5 py-3 text-sm-regular text-[var(--color-base-text-tertiary)]">
+                        No clients found
+                      </div>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </div>
           )}
           </div>
         </div>
@@ -790,6 +1176,12 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
           }}
         />
       )}
+
+      {/* Paywall Modal */}
+      <PaywallModal 
+        open={isPaywallModalOpen} 
+        onOpenChange={setIsPaywallModalOpen} 
+      />
     </div>
   )
 }
