@@ -108,12 +108,12 @@ export function VirtualizedProjectList({
 
         // renderRow returns a TableRow component, so we need to clone it with ref
         const rowElement = renderRow(project, virtualRow.index)
-        const existingProps = (rowElement as React.ReactElement)?.props || {}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const existingProps = ((rowElement as React.ReactElement)?.props || {}) as any
         return (
           <React.Fragment key={project.id}>
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            {/* eslint-disable @typescript-eslint/no-explicit-any */}
             {React.cloneElement(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               rowElement as React.ReactElement<any>,
               {
                 ...existingProps,
@@ -124,9 +124,9 @@ export function VirtualizedProjectList({
                 },
                 'data-index': virtualRow.index,
                 style: { ...existingProps.style, height: `${virtualRow.size}px` }
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
               } as any
             )}
+            {/* eslint-enable @typescript-eslint/no-explicit-any */}
           </React.Fragment>
         )
       })}

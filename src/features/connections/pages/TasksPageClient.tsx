@@ -14,7 +14,6 @@ import { sortTasksWithPinnedFirst } from '../tasks/taskSort';
 import { sortMembersWithActiveFirst, type MemberSummary } from '../utils/memberSorting';
 import { PAGE_SIZE, isDev } from '../constants';
 // PREFETCH_TIMEOUT_MS imported but not used - kept for potential future use
-import type { VirtualItem } from '@tanstack/react-virtual';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 type PrefetchedComment = {

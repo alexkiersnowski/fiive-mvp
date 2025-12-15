@@ -55,7 +55,7 @@ export function VirtualizedTaskList({
   // Virtualizer instance (only created when shouldVirtualize is true)
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualize ? tasks.length : 0,
-    getScrollElement: () => parentRef?.current || containerRef.current || (typeof window !== 'undefined' ? window : null),
+    getScrollElement: () => (parentRef?.current || containerRef.current) as Element | null,
     estimateSize: () => ROW_HEIGHT,
     overscan: tasks.length > 100 ? 5 : VIRTUAL_OVERSCAN,
     enabled: shouldVirtualize
