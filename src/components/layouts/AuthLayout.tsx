@@ -94,9 +94,7 @@ export default function AuthLayout({
   return (
     <div className="min-h-screen flex relative" style={{ backgroundColor: 'var(--color-neutral-1)' }}>
       {/* Navigation bar */}
-      <div className="absolute top-0 left-0 w-full z-10" style={{ 
-        paddingLeft: '40px', 
-        paddingRight: '40px', 
+      <div className="absolute top-0 left-0 w-full z-10 px-5 sm:px-5 lg:px-10" style={{ 
         paddingTop: '24px', 
         paddingBottom: '24px' 
       }}>
@@ -111,12 +109,12 @@ export default function AuthLayout({
         />
       </div>
 
-      {/* Left side - Form content (2/3 width) */}
-      <div className="flex-1 relative" style={{ width: '66.67%' }}>
+      {/* Left side - Form content (full width below lg, 2/3 width at lg+) */}
+      <div className="w-full lg:w-[66.67%] relative">
         {/* Main content container - full height with relative positioning */}
         <div className="h-full relative">
           {/* Main content - centered with bottom offset */}
-          <div className="h-full flex items-center justify-center p-8">
+          <div className="h-full flex items-center justify-center px-5 py-8 sm:px-5 lg:px-8">
             <div className="w-full space-y-8 mb-6" style={{ maxWidth: 'var(--max-width-auth)' }}>
               <div className="text-center">
                 <h1 className="display-8-medium" style={{ marginBottom: 'var(--scale-4)' }}>{title}</h1>
@@ -222,8 +220,8 @@ export default function AuthLayout({
         </div>
       </div>
 
-      {/* Right side - Graphic container (1/3 width) */}
-      <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
+      {/* Right side - Graphic container (1/3 width) - Hidden below lg */}
+      <div className="hidden lg:flex items-center justify-center" style={{ width: '33.33%' }}>
         <div className="w-full h-full p-2">
           <div 
             className="w-full h-full rounded-sm flex items-center justify-center relative overflow-hidden"
