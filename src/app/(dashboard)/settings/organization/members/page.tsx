@@ -1,7 +1,12 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { getOrganizationMembers, getOrganizationInvitations } from '../../actions'
 import { checkMemberLimit } from '@/lib/paywall/checkMemberLimit'
 import MembersContent from './MembersContent'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Organization Settings',
+};
 
 // Cache for 30 seconds to improve performance while keeping data reasonably fresh
 export const revalidate = 30

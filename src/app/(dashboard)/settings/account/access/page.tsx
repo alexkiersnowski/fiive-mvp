@@ -1,6 +1,11 @@
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import AccessForm from './AccessForm'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Account Settings',
+};
 
 // Force fresh data on every request to ensure updated email is shown immediately
 export const revalidate = 0

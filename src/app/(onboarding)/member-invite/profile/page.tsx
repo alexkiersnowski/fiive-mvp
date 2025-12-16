@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { handleMemberInviteCompletion } from '../../actions'
@@ -5,6 +6,10 @@ import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { getProfileData } from '@/lib/onboarding/data'
 import { createClient } from '@/lib/supabase/server'
 import { verifyMemberInviteToken } from '@/lib/tokens/verifyMemberInviteToken'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Join Team',
+};
 
 // Force fresh data on every request to ensure updated user data is shown immediately
 export const revalidate = 0

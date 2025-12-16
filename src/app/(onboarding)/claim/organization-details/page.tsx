@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { ImageUpload } from '@/components/ui/image-upload'
@@ -5,6 +6,10 @@ import { handleClaimOrganizationUpdate } from '../../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { createClient } from '@/lib/supabase/server'
 import { verifyInviteToken } from '@/lib/tokens/verifyInviteToken'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Claim Account',
+};
 
 // Force fresh data on every request to ensure updated user data is shown immediately
 export const revalidate = 0

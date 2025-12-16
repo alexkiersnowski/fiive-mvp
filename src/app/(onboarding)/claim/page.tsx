@@ -1,6 +1,11 @@
+import type { Metadata } from 'next';
 import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/server'
 import { verifyInviteToken } from '@/lib/tokens/verifyInviteToken'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Claim Account',
+};
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0

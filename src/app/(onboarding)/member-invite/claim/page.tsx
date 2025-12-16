@@ -1,6 +1,11 @@
+import type { Metadata } from 'next';
 import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/server'
 import { verifyMemberInviteToken } from '@/lib/tokens/verifyMemberInviteToken'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Join Team',
+};
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
