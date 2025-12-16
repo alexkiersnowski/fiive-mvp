@@ -388,14 +388,11 @@ export async function POST(request: NextRequest) {
           : null
         
         // Welcome email for first subscription payment only
-        if (
-          invoice.billing_reason === 'subscription_create' &&
-          subscriptionId
-        ) {
+        if (invoice.billing_reason === 'subscription_create') {
           const { data: org } = await supabase
             .from('organizations')
             .select('id, type')
-            .eq('stripe_subscription_id', subscriptionId)
+            .eq('stripe_customer_id', customerId)
             .single()
 
           if (org && org.type === 'agency') {
