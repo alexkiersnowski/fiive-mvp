@@ -248,7 +248,7 @@ export async function POST(request: NextRequest) {
           // Find organization by subscription ID first (most reliable - unique per subscription)
           const { data: orgBySub, error: subError } = await supabase
             .from('organizations')
-            .select('id, billing_status, type, stripe_customer_id')
+            .select('id, billing_status, type, stripe_customer_id, stripe_subscription_id')
             .eq('stripe_subscription_id', subscription.id)
             .single()
           
@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
             if (subError.code === 'PGRST116') {
               const { data: org, error: findError } = await supabase
                 .from('organizations')
-                .select('id, billing_status, type, stripe_customer_id')
+                .select('id, billing_status, type, stripe_customer_id, stripe_subscription_id')
                 .eq('stripe_customer_id', customerId)
                 .single()
               
@@ -302,8 +302,6 @@ export async function POST(request: NextRequest) {
             )
           }
           
-          // Store previous billing status to check for free -> active transition
-          const previousBillingStatus = organization.billing_status || 'free'
           const organizationType = organization.type
           
           // Check if this is a NEW subscription BEFORE updating
