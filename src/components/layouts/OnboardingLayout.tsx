@@ -524,8 +524,9 @@ export default function OnboardingLayout({
                                       {...field}
                                       value={field.value || ""}
                                       placeholder={accountType === 'agency' ? "E.g. exa. studio" : "E.g. Acme Corp"}
-                                      className="h-10 px-4 py-2 text-sm"
+                                      className="h-10 px-4 py-2 text-base lg:text-sm"
                                       maxLength={255}
+                                      autoFocus={false}
                                     />
                                   </FormControl>
                                   <FormMessage />
@@ -566,8 +567,9 @@ export default function OnboardingLayout({
                                           {...field}
                                           value={field.value || ""}
                                           placeholder="exastudio.com"
-                                          className="h-10 px-4 py-2 text-sm"
+                                          className="h-10 px-4 py-2 text-base lg:text-sm"
                                           maxLength={255}
+                                          autoFocus={false}
                                         />
                                       </FormControl>
                                       <FormMessage />
@@ -641,8 +643,9 @@ export default function OnboardingLayout({
                                           {...field}
                                           value={field.value || ""}
                                           placeholder="example.com"
-                                          className="h-10 px-4 py-2 text-sm"
+                                          className="h-10 px-4 py-2 text-base lg:text-sm"
                                           maxLength={255}
+                                          autoFocus={false}
                                         />
                                       </FormControl>
                                       <FormMessage />
@@ -699,8 +702,9 @@ export default function OnboardingLayout({
                                         {...field}
                                         value={field.value || ''}
                                         readOnly
-                                        className="h-10 px-4 py-2 text-sm cursor-default [&:focus]:outline-none [&:focus]:ring-0 [&:focus]:border-[var(--color-neutral-5)]"
+                                        className="h-10 px-4 py-2 text-base lg:text-sm cursor-default [&:focus]:outline-none [&:focus]:ring-0 [&:focus]:border-[var(--color-neutral-5)]"
                                         maxLength={255}
+                                        autoFocus={false}
                                         style={{
                                           background: 'var(--color-neutral-alpha-2, rgba(0, 0, 85, 0.02))',
                                           color: 'var(--color-base-text-primary, #1C2024)',
@@ -725,8 +729,9 @@ export default function OnboardingLayout({
                                   value={field.value || ""}
                                   autoComplete="given-name"
                                   placeholder="Enter your first name"
-                                  className="h-10 px-4 py-2 text-sm"
+                                  className="h-10 px-4 py-2 text-base lg:text-sm"
                                   maxLength={255}
+                                  autoFocus={false}
                                 />
                                   </FormControl>
                                   <FormMessage />
@@ -745,8 +750,9 @@ export default function OnboardingLayout({
                                   value={field.value || ""}
                                   autoComplete="family-name"
                                   placeholder="Enter your last name"
-                                  className="h-10 px-4 py-2 text-sm"
+                                  className="h-10 px-4 py-2 text-base lg:text-sm"
                                   maxLength={255}
+                                  autoFocus={false}
                                 />
                                   </FormControl>
                                   <FormMessage />
@@ -765,8 +771,9 @@ export default function OnboardingLayout({
                                   value={field.value || ""}
                                   autoComplete="organization-title"
                                   placeholder="E.g. Account Manager"
-                                  className="h-10 px-4 py-2 text-sm"
+                                  className="h-10 px-4 py-2 text-base lg:text-sm"
                                   maxLength={255}
+                                  autoFocus={false}
                                 />
                                   </FormControl>
                                   <FormMessage />
@@ -787,8 +794,9 @@ export default function OnboardingLayout({
                                     value={field.value || ""}
                                     autoComplete="email"
                                     placeholder={placeholder}
-                                    className="h-10 px-4 py-2 text-sm"
+                                    className="h-10 px-4 py-2 text-base lg:text-sm"
                                     maxLength={255}
+                                    autoFocus={false}
                                   />
                                 </FormControl>
                                 <FormMessage />
