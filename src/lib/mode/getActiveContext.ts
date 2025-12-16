@@ -94,7 +94,15 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
     }
 
     if (profileError || !profile) {
-      console.error('Profile fetch failed:', profileError);
+      // Only log actual errors, not "not found" scenarios
+      // PGRST116 = no rows returned (expected for users without profiles)
+      const isNotFoundError = profileError?.code === 'PGRST116' || 
+                              profileError?.message?.includes('No rows returned') ||
+                              profileError?.message?.includes('multiple (or no) rows returned');
+      
+      if (profileError && !isNotFoundError) {
+        console.error('Profile fetch failed:', profileError);
+      }
       return null;
     }
 

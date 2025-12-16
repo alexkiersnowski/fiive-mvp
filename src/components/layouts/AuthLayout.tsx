@@ -149,7 +149,8 @@ export default function AuthLayout({
                                   {...field}
                                   autoComplete="email"
                                   placeholder={placeholder}
-                                  className="h-10 px-4 py-2 text-sm"
+                                  className="h-10 px-4 py-2 text-base lg:text-sm"
+                                  autoFocus={false}
                                 />
                               </FormControl>
                               <FormMessage />
