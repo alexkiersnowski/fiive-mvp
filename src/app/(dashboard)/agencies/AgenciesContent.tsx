@@ -477,10 +477,10 @@ export function AgenciesContent({
                       >
                         <RadioCard value="agency" icon={<Plus size={24} weight="regular" />}>
                           <h3 className="display-5-medium mb-2">
-                            Add a new agency
+                            Invite an agency
                           </h3>
                           <p className="text-sm-regular text-left" style={{ color: 'var(--color-base-text-secondary)' }}>
-                            Your agency isn&apos;t on Fiive. Create a shared workspace and invite them when ready.
+                            Your agency isn&apos;t on Fiive. Invite them to join and collaborate in a shared workspace.
                           </p>
                         </RadioCard>
                         <RadioCard value="client" icon={<Link size={24} weight="regular" />}>
@@ -523,7 +523,7 @@ export function AgenciesContent({
       {/* Add New Agency Dialog */}
       <Dialog open={isAddNewAgencyDialogOpen} onOpenChange={setIsAddNewAgencyDialogOpen}>
         <DialogContent style={{ padding: '24px', maxWidth: '460px', gap: '0.75rem' }} className="[&>button]:hidden h-auto" showCloseButton={false}>
-          <DialogTitle className="display-5-medium" style={{ color: 'var(--color-base-text-primary)' }}>Add a new agency</DialogTitle>
+          <DialogTitle className="display-5-medium" style={{ color: 'var(--color-base-text-primary)' }}>Invite an agency</DialogTitle>
           <DialogDescription className="text-sm-regular" style={{ color: 'var(--color-base-text-primary)' }}>
             Invite your agency to start collaborating
           </DialogDescription>
