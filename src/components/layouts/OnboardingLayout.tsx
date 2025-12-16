@@ -397,10 +397,10 @@ export default function OnboardingLayout({
   }
   return (
     <div className="h-screen flex overflow-hidden" style={{ backgroundColor: 'var(--color-neutral-1)' }}>
-      {/* Left side - Form content (2/3 width) - Scrollable */}
-      <div className="flex-1 overflow-y-auto" style={{ width: '66.67%' }}>
+      {/* Left side - Form content (full width below lg, 2/3 width at lg+) - Scrollable */}
+      <div className="w-full lg:w-[66.67%] overflow-y-auto">
         {/* Navigation - Sticky */}
-        <div className="sticky top-0 py-5 px-10" style={{ backgroundColor: 'var(--color-neutral-1)', zIndex: 10 }}>
+        <div className="sticky top-0 py-5 px-5 sm:px-5 lg:px-10" style={{ backgroundColor: 'var(--color-neutral-1)', zIndex: 10 }}>
           <Image 
             src="/logos/fiive-logo.svg" 
             alt="Fiive" 
@@ -413,7 +413,7 @@ export default function OnboardingLayout({
         </div>
 
         {/* Main content container */}
-        <div className="flex items-start justify-center" style={{ padding: '40px 32px 32px 32px', marginBottom: '80px' }}>
+        <div className="flex items-start justify-center px-5 sm:px-5 lg:px-8" style={{ paddingTop: '40px', paddingBottom: '32px', marginBottom: '80px' }}>
             <div className="w-full space-y-8" style={{ maxWidth: '520px' }}>
               {/* Title and description - left aligned */}
               <div className="text-left">
@@ -821,8 +821,8 @@ export default function OnboardingLayout({
           </div>
         </div>
 
-      {/* Right side - Graphic container (1/3 width) */}
-      <div className="flex items-center justify-center" style={{ width: '33.33%' }}>
+      {/* Right side - Graphic container (1/3 width) - Hidden below lg */}
+      <div className="hidden lg:flex items-center justify-center" style={{ width: '33.33%' }}>
         <div className="w-full h-full p-2">
           <div 
             className="w-full h-full rounded-sm flex items-center justify-center relative overflow-hidden"
