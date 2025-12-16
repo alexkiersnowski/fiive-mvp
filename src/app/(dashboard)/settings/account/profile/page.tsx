@@ -1,6 +1,11 @@
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import ProfileForm from "./ProfileForm"
+
+export const metadata: Metadata = {
+  title: 'Fiive | Account Settings',
+};
 
 export default async function ProfilePage() {
   const supabase = await createClient()

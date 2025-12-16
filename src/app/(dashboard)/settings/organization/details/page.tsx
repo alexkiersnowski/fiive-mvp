@@ -1,8 +1,13 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { createClient } from '@/lib/supabase/server'
 import { cache } from 'react'
 import DetailsForm from './DetailsForm'
 import DeleteWorkspace from './DeleteWorkspace'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Organization Settings',
+};
 
 // Cache for 30 seconds to improve performance while keeping data reasonably fresh
 export const revalidate = 30

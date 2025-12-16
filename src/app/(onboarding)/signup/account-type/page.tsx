@@ -1,8 +1,13 @@
+import type { Metadata } from 'next';
 import { redirect } from "next/navigation"
 import OnboardingLayout from '@/components/layouts/OnboardingLayout'
 import { handleAccountTypeSelection } from '../../actions'
 import { getAuthenticatedUser } from '@/lib/onboarding/auth'
 import { createClient } from '@/lib/supabase/server'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Create Account',
+};
 
 // Force fresh data on every request to ensure updated user data is shown immediately
 export const revalidate = 0

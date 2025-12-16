@@ -1,9 +1,14 @@
+import type { Metadata } from 'next';
 import { getActiveContext } from '@/lib/mode/getActiveContext'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cache } from 'react'
 import { verifyCheckoutSessionAndGetBillingStatus } from '@/lib/stripe/server'
 import BillingContent from './BillingContent'
+
+export const metadata: Metadata = {
+  title: 'Fiive | Billing',
+};
 
 /**
  * Check if an organization has any real connections (non-draft status)
