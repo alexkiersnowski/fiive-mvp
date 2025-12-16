@@ -302,13 +302,6 @@ export async function POST(request: NextRequest) {
             )
           }
           
-          const organizationType = organization.type
-          
-          // Check if this is a NEW subscription BEFORE updating
-          // This is the most reliable way to detect first-time subscription creation
-          // regardless of event type or race conditions
-          const isNewSubscription = !organization.stripe_subscription_id
-          
           // Update organization - ALWAYS sync all Stripe fields (webhook is source of truth)
           const { data: _data, error } = await supabase
             .from('organizations')
@@ -327,26 +320,6 @@ export async function POST(request: NextRequest) {
               { error: 'Failed to update organization', details: error.message },
               { status: 500 }
             )
-          }
-          
-          // Send welcome email if this is a new subscription (first time creating subscription)
-          // and organization is an agency with active billing status
-          // Using isNewSubscription handles race conditions and different event types reliably
-          if (
-            isNewSubscription &&
-            billingStatus === 'active' &&
-            organizationType === 'agency'
-          ) {
-            try {
-              const { sendAgencyProWelcomeEmail } = await import('@/app/actions/sendAgencyProWelcomeEmail')
-              await sendAgencyProWelcomeEmail({ organizationId: organization.id })
-            } catch (emailError) {
-              // Log error but don't fail webhook - email is best-effort
-              console.error('Failed to send Agency Pro welcome email:', {
-                organizationId: organization.id,
-                error: emailError instanceof Error ? emailError.message : String(emailError)
-              })
-            }
           }
         } catch (subscriptionError) {
           return NextResponse.json(
@@ -413,6 +386,26 @@ export async function POST(request: NextRequest) {
         const subscriptionId = 'subscription' in invoice && invoice.subscription 
           ? (typeof invoice.subscription === 'string' ? invoice.subscription : (invoice.subscription as Stripe.Subscription).id)
           : null
+        
+        // Welcome email for first subscription payment only
+        if (invoice.billing_reason === 'subscription_create') {
+          const { data: org } = await supabase
+            .from('organizations')
+            .select('id, type')
+            .eq('stripe_customer_id', customerId)
+            .single()
+
+          if (org && org.type === 'agency') {
+            try {
+              const { sendAgencyProWelcomeEmail } = await import(
+                '@/app/actions/sendAgencyProWelcomeEmail'
+              )
+              await sendAgencyProWelcomeEmail({ organizationId: org.id })
+            } catch (err) {
+              console.error('Failed to send Agency Pro welcome email', err)
+            }
+          }
+        }
         
         if (subscriptionId) {
           // Get subscription to get current_period_end and check status
