@@ -4,7 +4,7 @@ import { useState, memo } from 'react'
 import { RequestGroupHeader } from './RequestGroupHeader'
 import { VirtualizedRequestList } from './VirtualizedRequestList'
 import { RequestRow } from './RequestRow'
-import type { Request } from '../server'
+import type { Request, RequestWithUiId } from '../server'
 import type { RequestStatus } from './requestSort'
 import type { InlineEditRef } from '@/components/ui/inline-edit'
 
@@ -147,7 +147,7 @@ function StatusSectionComponent({
             const isDragging = draggedRequestId === request.id
             return (
               <RequestRow
-                key={request.id}
+                key={(request as RequestWithUiId)._uiId ?? request.id}
                 request={request}
                 isAgency={isAgency}
                 isDisconnected={isDisconnected}

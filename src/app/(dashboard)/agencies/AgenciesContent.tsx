@@ -441,7 +441,7 @@ export function AgenciesContent({
                 status={agency.status}
                 invitedEmail={agency.invitedEmail}
                 accountManager={agency.accountManager}
-                projectCount={0}
+                projectCount={agency.projectCount ?? 0}
                 context={context}
                 onAgencyDeleted={async () => {
                   // Refresh agencies data after deletion

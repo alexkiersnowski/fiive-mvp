@@ -4,7 +4,7 @@ import { useRef, useMemo, useEffect, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { VirtualItem } from '@tanstack/react-virtual'
 import { VIRTUAL_ROW_HEIGHT, VIRTUAL_OVERSCAN, VIRTUAL_LOAD_MORE_THRESHOLD, VIRTUAL_LOAD_MORE_DEBOUNCE } from '@/components/virtual-table/constants'
-import type { Request } from '../server'
+import type { Request, RequestWithUiId } from '../server'
 
 interface VirtualizedRequestListProps {
   requests: Request[]
@@ -98,7 +98,7 @@ export function VirtualizedRequestList({
     return (
       <div className="w-full">
         {requests.map((request, index) => (
-          <div key={request.id}>
+          <div key={(request as RequestWithUiId)._uiId ?? request.id}>
             {renderRow(request, index)}
           </div>
         ))}
@@ -125,7 +125,7 @@ export function VirtualizedRequestList({
 
         return (
           <div
-            key={request.id}
+            key={(request as RequestWithUiId)._uiId ?? request.id}
             ref={(node) => rowVirtualizer.measureElement(node)}
             data-index={virtualRow.index}
             style={{ height: `${virtualRow.size}px` }}

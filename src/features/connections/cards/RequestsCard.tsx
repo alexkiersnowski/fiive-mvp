@@ -163,9 +163,30 @@ export default async function RequestsCard({
     };
   });
 
-  // Split into displayed (first 4) and prefetched (5th)
-  const displayedRequests = prefetchedRequests.slice(0, 4);
-  const prefetchedNextRequest = prefetchedRequests[4] || null;
+  // Sort by status priority (new > in_review > accepted), then by created_at descending
+  const statusPriority: Record<string, number> = {
+    'new': 0,
+    'in_review': 1,
+    'accepted': 2
+  };
+
+  const sortedRequests = prefetchedRequests.sort((a, b) => {
+    // First sort by status priority
+    const aStatus = a.detail.status ?? '';
+    const bStatus = b.detail.status ?? '';
+    const statusDiff = (statusPriority[aStatus] ?? 999) - (statusPriority[bStatus] ?? 999);
+    if (statusDiff !== 0) return statusDiff;
+    
+    // Then by created_at descending (newest first within same status)
+    const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return bTime - aTime;
+  });
+
+  // Take top 5 after sorting, then split into displayed (first 4) and prefetched (5th)
+  const topRequests = sortedRequests.slice(0, 5);
+  const displayedRequests = topRequests.slice(0, 4);
+  const prefetchedNextRequest = topRequests[4] || null;
 
   const projectOptions: ProjectOption[] = projectsResult.projects.map((project) => ({
     id: project.id,

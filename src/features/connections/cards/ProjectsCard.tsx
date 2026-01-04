@@ -31,9 +31,15 @@ export default async function ProjectsCard({
     getAgencyMembersForConnection(connectionId),
   ]);
 
+  // Filter to only show live projects (planned, active, on_hold)
+  // Exclude completed and canceled projects
+  const liveProjects = projects.filter(
+    (project) => project.status === 'planned' || project.status === 'active' || project.status === 'on_hold'
+  );
+
   // Split into displayed (first 4) and prefetched (5th)
-  const displayedProjects = projects.slice(0, 4);
-  const prefetchedNextProject = projects[4] || null;
+  const displayedProjects = liveProjects.slice(0, 4);
+  const prefetchedNextProject = liveProjects[4] || null;
 
   return (
     <ProjectsCardClient

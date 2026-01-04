@@ -13,8 +13,9 @@ import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { PaywallModal } from '@/components/ui/paywall-modal'
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
-import { updateRequestAssignee, updateRequestStatus } from '@/features/connections/requests/actions'
-import type { Request, SearchResults } from './types'
+import { updateRequest } from '@/features/connections/requests/actions'
+import { isOptimisticId, updateRequestLatestDraft, scheduleRequestFlush } from '@/features/connections/utils/optimisticTracker'
+import type { Request, RequestWithUiId, SearchResults } from './types'
 import { StatusGroupHeader } from './StatusGroupHeader'
 import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalRequestRow } from './GlobalRequestRow'
@@ -152,12 +153,22 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         onRequestUpdate(requestId, { assignee: newAssignee })
       }
       
+      // Handle optimistic IDs
+      if (isOptimisticId(requestId)) {
+        // Track draft state and schedule flush
+        updateRequestLatestDraft(requestId, { assignee_user_id: memberId })
+        scheduleRequestFlush(requestId, async (realId, draft) => {
+          await updateRequest(realId, draft)
+        })
+        return // Success - no error, no await
+      }
+      
       // Set loading guard
       isMutingAssignee.current = true
       
       await runWithPaywallCheck(
         async () => {
-          await updateRequestAssignee(requestId, memberId)
+          await updateRequest(requestId, { assignee_user_id: memberId })
         },
         () => {
           // Success - real-time subscription will handle UI updates
@@ -200,11 +211,21 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       onRequestUpdate(requestId, { assignee: null })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { assignee_user_id: null })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
     // Set loading guard
     isMutingAssignee.current = true
     
     try {
-      await updateRequestAssignee(requestId, null)
+      await updateRequest(requestId, { assignee_user_id: null })
       // Real-time subscription will handle UI updates
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -244,42 +265,52 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       onRequestUpdate(requestId, { status: typedStatus })
     }
     
-      // Set loading guard
-      isMutingStatus.current = true
-      
-      await runWithPaywallCheck(
-        async () => {
-          await updateRequestStatus(requestId, typedStatus)
-        },
-        () => {
-          // Success - real-time subscription will handle UI updates
-        },
-        () => {
-          setIsPaywallModalOpen(true)
-          // Revert parent state on paywall
-          if (onRequestUpdate) {
-            const originalRequest = requests.find(r => r.id === requestId)
-            if (originalRequest) {
-              onRequestUpdate(requestId, { status: originalRequest.status })
-            }
-          }
-        }
-      ).catch((error) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('Failed to update status:', error)
-        }
-        toast.error('Failed to update status')
-        // Revert parent state on error
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { status: typedStatus })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
+    // Set loading guard
+    isMutingStatus.current = true
+    
+    await runWithPaywallCheck(
+      async () => {
+        await updateRequest(requestId, { status: typedStatus })
+      },
+      () => {
+        // Success - real-time subscription will handle UI updates
+      },
+      () => {
+        setIsPaywallModalOpen(true)
+        // Revert parent state on paywall
         if (onRequestUpdate) {
           const originalRequest = requests.find(r => r.id === requestId)
           if (originalRequest) {
             onRequestUpdate(requestId, { status: originalRequest.status })
           }
         }
-      }).finally(() => {
-        // Clear loading guard
-        isMutingStatus.current = false
-      })
+      }
+    ).catch((error) => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to update status:', error)
+      }
+      toast.error('Failed to update status')
+      // Revert parent state on error
+      if (onRequestUpdate) {
+        const originalRequest = requests.find(r => r.id === requestId)
+        if (originalRequest) {
+          onRequestUpdate(requestId, { status: originalRequest.status })
+        }
+      }
+    }).finally(() => {
+      // Clear loading guard
+      isMutingStatus.current = false
+    })
   }
 
   // Profile Card handler
@@ -686,10 +717,9 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                 // Search results: Render accordion structure with pre-loaded data
                 // Always show all status headers, even with 0 results
                 statusOrder.map((status) => {
-                  // Filter clients that have requests in this status
-                  const clientsInStatus = searchResults.clients.filter((client: SearchResults['clients'][0]) => 
-                    client.requests.some((req: Request) => req.status === status)
-                  );
+                  // In search mode: Include ALL clients from search results (they match by organization name)
+                  // This ensures clients with 0 requests still show their headers
+                  const clientsInStatus = searchResults.clients;
 
                   // Calculate status count from search results
                   const statusCount = searchResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
@@ -704,14 +734,14 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         statusCount={statusCount}
                         isCollapsed={collapsedStatuses.has(status)}
                         onToggle={() => onToggleStatus(status)}
+                        isAgency={isAgency}
                       />
                       {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
                         // Filter requests for this status
                         const requestsInStatus = clientResult.requests.filter((req: Request) => req.status === status);
                         
-                        if (requestsInStatus.length === 0) {
-                          return null;
-                        }
+                        // In search mode: Show client header even if 0 requests in this status
+                        // (client matches by organization name, so it should appear in all status groups)
 
                         // Check if this client is collapsed in search mode
                         // Set tracks expanded clients, so if NOT in Set, it's collapsed
@@ -732,10 +762,10 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                               onToggle={() => onToggleClient(status, clientResult.client_id)}
                               isAgency={isAgency}
                             />
-                            {/* Render all requests - data is pre-loaded, only when expanded */}
-                            {!isClientCollapsed && requestsInStatus.map((request: Request) => (
+                            {/* Render requests only when expanded AND there are requests */}
+                            {!isClientCollapsed && requestsInStatus.length > 0 && requestsInStatus.map((request: Request) => (
                               <GlobalRequestRow
-                                key={request.id}
+                                key={(request as RequestWithUiId)._uiId ?? request.id}
                                 request={request}
                                 isAgency={isAgency}
                                 comboboxOptions={comboboxOptions}
@@ -872,6 +902,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                         statusCount={statusCount}
                         isCollapsed={collapsedStatuses.has(status)}
                         onToggle={() => onToggleStatus(status)}
+                        isAgency={isAgency}
                       />
                       {!collapsedStatuses.has(status) && clientsInStatus.length > 0 && clientsInStatus.map((clientResult: SearchResults['clients'][0]) => {
                         // Filter requests for this status
@@ -903,7 +934,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                             {/* Render all requests - data is pre-loaded, only when expanded */}
                             {!isClientCollapsed && requestsInStatus.map((request: Request) => (
                               <GlobalRequestRow
-                                key={request.id}
+                                key={(request as RequestWithUiId)._uiId ?? request.id}
                                 request={request}
                                 isAgency={isAgency}
                                 comboboxOptions={comboboxOptions}
@@ -975,6 +1006,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                       statusCount={statusCount}
                       isCollapsed={isStatusCollapsed}
                       onToggle={() => onToggleStatus(status)}
+                      isAgency={isAgency}
                     />
                     {!isStatusCollapsed && clients.length > 0 && clients.map((client) => {
                       const cacheKey = `${status}-${client.orgId}`
@@ -1036,7 +1068,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                                   {/* Render optimistic requests FIRST (at the top) if they exist */}
                                   {optimisticRequests.map((request) => (
                                     <GlobalRequestRow
-                                      key={request.id}
+                                      key={(request as RequestWithUiId)._uiId ?? request.id}
                                       request={request}
                                       isAgency={isAgency}
                                       comboboxOptions={comboboxOptions}
@@ -1098,7 +1130,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                                   {/* Render optimistic requests FIRST (at the top) */}
                                   {optimisticRequests.map((request) => (
                                     <GlobalRequestRow
-                                      key={request.id}
+                                      key={(request as RequestWithUiId)._uiId ?? request.id}
                                       request={request}
                                       isAgency={isAgency}
                                       comboboxOptions={comboboxOptions}
@@ -1121,7 +1153,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                                   {/* Render real requests (below optimistic) */}
                                   {realRequests.map((request) => (
                                     <GlobalRequestRow
-                                      key={request.id}
+                                      key={(request as RequestWithUiId)._uiId ?? request.id}
                                       request={request}
                                       isAgency={isAgency}
                                       comboboxOptions={comboboxOptions}

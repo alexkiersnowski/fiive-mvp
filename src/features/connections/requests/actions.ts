@@ -409,6 +409,134 @@ export async function updateRequestProject(requestId: string, projectId: string 
 }
 
 /**
+ * Update request with patch (single action for all fields)
+ * Used for optimistic updates and regular updates
+ */
+export async function updateRequest(
+  realId: string,
+  patch: Partial<{
+    status?: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed'
+    assignee_user_id?: string | null
+    title?: string
+    description?: string
+    project_id?: string | null
+  }>
+) {
+  // Assertion: catch tempId leaks
+  if (realId.startsWith('temp-')) {
+    if (isDev()) {
+      console.error('[updateRequest] TEMPID LEAK DETECTED:', { realId, patch })
+      console.error('[updateRequest] Stack trace:', new Error().stack)
+    }
+    throw new Error('Invalid request ID: tempId passed to updateRequest')
+  }
+  
+  const supabase = await createClient()
+  const context = await getActiveContext()
+  
+  if (!context) {
+    throw new Error('Authentication required')
+  }
+  
+  // Fetch connection_id for paywall check (with retry for transient "row not found" errors)
+  // Client-side waitForRowVisible() may pass, but server RLS context can lag - retry here for correctness
+  let requestInfo: { connection_id: string } | null = null
+  const maxRetries = 5
+  const baseDelay = 50
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const { data, error } = await supabase
+      .from('requests')
+      .select('connection_id')
+      .eq('id', realId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    
+    // Success - row is visible
+    if (!error && data) {
+      requestInfo = data
+      break
+    }
+    
+    // Retry on "0 rows" (not found) - either no error but no data, or PGRST116
+    const isNotFound = (!error && !data) || (error?.code === 'PGRST116')
+    
+    // Don't retry on any other errors - these are real failures
+    if (error && !isNotFound) {
+      if (isDev()) {
+        console.error('[updateRequest] Initial select connection_id failed (non-retryable error):', {
+          realId,
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          contextVariant: context.variant,
+          contextOrgId: context.orgId,
+          attempt,
+          error
+        })
+      }
+      throw new Error('Failed to fetch request')
+    }
+    
+    // If not the last attempt, wait before retrying (linear backoff)
+    if (attempt < maxRetries - 1) {
+      const delay = baseDelay * (attempt + 1) // 50ms, 100ms, 150ms, 200ms, 250ms
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+  
+  // Final check - if we still don't have the row after retries, throw error
+  // This keeps draft/dirty in flush so next edit can retry
+  if (!requestInfo) {
+    throw new Error('Failed to fetch request')
+  }
+  
+  const connectionId = requestInfo.connection_id
+  
+  // Check paywall
+  if (context.variant === 'agency' && connectionId) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess')
+    await assertConnectionAccessOrThrow(
+      connectionId,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    )
+  }
+  
+  // Validate patch isn't empty
+  if (Object.keys(patch).length === 0) {
+    throw new Error('Patch cannot be empty')
+  }
+  
+  // Build update object
+  const updates: Record<string, unknown> = {
+    updated_at: new Date().toISOString()
+  }
+  
+  if (patch.status !== undefined) updates.status = patch.status
+  if (patch.assignee_user_id !== undefined) updates.assignee_user_id = patch.assignee_user_id
+  if (patch.title !== undefined) updates.title = patch.title
+  if (patch.description !== undefined) updates.description = patch.description
+  if (patch.project_id !== undefined) updates.project_id = patch.project_id
+  
+  const { error } = await supabase
+    .from('requests')
+    .update(updates)
+    .eq('id', realId)
+    .is('deleted_at', null)
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Failed to update request:', error)
+    }
+    throw new Error('Failed to update request')
+  }
+  
+  // Real-time subscription handles UI updates
+}
+
+/**
  * Fetch requests for a connection (server action for client components)
  */
 export async function fetchRequestsForConnection(

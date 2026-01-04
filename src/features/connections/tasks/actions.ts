@@ -645,6 +645,134 @@ export async function updateTaskClientVisible(taskId: string, clientVisible: boo
 }
 
 /**
+ * Update task with patch (single action for all fields)
+ * Used for optimistic updates and regular updates
+ */
+export async function updateTask(
+  realId: string,
+  patch: Partial<{
+    status?: TaskStatus
+    assignee_user_id?: string | null
+    title?: string
+    description?: string
+    project_id?: string | null
+    due_date?: string | null
+    client_visible?: boolean
+  }>
+) {
+  const supabase = await createClient()
+  const context = await getActiveContext()
+  
+  if (!context) {
+    throw new Error('Authentication required')
+  }
+  
+  // Fetch connection_id for paywall check
+  const { data: taskInfo, error: taskError } = await supabase
+    .from('tasks')
+    .select('connection_id, status')
+    .eq('id', realId)
+    .is('deleted_at', null)
+    .single()
+  
+  if (taskError) {
+    if (isDev()) {
+      console.error('Failed to fetch task before updating:', taskError)
+    }
+    throw new Error('Failed to fetch task')
+  }
+  
+  const connectionId = taskInfo?.connection_id
+  
+  // Check paywall
+  if (context.variant === 'agency' && connectionId) {
+    const { assertConnectionAccessOrThrow } = await import('@/lib/paywall/assertConnectionAccess')
+    await assertConnectionAccessOrThrow(
+      connectionId,
+      context.orgId,
+      context.organization.billing_status || 'free'
+    )
+  }
+  
+  // Validate patch isn't empty
+  if (Object.keys(patch).length === 0) {
+    throw new Error('Patch cannot be empty')
+  }
+  
+  // Build update object
+  const updates: Record<string, unknown> = {
+    updated_at: new Date().toISOString()
+  }
+  
+  // Handle status updates (including completed_at logic)
+  if (patch.status !== undefined) {
+    updates.status = patch.status
+    // Handle completed_at logic both ways
+    if (patch.status === 'done') {
+      updates.completed_at = new Date().toISOString()
+    } else {
+      // Clear completed_at when status moves away from done
+      // Only clear if current status was 'done'
+      if (taskInfo?.status === 'done') {
+        updates.completed_at = null
+      }
+    }
+  }
+  
+  // Handle assignee updates (including client_visible logic)
+  if (patch.assignee_user_id !== undefined) {
+    updates.assignee_user_id = patch.assignee_user_id
+    
+    // Handle client_visible logic if assignee changes
+    if (patch.assignee_user_id && connectionId) {
+      const { data: connectionData, error: connectionError } = await supabase
+        .from('connections')
+        .select('client_id')
+        .eq('id', connectionId)
+        .single()
+      
+      if (!connectionError && connectionData) {
+        const clientOrgId = connectionData.client_id
+        
+        if (clientOrgId) {
+          const { data: membershipData } = await supabase
+            .from('memberships')
+            .select('id')
+            .eq('user_id', patch.assignee_user_id)
+            .eq('org_id', clientOrgId)
+            .limit(1)
+          
+          if (membershipData && membershipData.length > 0) {
+            updates.client_visible = true
+          }
+        }
+      }
+    }
+  }
+  
+  if (patch.title !== undefined) updates.title = patch.title
+  if (patch.description !== undefined) updates.description = patch.description
+  if (patch.project_id !== undefined) updates.project_id = patch.project_id
+  if (patch.due_date !== undefined) updates.due_date = patch.due_date
+  if (patch.client_visible !== undefined) updates.client_visible = patch.client_visible
+  
+  const { error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', realId)
+    .is('deleted_at', null)
+  
+  if (error) {
+    if (isDev()) {
+      console.error('Failed to update task:', error)
+    }
+    throw new Error('Failed to update task')
+  }
+  
+  // Real-time subscription handles UI updates
+}
+
+/**
  * Fetch tasks for a connection (server action for client components)
  */
 export async function fetchTasksForConnection(

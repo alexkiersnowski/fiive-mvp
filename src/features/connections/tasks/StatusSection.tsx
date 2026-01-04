@@ -4,7 +4,7 @@ import { useState, memo } from 'react'
 import { TaskGroupHeader } from './TaskGroupHeader'
 import { VirtualizedTaskList } from './VirtualizedTaskList'
 import { TaskRow } from './TaskRow'
-import type { Task, TaskStatus } from '../server'
+import type { Task, TaskWithUiId, TaskStatus } from '../server'
 import type { InlineEditRef } from '@/components/ui/inline-edit'
 
 interface StatusSectionProps {
@@ -155,9 +155,11 @@ function StatusSectionComponent({
           parentRef={parentRef}
           renderRow={(task, index) => {
             const isDragging = draggedTaskId === task.id
+            // Use stable UI identity to prevent remount on temp→real transition
+            const uiId = (task as TaskWithUiId)._uiId || task.id
             return (
               <TaskRow
-                key={task.id}
+                key={uiId}
                 task={task}
                 isAgency={isAgency}
                 isDisconnected={isDisconnected}

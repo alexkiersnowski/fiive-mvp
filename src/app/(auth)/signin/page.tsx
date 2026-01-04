@@ -14,13 +14,16 @@ async function handleSignIn(data: { email: string }) {
   
   const { email } = data
   
+  // Normalize email to lowercase before any processing
+  const normalizedEmail = email.trim().toLowerCase()
+  
   // Basic validation
-  if (!email || email.trim() === '') {
+  if (!normalizedEmail || normalizedEmail === '') {
     throw new Error('Please enter your work email')
   }
   
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  if (!emailRegex.test(email)) {
+  if (!emailRegex.test(normalizedEmail)) {
     throw new Error('Please enter a valid email address')
   }
   
@@ -32,10 +35,10 @@ async function handleSignIn(data: { email: string }) {
     throw new Error('Something went wrong. Please try again in a moment.')
   }
   
-  // Check if user exists and their verification status
+  // Check if user exists and their verification status (now using normalized email)
   let userStatus
   try {
-    userStatus = await isUserVerified(email)
+    userStatus = await isUserVerified(normalizedEmail)
   } catch (error) {
     // If verification check fails, assume user doesn't exist and proceed with signup
     // If it's a JSON parsing error, the service is likely down
@@ -54,7 +57,7 @@ async function handleSignIn(data: { email: string }) {
       // User exists and is verified - send magic link
       try {
         const signinResult = await supabase.auth.signInWithOtp({
-          email: email,
+          email: normalizedEmail,
           options: {
             shouldCreateUser: false,
             emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
@@ -62,7 +65,7 @@ async function handleSignIn(data: { email: string }) {
         })
         
         if (!signinResult.error) {
-          redirect(`/check-email?mode=signin&email=${encodeURIComponent(email)}&from=signin`)
+          redirect(`/check-email?mode=signin&email=${encodeURIComponent(normalizedEmail)}&from=signin`)
         } else {
           // Handle rate limiting or other errors
           const errorMessage = signinResult.error?.message || ''
@@ -74,7 +77,7 @@ async function handleSignIn(data: { email: string }) {
               errorMessage.includes('55 seconds')) {
             // For signin rate limits, redirect to check-email page
             // User will see "Sign in with email" messaging
-            redirect(`/check-email?mode=signin&email=${encodeURIComponent(email)}&from=signin`)
+            redirect(`/check-email?mode=signin&email=${encodeURIComponent(normalizedEmail)}&from=signin`)
           } else {
             throw new Error(errorMessage || 'Failed to send sign-in link. Please try again.')
           }
@@ -103,14 +106,14 @@ async function handleSignIn(data: { email: string }) {
       try {
         const resendResult = await supabase.auth.resend({
           type: 'signup',
-          email: email,
+          email: normalizedEmail,
           options: {
             emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
           }
         })
         
         if (!resendResult.error) {
-          redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&from=signin`)
+          redirect(`/check-email?mode=signup&email=${encodeURIComponent(normalizedEmail)}&from=signin`)
         } else {
           // Handle rate limiting or other errors
           const errorMessage = resendResult.error?.message || ''
@@ -119,7 +122,7 @@ async function handleSignIn(data: { email: string }) {
               errorMessage.includes('security purposes') ||
               errorMessage.includes('55 seconds')) {
             // Redirect to check-email (same as successful resend)
-            redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&from=signin`)
+            redirect(`/check-email?mode=signup&email=${encodeURIComponent(normalizedEmail)}&from=signin`)
           } else {
             throw new Error(errorMessage || 'Failed to resend confirmation email. Please try again.')
           }
@@ -150,7 +153,7 @@ async function handleSignIn(data: { email: string }) {
     
     try {
       const signupResult = await supabase.auth.signUp({
-        email: email,
+        email: normalizedEmail,
         password: randomPassword,
         options: {
           emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`
@@ -163,7 +166,7 @@ async function handleSignIn(data: { email: string }) {
       }
       
       // New user - they'll get confirm email
-      redirect(`/check-email?mode=signup&email=${encodeURIComponent(email)}&new=true&from=signin`)
+      redirect(`/check-email?mode=signup&email=${encodeURIComponent(normalizedEmail)}&new=true&from=signin`)
       } catch (error) {
         // Handle unexpected errors (network issues, service errors, JSON parsing errors, etc.)
         if (error instanceof Error) {

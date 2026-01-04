@@ -80,10 +80,31 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
   const [isHovered, setIsHovered] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const displayDivRef = React.useRef<HTMLDivElement>(null)
+  const measuredDisplayHeightRef = React.useRef<number | null>(null)
+  
+  const isTextType = props.type === 'text'
+  const isMultiline = isTextType ? props.multiline ?? false : false
+
+  // Autosize helper function
+  const autosizeTextarea = React.useCallback((el: HTMLTextAreaElement) => {
+    el.style.height = "auto"
+    el.style.height = `${el.scrollHeight}px`
+  }, [])
+
+  // Measurement helper function
+  const measureDisplayHeight = React.useCallback(() => {
+    if (!isMultiline) return
+    const el = displayDivRef.current
+    measuredDisplayHeightRef.current = el
+      ? Math.ceil(el.getBoundingClientRect().height)
+      : null
+  }, [isMultiline])
   
   // Expose startEditing method to parent via ref
   React.useImperativeHandle(ref, () => ({
     startEditing: () => {
+      measureDisplayHeight()
       setIsEditing(true)
       // Focus will happen in useEffect when isEditing becomes true
     },
@@ -132,9 +153,6 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     }
   }, [props.value, props.type])
 
-  const isTextType = props.type === 'text'
-  const isMultiline = isTextType ? props.multiline ?? false : false
-
   // Focus input/textarea when editing starts
   React.useEffect(() => {
     if (!isEditing || !isTextType) return
@@ -151,6 +169,42 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
       inputRef.current.setSelectionRange(length, length)
     }
   }, [isEditing, isTextType, isMultiline])
+
+  // Initial height handoff - prevent first-frame jump by setting height before paint
+  React.useLayoutEffect(() => {
+    if (!isEditing || !isMultiline) return
+    const el = textareaRef.current
+    if (!el) return
+
+    // Apply seed height ONLY if we have a measurement from display mode
+    // This gates seed height to the display → edit transition scenario
+    const initial = measuredDisplayHeightRef.current
+    if (initial && initial > 0) {
+      el.style.height = `${initial}px`  // Seed ONCE
+      measuredDisplayHeightRef.current = null  // Clear immediately - makes "seed only once" guarantee mechanical
+    }
+    autosizeTextarea(el)  // Then autosize (may micro-adjust, but happens before paint)
+
+    // Double-check after paint to catch any Safari quirks
+    requestAnimationFrame(() => {
+      const el2 = textareaRef.current
+      if (el2) autosizeTextarea(el2)
+    })
+  }, [isEditing, isMultiline, autosizeTextarea])
+
+  // Auto-resize on value changes - pure autosize, NO seed height reapplied
+  React.useLayoutEffect(() => {
+    if (!isEditing || !isMultiline) return
+    const el = textareaRef.current
+    if (!el) return
+    // Only autosize - don't reapply seed height
+    autosizeTextarea(el)
+  }, [tempValue, isEditing, isMultiline, autosizeTextarea])
+
+  // Cleanup on exit - defensive cleanup
+  React.useEffect(() => {
+    if (!isEditing) measuredDisplayHeightRef.current = null
+  }, [isEditing])
 
   const handleSave = () => {
     let valueToSave = tempValue
@@ -251,9 +305,9 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     const linkifyText = (text: string): React.ReactNode[] => {
       if (!text) return []
       
-      // URL regex pattern: matches http://, https://, www., and domain patterns
+      // URL regex pattern: only matches explicit URLs starting with https://, http://, or www.
       // Also handles URLs that may be followed by punctuation
-      const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+[^\s]*)/gi
+      const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi
       
       const parts: React.ReactNode[] = []
       let lastIndex = 0
@@ -272,11 +326,9 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
         // But keep punctuation that's commonly part of URLs (/, ?, &, =, etc.)
         url = url.replace(/[.,;:!?]+$/, '')
         
-        // Ensure www. URLs have http:// prefix
+        // Ensure www. URLs have https:// prefix
         let href = url
         if (url.startsWith('www.')) {
-          href = `https://${url}`
-        } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
           href = `https://${url}`
         }
         
@@ -324,6 +376,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
           <div className="flex flex-col">
             <Textarea
               ref={textareaRef}
+              rows={1}
               value={tempValue}
               onChange={(e) => {
                 const newValue = e.target.value
@@ -333,27 +386,42 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
                 }
               }}
               onPaste={(e) => {
-                if (preventNewLines) {
-                  const pastedText = e.clipboardData.getData('text')
-                  // Only prevent default if there are newlines to clean
-                  if (/\r?\n/.test(pastedText)) {
-                    e.preventDefault()
-                    const cleanedText = pastedText.replace(/\r?\n/g, '')
-                    
-                    // Get selection to handle overwrite vs append
-                    const textarea = e.currentTarget
-                    const start = textarea.selectionStart
-                    const end = textarea.selectionEnd
-                    const newValue = tempValue.substring(0, start) + cleanedText + tempValue.substring(end)
-                    setTempValue(newValue)
-                    
-                    // Move cursor to end of pasted content
-                    setTimeout(() => {
-                      textarea.selectionStart = textarea.selectionEnd = start + cleanedText.length
-                    }, 0)
-                  }
-                  // If no newlines, let native paste happen to preserve undo
+                const pastedText = e.clipboardData.getData('text')
+                const textarea = e.currentTarget
+                const start = textarea.selectionStart
+                const end = textarea.selectionEnd
+                
+                // Calculate what the new value would be
+                const beforeSelection = tempValue.substring(0, start)
+                const afterSelection = tempValue.substring(end)
+                let processedText = pastedText
+                
+                // Handle preventNewLines
+                if (preventNewLines && /\r?\n/.test(pastedText)) {
+                  processedText = pastedText.replace(/\r?\n/g, '')
                 }
+                
+                // Handle maxLength - truncate if needed
+                if (props.maxLength) {
+                  const currentLength = beforeSelection.length + afterSelection.length
+                  const availableLength = props.maxLength - currentLength
+                  if (availableLength < processedText.length) {
+                    processedText = processedText.substring(0, Math.max(0, availableLength))
+                  }
+                }
+                
+                // Only prevent default if we modified the text
+                if (processedText !== pastedText) {
+                  e.preventDefault()
+                  const newValue = beforeSelection + processedText + afterSelection
+                  setTempValue(newValue)
+                  
+                  // Move cursor to end of pasted content
+                  setTimeout(() => {
+                    textarea.selectionStart = textarea.selectionEnd = start + processedText.length
+                  }, 0)
+                }
+                // If no modifications needed, let native paste happen to preserve undo
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Tab' && props.type === 'text' && props.onTab) {
@@ -379,10 +447,10 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
               style={{
                 ...(props.style || {}),
                 overflowWrap: 'break-word',
-                wordBreak: 'break-word'
+                wordBreak: 'break-word',
               }}
               className={cn(
-                "resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-1 py-1 rounded-sm !min-h-0",
+                "resize-none overflow-hidden box-border border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-1 py-1 rounded-sm !min-h-0",
                 props.textClass || "text-sm-regular",
                 props.className
               )}
@@ -414,6 +482,34 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
               ref={inputRef}
               value={tempValue}
               onChange={handleNumericChange}
+              onPaste={(e) => {
+                // Enforce maxLength on paste for single-line input
+                if (props.maxLength) {
+                  const pastedText = e.clipboardData.getData('text')
+                  const input = e.currentTarget
+                  const start = input.selectionStart || 0
+                  const end = input.selectionEnd || 0
+                  
+                  // Calculate what the new value would be
+                  const beforeSelection = tempValue.substring(0, start)
+                  const afterSelection = tempValue.substring(end)
+                  const currentLength = beforeSelection.length + afterSelection.length
+                  const availableLength = props.maxLength - currentLength
+                  
+                  if (availableLength < pastedText.length) {
+                    e.preventDefault()
+                    const truncatedText = pastedText.substring(0, Math.max(0, availableLength))
+                    const newValue = beforeSelection + truncatedText + afterSelection
+                    setTempValue(newValue)
+                    
+                    // Move cursor to end of pasted content
+                    setTimeout(() => {
+                      input.selectionStart = input.selectionEnd = start + truncatedText.length
+                    }, 0)
+                  }
+                  // If within limit, let native paste happen to preserve undo
+                }
+              }}
               onKeyDown={handleKeyDown}
               onBlur={handleSave}
               placeholder={props.editingPlaceholder || props.placeholder}
@@ -462,6 +558,7 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
     return (
       <div className="flex flex-col">
         <div
+          ref={displayDivRef}
           className={cn(
             "py-1 px-1 rounded-sm transition-colors duration-75",
             props.textClass || "text-sm-regular",
@@ -476,7 +573,11 @@ export const InlineEdit = React.forwardRef<InlineEditRef, InlineEditProps>((prop
             ...(multiline ? { overflowWrap: 'break-word', wordBreak: 'break-word' } : {}),
             ...(props.style || {})
           }}
-          onClick={() => !props.nonInteractive && setIsEditing(true)}
+          onClick={() => {
+            if (props.nonInteractive) return
+            measureDisplayHeight()
+            setIsEditing(true)
+          }}
         >
           {renderedContent}
         </div>

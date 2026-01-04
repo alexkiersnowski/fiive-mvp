@@ -59,6 +59,11 @@ export type Task = {
   } | null
 }
 
+// Task with optional UI identifier for optimistic updates
+export type TaskWithUiId = Task & {
+  _uiId?: string
+}
+
 export type TasksSnapshot = {
   tasks: Task[];
   total: number;

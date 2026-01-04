@@ -168,9 +168,16 @@ export function useTaskDragDrop({
       document.body.style.userSelect = 'none'
       document.body.style.cursor = 'grabbing'
       
+      // Prevent Safari selectstart (may have been added in handleMouseDown)
+      const preventSelectStart = (e: Event) => {
+        e.preventDefault()
+      }
+      document.addEventListener('selectstart', preventSelectStart, { passive: false })
+      
       return () => {
         document.removeEventListener('mousemove', handleMouseMove)
         document.removeEventListener('mouseup', handleMouseUp)
+        document.removeEventListener('selectstart', preventSelectStart)
         document.body.style.userSelect = ''
         document.body.style.cursor = ''
       }

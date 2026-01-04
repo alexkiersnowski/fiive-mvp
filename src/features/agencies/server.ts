@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { AgenciesSnapshot, Agency, AgenciesPaginationOptions } from './types';
+import { getLiveProjectCountsForAgencies } from '@/features/home/server';
 
 // Helper functions for cursor-based pagination
 function encodeCursor(index: number): string {
@@ -186,9 +187,19 @@ export const getAgenciesSnapshot = cache(async (
     };
   });
 
+  // Fetch project counts for all connections
+  const connectionIds = allAgencies.map(agency => agency.connectionId);
+  const projectCounts = await getLiveProjectCountsForAgencies(context, connectionIds);
+
+  // Add project counts to agencies
+  const agenciesWithProjectCounts = allAgencies.map(agency => ({
+    ...agency,
+    projectCount: projectCounts[agency.connectionId] || 0
+  }));
+
   // Apply search filter in memory (only when using server-side search)
   // When useClientSideFiltering is true, return all data and let client handle filtering
-  let filteredAgencies = allAgencies;
+  let filteredAgencies = agenciesWithProjectCounts;
   
   if (!useClientSideFiltering && search.trim()) {
     const query = search.toLowerCase().trim();
@@ -196,7 +207,7 @@ export const getAgenciesSnapshot = cache(async (
     // Pre-compute search terms for better performance
     const searchTerms = query.split(' ').filter(term => term.length > 0);
     
-    filteredAgencies = allAgencies.filter(agency => {
+    filteredAgencies = agenciesWithProjectCounts.filter(agency => {
       if (searchTerms.length === 0) return true;
       
       // Create searchable text for the crucial fields: Agency name, Industry, Status, Account Manager

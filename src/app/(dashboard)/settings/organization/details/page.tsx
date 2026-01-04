@@ -108,12 +108,10 @@ export default async function OrganizationDetailsPage() {
   // Can delete workspace only if:
   // 1. No real connections exist (only internal or no connections)
   // 2. billing_status is 'free'
-  // 3. No Stripe customer ID exists (no billing footprint)
-  // 4. No Stripe subscription ID exists (extra safety check)
+  // 3. No Stripe subscription ID exists (indicates actual subscription was created)
   const canDeleteWorkspace = 
     !hasRealConnectionsResult && 
     organization.billing_status === 'free' &&
-    !organization.stripeCustomerId &&
     !organization.stripeSubscriptionId
 
   return (

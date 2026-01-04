@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getActiveContext } from '@/lib/mode/getActiveContext'
+import { revalidatePath } from 'next/cache'
 import { isDev } from '../constants'
 import { parse, format } from 'date-fns'
 
@@ -109,6 +110,12 @@ export async function createProject(
   if (isDev()) {
     console.log('Project created successfully:', data);
   }
+  
+  // Revalidate affected pages
+  revalidatePath('/home')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -133,6 +140,15 @@ export async function updateProjectStatus(
   projectId: string, 
   status: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
 ) {
+  // Assertion: catch tempId leaks
+  if (projectId.startsWith('temp-')) {
+    if (isDev()) {
+      console.error('[updateProjectStatus] TEMPID LEAK DETECTED:', { projectId, status })
+      console.error('[updateProjectStatus] Stack trace:', new Error().stack)
+    }
+    throw new Error('Invalid project ID: tempId passed to updateProjectStatus')
+  }
+  
   const supabase = await createClient();
   
   if (isDev()) {
@@ -159,6 +175,13 @@ export async function updateProjectStatus(
   if (isDev()) {
     console.log('Project status updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = (data as { connection_id: string }).connection_id
+  revalidatePath('/home')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -192,6 +215,13 @@ export async function updateProjectTitle(projectId: string, title: string) {
   if (isDev()) {
     console.log('Project title updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = (data as { connection_id: string }).connection_id
+  revalidatePath('/home')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -225,6 +255,13 @@ export async function updateProjectDescription(projectId: string, description: s
   if (isDev()) {
     console.log('Project description updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = (data as { connection_id: string }).connection_id
+  revalidatePath('/home')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -261,6 +298,13 @@ export async function updateProjectStartDate(projectId: string, startDate: strin
   if (isDev()) {
     console.log('Project start date updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = (data as { connection_id: string }).connection_id
+  revalidatePath('/home')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -297,6 +341,13 @@ export async function updateProjectEndDate(projectId: string, endDate: string | 
   if (isDev()) {
     console.log('Project end date updated successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = (data as { connection_id: string }).connection_id
+  revalidatePath('/home')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 
@@ -443,6 +494,13 @@ export async function deleteProject(projectId: string) {
   if (isDev()) {
     console.log('Project deleted successfully:', data);
   }
+  
+  // Revalidate affected pages
+  const connectionId = (data as { connection_id: string }).connection_id
+  revalidatePath('/home')
+  revalidatePath(`/clients/${connectionId}/overview`)
+  revalidatePath(`/agencies/${connectionId}/overview`)
+  
   return data;
 }
 

@@ -2,7 +2,7 @@
 
 import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalRequestRow } from './GlobalRequestRow'
-import type { Request } from './types'
+import type { Request, RequestWithUiId } from './types'
 import type { RequestStatus } from './requestGrouping'
 import type { InlineEditRef } from '@/components/ui/inline-edit'
 
@@ -111,7 +111,7 @@ export function ClientBlock({
       {/* Requests - rendered directly when expanded (NOT virtualized) */}
       {isExpanded && requests.map((request) => (
         <GlobalRequestRow
-          key={request.id}
+          key={(request as RequestWithUiId)._uiId ?? request.id}
           request={request}
           isAgency={isAgency}
           comboboxOptions={comboboxOptions}

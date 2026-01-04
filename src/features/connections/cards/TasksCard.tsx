@@ -23,7 +23,8 @@ interface TasksCardProps {
 
 async function defaultFetchTasks(connectionId: string) {
   const { tasks } = await getTasksForConnection(connectionId, { limit: 5, offset: 0, sortBy: 'updated_at' });
-  return tasks;
+  // Exclude 'done' tasks - focus on actionable items
+  return tasks.filter(task => task.status !== 'done');
 }
 
 type PrefetchedComment = {

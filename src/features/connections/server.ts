@@ -522,6 +522,11 @@ export interface Request {
   createdByOrgType?: 'agency' | 'client'
 }
 
+// Request with optional UI identifier for optimistic updates
+export type RequestWithUiId = Request & {
+  _uiId?: string
+}
+
 export interface RecentRequestSummary {
   id: string
   title: string
@@ -594,6 +599,11 @@ export interface Task {
     createdByUserId?: string
     createdByName?: string
   } | null
+}
+
+// Task with optional UI identifier for optimistic updates
+export type TaskWithUiId = Task & {
+  _uiId?: string
 }
 
 // Cache connection info separately to avoid duplicate fetches
@@ -1017,13 +1027,18 @@ export const getRecentRequestsForConnection = cache(async (
     return [];
   }
 
+  // Fetch more items than needed to ensure we capture enough 'new' status items
+  // Sorting by status priority will happen in RequestsCard component
+  const fetchLimit = Math.max(safeLimit * 3, 20);
+
   const { data, error } = await supabase
     .from('requests')
     .select('id, title, created_at')
     .eq('connection_id', connectionId)
     .is('deleted_at', null)
+    .in('status', ['new', 'in_review', 'accepted'])
     .order('created_at', { ascending: false })
-    .limit(safeLimit);
+    .limit(fetchLimit);
 
   if (error || !data) {
     if (process.env.NODE_ENV !== 'production') {

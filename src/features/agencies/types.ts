@@ -13,6 +13,7 @@ export type Agency = {
     email?: string
     jobTitle?: string
   }
+  projectCount?: number
 }
 
 export type AgenciesSnapshot = {

@@ -16,7 +16,7 @@ import { NewRequestModal } from '../requests/NewRequestModal';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal';
 import { convertRequestToTask } from '../tasks/actions';
 import { deleteRequest } from '../requests/actions';
-import type { Request } from '../server';
+import type { Request, RequestWithUiId } from '../server';
 
 type PrefetchedComment = {
   id: string;
@@ -558,13 +558,30 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
     projectId: string | null;
     projectName?: string | null;
     assigneeUserId: string | null;
+    assignee?: {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl?: string;
+    } | null;
   }) => {
     const isoNow = new Date().toISOString();
     const displayDate = formatRequestDate(isoNow) || isoNow;
 
-    const assigneeMember = payload.assigneeUserId
-      ? snapshot.agencyMembers?.find((member) => member.id === payload.assigneeUserId)
-      : undefined;
+    // Prefer assignee from payload if provided, otherwise look it up from assigneeUserId
+    const assignee = payload.assignee || (payload.assigneeUserId
+      ? (() => {
+          const assigneeMember = snapshot.agencyMembers?.find((member) => member.id === payload.assigneeUserId);
+          return assigneeMember
+            ? {
+                id: assigneeMember.id,
+                name: `${assigneeMember.firstName} ${assigneeMember.lastName}`,
+                email: assigneeMember.email,
+                avatarUrl: assigneeMember.avatarUrl,
+              }
+            : null;
+        })()
+      : null);
 
     const optimisticEntry: PrefetchedRequest = {
       id: payload.tempId,
@@ -590,14 +607,7 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
           email: context.user.email,
           avatarUrl: context.user.avatarUrl,
         },
-        assignee: assigneeMember
-          ? {
-              id: assigneeMember.id,
-              name: `${assigneeMember.firstName} ${assigneeMember.lastName}`,
-              email: assigneeMember.email,
-              avatarUrl: assigneeMember.avatarUrl,
-            }
-          : null,
+        assignee,
         project: payload.projectId && payload.projectName
           ? { id: payload.projectId, name: payload.projectName }
           : null,
@@ -725,7 +735,7 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
         <div className="flex flex-col gap-3 mt-1">
           {prefetchedRequests.map((request) => (
             <ListRow
-              key={request.id}
+              key={(request as unknown as RequestWithUiId)._uiId ?? request.id}
               iconStart={
                 <ChatCentered
                   size={16}

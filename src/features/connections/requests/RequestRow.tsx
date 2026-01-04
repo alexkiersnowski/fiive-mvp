@@ -113,6 +113,13 @@ function RequestRowComponent({
       return
     }
     
+    // Prevent Safari text selection immediately (Safari-specific, Chrome ignores this)
+    // We'll clean this up in the drag hook's useEffect
+    const preventSelectStart = (e: Event) => {
+      e.preventDefault()
+    }
+    document.addEventListener('selectstart', preventSelectStart, { passive: false })
+    
     onDragStart(request.id, e)
   }
 

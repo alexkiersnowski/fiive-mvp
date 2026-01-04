@@ -5,8 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { RequestDetailContent } from './RequestDetailContent'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash, LockSimple } from '@phosphor-icons/react'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { X, ArrowsOutSimple, DotsThree, FlowArrow, LinkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useConnection } from '../ConnectionContext'
 import type { Request } from '../server'
@@ -128,17 +127,13 @@ export function RequestDetailModal({
   const isDisconnected = propIsDisconnected !== undefined ? propIsDisconnected : connectionContext.isDisconnected
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
   
-  // Determine if the request is locked for editing based on view context and organization type
-  // Agency view: locked if created by client
-  // Client view: locked if created by agency
-  const isLocked = (() => {
-    if (!requestData?.createdByOrgType) return false
-    if (variant === 'agency') {
-      return requestData.createdByOrgType === 'client'
-    } else {
-      return requestData.createdByOrgType === 'agency'
-    }
-  })()
+  // Determine if this is a client-submitted request
+  const isClientSubmitted = requestData?.createdByOrgType === 'client'
+  
+  // Calculate canDelete permission (same logic as RequestDetailContent)
+  const canClientDelete = variant === 'client' && isClientSubmitted && requestData?.status === 'new'
+  const canAgencyDelete = variant === 'agency' && !isClientSubmitted && !isDisconnected
+  const canDelete = variant === 'client' ? canClientDelete : canAgencyDelete
   
   // Determine dialog title based on organization type that created the request
   const getDialogTitle = () => {
@@ -208,27 +203,6 @@ export function RequestDetailModal({
             <DialogTitle className="!text-[12px] !leading-[20px] !font-normal !tracking-[0.0025rem] !text-[var(--color-base-text-tertiary)]">
               {getDialogTitle()}
             </DialogTitle>
-            {isLocked && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center justify-center">
-                    <LockSimple 
-                      size={12} 
-                      weight="fill"
-                      style={{ color: 'var(--color-base-text-tertiary)' }}
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="center" sideOffset={8}>
-                  <div className="text-xs text-center">
-                    {variant === 'client' 
-                      ? 'Created on your behalf. View and comment only.'
-                      : 'You can update status and assignee only'
-                    }
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            )}
           </div>
           <div className="flex gap-0">
             <DropdownMenu modal={false} open={isActionsDropdownOpen} onOpenChange={setIsActionsDropdownOpen}>
@@ -267,7 +241,7 @@ export function RequestDetailModal({
                   <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                   Copy link
                 </DropdownMenuItem>
-                {!isDisconnected && !isLocked && (
+                {canDelete && (
                   <>
                     <div className="border-t border-[var(--color-neutral-6)] my-1" />
                     <DropdownMenuItem 

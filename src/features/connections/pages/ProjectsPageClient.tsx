@@ -11,6 +11,8 @@ import type { Project, Comment } from '../server';
 import { fetchProjectsForConnection, fetchProjectById, fetchCommentsForProject, fetchCommentsForProjects } from '../projects/actions';
 import { isDev } from '../constants';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import { registerProjectRealIdMapping, getProjectLatestDraft, finalizeProject } from '../utils/optimisticTracker';
+import { mergeDraftIntoProject } from '../projects/utils';
 
 interface ProjectsPageClientProps {
   connectionId: string
@@ -460,13 +462,45 @@ export default function ProjectsPageClient({ connectionId, initialProjects, init
 
   async function handleProjectCreated({ projectId, tempId }: { projectId: string; tempId?: string }) {
     try {
-      const proj = await fetchProjectById(connectionId, projectId)
+      let proj = await fetchProjectById(connectionId, projectId)
       if (!proj) return
+      
+      // Register realId mapping for optimistic updates (if tempId exists)
+      if (tempId) {
+        registerProjectRealIdMapping(tempId, projectId)
+        
+        // Merge optimistic draft state into fetched project before replacement
+        // This prevents status from reverting to initial values
+        const draft = getProjectLatestDraft(tempId)
+        if (draft && Object.keys(draft).length > 0) {
+          proj = mergeDraftIntoProject(proj, draft)
+        }
+      }
+      
       // Replace temp row if present; otherwise prepend and increment count
       setAllProjects(prev => {
         const without = prev.filter(p => p.id !== tempId && p.id !== proj.id)
         return [proj, ...without]
       })
+      
+      // Swap modal's project ID if modal is open with tempId
+      if (tempId) {
+        setSelectedProject(prev => {
+          if (prev && prev.projectId === tempId) {
+            return {
+              ...prev,
+              projectId: projectId
+            }
+          }
+          return prev
+        })
+      }
+      
+      // Finalize after both replacement and modal swap complete
+      if (tempId) {
+        finalizeProject(tempId)
+      }
+      
       // If no temp was present, bump the count; if temp existed, count already included
       if (!tempId) {
         setUnfilteredTotalCount(c => c + 1)

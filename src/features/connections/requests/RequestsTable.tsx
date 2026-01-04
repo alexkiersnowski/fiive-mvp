@@ -11,7 +11,8 @@ import type { InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, Eye, Users } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateRequestAssignee, updateRequestStatus, deleteRequest, fetchProjectsForConnection } from './actions'
+import { updateRequest, deleteRequest, fetchProjectsForConnection } from './actions'
+import { isOptimisticId, updateRequestLatestDraft, scheduleRequestFlush } from '../utils/optimisticTracker'
 import { groupRequestsByStatus, sortRequestsForDisplay, type RequestStatus } from './requestSort'
 import type { Request } from '../server'
 import { useConnection } from '../ConnectionContext'
@@ -147,11 +148,21 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
         onRequestUpdate(requestId, { assignee: newAssignee })
       }
       
+      // Handle optimistic IDs
+      if (isOptimisticId(requestId)) {
+        // Track draft state and schedule flush
+        updateRequestLatestDraft(requestId, { assignee_user_id: memberId })
+        scheduleRequestFlush(requestId, async (realId, draft) => {
+          await updateRequest(realId, draft)
+        })
+        return // Success - no error, no await
+      }
+      
       // Set loading guard
       isMutingAssignee.current = true
       
       try {
-        await updateRequestAssignee(requestId, memberId)
+        await updateRequest(requestId, { assignee_user_id: memberId })
         toast.success(`Assigned to ${selectedMember.firstName} ${selectedMember.lastName}`)
         // Real-time subscription will handle UI updates
       } catch (error) {
@@ -182,11 +193,21 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       onRequestUpdate(requestId, { assignee: null })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { assignee_user_id: null })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
     // Set loading guard
     isMutingAssignee.current = true
     
     try {
-      await updateRequestAssignee(requestId, null)
+      await updateRequest(requestId, { assignee_user_id: null })
       toast.success('Assignee removed')
       // Real-time subscription will handle UI updates
     } catch (error) {
@@ -238,8 +259,18 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
       onRequestUpdate(requestId, { status: typedStatus })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { status: typedStatus })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
     try {
-      await updateRequestStatus(requestId, typedStatus)
+      await updateRequest(requestId, { status: typedStatus })
       
       // Check if this update was aborted before processing
       if (abortController.signal.aborted) {

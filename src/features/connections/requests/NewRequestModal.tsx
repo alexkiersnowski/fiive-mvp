@@ -8,6 +8,7 @@ import { ListRow } from '@/components/ui/list-row'
 import { X, Users, BuildingOffice } from '@phosphor-icons/react'
 import { createRequest, fetchProjectsForConnection } from './actions'
 import { toast } from 'sonner'
+import { registerRequestPendingCreate } from '../utils/optimisticTracker'
 
 interface NewRequestModalProps {
   client?: {
@@ -38,6 +39,12 @@ interface NewRequestModalProps {
     projectId: string | null
     projectName?: string | null
     assigneeUserId: string | null
+    assignee?: {
+      id: string
+      name: string
+      email: string
+      avatarUrl?: string
+    } | null
     connectionId: string
   }) => void
   onRequestCreated?: (payload: { requestId: string; tempId?: string; connectionId?: string }) => void
@@ -165,6 +172,15 @@ export function NewRequestModal({
     const selectedProject = projectId === 'general' ? null : projects.find(p => p.id === projectId)
     const projectName = selectedProject ? selectedProject.name : null
     
+    // Look up assignee details from agencyMembers list
+    const assigneeMember = assigneeUserId ? agencyMembers.find(m => m.id === assigneeUserId) : null
+    const assigneeData = assigneeMember ? {
+      id: assigneeMember.id,
+      name: `${assigneeMember.firstName} ${assigneeMember.lastName}`,
+      email: assigneeMember.email,
+      avatarUrl: assigneeMember.avatarUrl
+    } : null
+    
     // Emit optimistic row FIRST (before closing modal) - this ensures state updates happen before modal cleanup
     const tempId = `temp-${Date.now()}`
     onRequestOptimistic?.({
@@ -174,6 +190,7 @@ export function NewRequestModal({
       projectId: projectId === 'general' ? null : projectId,
       projectName,
       assigneeUserId,
+      assignee: assigneeData,
       connectionId: targetConnectionId
     })
     
@@ -181,13 +198,18 @@ export function NewRequestModal({
     onClose()
 
     // Fire server action concurrently (void prevents promise leak warnings)
-    void createRequest(
+    const createPromise = createRequest(
       targetConnectionId,
       title,
       description,
       projectId === 'general' ? null : projectId,
       assigneeUserId
     )
+    
+    // Register pending create for optimistic updates
+    registerRequestPendingCreate(tempId, createPromise.then(r => r.id))
+    
+    void createPromise
       .then((created) => {
         if (!isMountedRef.current) return // Guard against unmounted updates
         
@@ -196,8 +218,8 @@ export function NewRequestModal({
           if (process.env.NODE_ENV !== 'production') {
             console.log(`[Request] Created: tempId=${tempId} → requestId=${created.id}`)
           }
-          toast.success('Request created successfully')
           // Notify parent with the created id so it can fetch and prepend the row
+          // Parent will show toast after successfully fetching the request
           onRequestCreated?.({ requestId: created.id, tempId, connectionId: targetConnectionId })
         }
       })
@@ -207,7 +229,7 @@ export function NewRequestModal({
         console.error('Error creating request:', error)
         toast.error('Failed to create request')
       })
-  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, onRequestCreated, onRequestOptimistic, onClose, allowedConnectionIds, onPaywallBlocked])
+  }, [canCreate, isGlobal, selectedConnectionId, connectionId, title, description, projectId, assigneeUserId, projects, agencyMembers, onRequestCreated, onRequestOptimistic, onClose, allowedConnectionIds, onPaywallBlocked])
   
   // Keyboard shortcut: Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -310,6 +332,7 @@ export function NewRequestModal({
                 className="text-md-regular"
                 multiline={true}
                 preventNewLines={false}
+                maxLength={10000}
               />
             </div>
 

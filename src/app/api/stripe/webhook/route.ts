@@ -9,7 +9,7 @@ import { headers } from 'next/headers'
 import Stripe from 'stripe'
 import { getStripeInstance, mapSubscriptionStatusToBillingStatus } from '@/lib/stripe/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { resetStripeFields } from '@/lib/stripe/helpers'
+import { resetStripeFields, resetSubscriptionFields } from '@/lib/stripe/helpers'
 
 export async function POST(request: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -342,12 +342,13 @@ export async function POST(request: NextRequest) {
           .single()
         
         if (!findError && org) {
-          // Use centralized reset helper to reset all Stripe fields
+          // Reset subscription fields only - keep customer_id since customer still exists in Stripe
+          // This enables resubscription and prevents duplicate customers
           try {
-            await resetStripeFields(org.id)
+            await resetSubscriptionFields(org.id)
           } catch (resetError) {
             return NextResponse.json(
-              { error: 'Failed to reset Stripe fields after subscription deletion', details: resetError instanceof Error ? resetError.message : String(resetError) },
+              { error: 'Failed to reset subscription fields after subscription deletion', details: resetError instanceof Error ? resetError.message : String(resetError) },
               { status: 500 }
             )
           }
@@ -367,7 +368,8 @@ export async function POST(request: NextRequest) {
           .single()
         
         if (!findError && org) {
-          // Use centralized reset helper to reset all Stripe fields
+          // Customer is deleted in Stripe - reset ALL fields including customer_id
+          // Use full reset since customer no longer exists
           try {
             await resetStripeFields(org.id)
           } catch (resetError) {

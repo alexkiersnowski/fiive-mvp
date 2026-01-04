@@ -8,6 +8,7 @@ import { ListRow } from '@/components/ui/list-row'
 import { X, Users, BuildingOffice } from '@phosphor-icons/react'
 import { createTask, fetchProjectsForConnection, fetchMembersForConnection } from './actions'
 import { toast } from 'sonner'
+import { registerPendingCreate } from '../utils/optimisticTracker'
 
 interface NewTaskModalProps {
   client?: {
@@ -252,13 +253,18 @@ export function NewTaskModal({
     })
 
     // Fire server action concurrently (void prevents promise leak warnings)
-    void createTask(
+    const createPromise = createTask(
       targetConnectionId,
       title,
       description,
       !projectId || projectId === '' ? null : projectId,
       assigneeUserId
     )
+    
+    // Register pending create for optimistic updates
+    registerPendingCreate(tempId, createPromise.then(r => r.id))
+    
+    void createPromise
       .then((created) => {
         if (created?.id) {
           // Log temp → real ID mapping for debugging
@@ -374,6 +380,7 @@ export function NewTaskModal({
                 className="text-md-regular"
                 multiline={true}
                 preventNewLines={false}
+                maxLength={10000}
               />
             </div>
 
@@ -421,6 +428,7 @@ export function NewTaskModal({
                     options={projects.map(p => ({ value: p.id, label: p.name }))}
                     onSave={setProjectId}
                     placeholder="Add project"
+                    searchable={true}
                     searchPlaceholder="Search projects…"
                     clearable={!!projectId}
                     popoverWidth="240px"

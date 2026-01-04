@@ -9,6 +9,7 @@ import { X } from '@phosphor-icons/react'
 import { createProject } from './actions'
 import { toast } from 'sonner'
 import { parse, format } from 'date-fns'
+import { registerProjectPendingCreate } from '../utils/optimisticTracker'
 
 interface NewProjectModalProps {
   client: {
@@ -133,8 +134,8 @@ export function NewProjectModal({ client, agencyMembers: _agencyMembers = [], is
     const parsedStartDate = parseDate(startDate)
     const parsedEndDate = parseDate(endDate)
 
-    // Fire server action concurrently (void prevents promise leak warnings)
-    void createProject(
+    // Fire server action concurrently
+    const createPromise = createProject(
       connectionId,
       title,
       description,
@@ -143,6 +144,11 @@ export function NewProjectModal({ client, agencyMembers: _agencyMembers = [], is
       parsedStartDate,
       parsedEndDate
     )
+    
+    // Register pending create for optimistic updates
+    registerProjectPendingCreate(tempId, createPromise.then(p => p.id))
+    
+    createPromise
       .then((created) => {
         if (!isMountedRef.current) return // Guard against unmounted updates
         
@@ -239,6 +245,7 @@ export function NewProjectModal({ client, agencyMembers: _agencyMembers = [], is
                 className="text-md-regular"
                 multiline={true}
                 preventNewLines={false}
+                maxLength={10000}
               />
             </div>
 

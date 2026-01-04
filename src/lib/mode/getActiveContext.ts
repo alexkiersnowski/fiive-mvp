@@ -101,7 +101,7 @@ export const getActiveContext = cache(async (): Promise<EnhancedModeContext | nu
                               profileError?.message?.includes('multiple (or no) rows returned');
       
       if (profileError && !isNotFoundError) {
-        console.error('Profile fetch failed:', profileError);
+      console.error('Profile fetch failed:', profileError);
       }
       return null;
     }

@@ -13,6 +13,7 @@ import { fetchTasksForConnection, fetchTaskById, fetchCommentsForTasks } from '.
 import { sortTasksWithPinnedFirst } from '../tasks/taskSort';
 import { sortMembersWithActiveFirst, type MemberSummary } from '../utils/memberSorting';
 import { PAGE_SIZE, isDev } from '../constants';
+import { registerRealIdMapping, finalize, getLatestDraft, type TaskDraft } from '../utils/optimisticTracker';
 // PREFETCH_TIMEOUT_MS imported but not used - kept for potential future use
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
@@ -968,7 +969,8 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
       createdByOrgId: context.organization.id,
       clientVisible: isClientAssignee,
       clientVisibilityLocked: isClientAssignee,
-    }
+      _uiId: payload.tempId, // Stable UI identity for React keys (prevents remount on temp→real swap)
+    } as Task & { _uiId: string }
 
     setAllTasks(prev => sortTasksWithMode([optimisticRow, ...prev]))
     setUnfilteredTotalCount(c => c + 1)
@@ -989,14 +991,95 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
     registerPinnedTask(payload.tempId)
   }, [connectionId, context.user, context.organization, snapshot.partner, sortTasksWithMode, sortedMembers, registerPinnedTask])
 
+  // Helper to merge draft state into fetched task (only patchable fields)
+  const mergeDraftIntoTask = useCallback((task: Task, draft: TaskDraft): Task => {
+    const merged = { ...task }
+    
+    // Only merge known patchable fields (don't override server timestamps, etc.)
+    if (draft.status !== undefined) {
+      merged.status = draft.status as Task['status']
+    }
+    
+    if (draft.title !== undefined) {
+      merged.title = draft.title
+    }
+    
+    if (draft.description !== undefined) {
+      merged.description = draft.description
+    }
+    
+    if (draft.client_visible !== undefined) {
+      merged.clientVisible = draft.client_visible
+    }
+    
+    // assignee_user_id → assignee object
+    // Note: We preserve the optimistic assignee object if it exists in the current task
+    // The assignee object structure is maintained by optimistic updates
+    if (draft.assignee_user_id !== undefined) {
+      if (draft.assignee_user_id === null) {
+        merged.assignee = null
+      }
+      // If assignee_user_id is set but assignee object doesn't match, 
+      // we'll let realtime update handle the full object fetch
+      // For MVP, preserve existing assignee structure if ID matches
+    }
+    
+    // project_id → project object
+    if (draft.project_id !== undefined) {
+      if (draft.project_id === null) {
+        merged.project = null
+      } else {
+        // Keep existing project if ID matches, otherwise preserve optimistic project
+        if (merged.project?.id !== draft.project_id) {
+          // Project changed - preserve optimistic project if available, otherwise null
+          merged.project = merged.project || null
+        }
+      }
+    }
+    
+    // due_date → dueDate/dueDateRaw
+    if (draft.due_date !== undefined) {
+      if (draft.due_date === null) {
+        merged.dueDate = null
+        merged.dueDateRaw = null
+      } else {
+        // Parse ISO date to display format
+        const date = new Date(draft.due_date)
+        if (!isNaN(date.getTime())) {
+          merged.dueDateRaw = draft.due_date
+          // Format display date (reuse existing formatter if available)
+          const day = date.getDate()
+          const month = date.toLocaleDateString('en-US', { month: 'short' })
+          const year = date.getFullYear()
+          merged.dueDate = `${day} ${month} ${year}`
+        }
+      }
+    }
+    
+    return merged
+  }, [])
+
   async function handleTaskCreated({ taskId, tempId, connectionId: providedConnectionId }: { taskId: string; tempId?: string; connectionId: string }) {
     // Use provided connectionId (captured before modal closed) to avoid race condition
     // Fallback to connectionId from props if not provided (backward compatibility)
     const targetConnectionId = providedConnectionId || connectionId
     
     try {
-      const task = await fetchTaskById(targetConnectionId, taskId)
+      let task = await fetchTaskById(targetConnectionId, taskId)
       if (!task) return
+      
+      // Register realId mapping for optimistic updates (if tempId exists)
+      if (tempId) {
+        registerRealIdMapping(tempId, taskId)
+        
+        // Merge optimistic draft state into fetched task before replacement
+        // This prevents status/assignee from reverting to initial values
+        const draft = getLatestDraft(tempId)
+        if (draft && Object.keys(draft).length > 0) {
+          task = mergeDraftIntoTask(task, draft)
+        }
+      }
+      
       // Replace temp row if present; otherwise prepend and increment count
       setAllTasks(prev => {
         const _hadTemp = tempId ? prev.some(r => r.id === tempId) : false
@@ -1005,13 +1088,35 @@ export default function TasksPageClient({ connectionId, initialTasks, initialTot
         if (tempId) {
           pinnedTaskIdsRef.current.delete(tempId)
         }
-        const nextTask = pinnedSource ? { ...task, isPinned: true } : task
+        // Preserve _uiId from optimistic task to maintain stable React key
+        const nextTask = pinnedSource 
+          ? { ...task, isPinned: true, _uiId: tempId || task.id } 
+          : { ...task, _uiId: tempId || task.id }
         if (pinnedSource) {
           pinnedTaskIdsRef.current.add(task.id)
         }
         const next = sortTasksWithMode([nextTask, ...without])
         return next
       })
+      
+      // Swap modal's task ID if modal is open with tempId (using functional update to avoid stale closure)
+      if (tempId) {
+        setSelectedTask(prev => {
+          if (prev && prev.taskId === tempId) {
+            return {
+              ...prev,
+              taskId: taskId
+            }
+          }
+          return prev
+        })
+      }
+      
+      // Finalize after both replacement and modal swap complete
+      if (tempId) {
+        finalize(tempId)
+      }
+      
       // If no temp was present, bump the count; if temp existed, count already included
       if (!tempId) {
         setUnfilteredTotalCount(c => c + 1)

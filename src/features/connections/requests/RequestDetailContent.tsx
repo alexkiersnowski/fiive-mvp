@@ -16,8 +16,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { CommentInput } from '@/components/ui/comment-input'
 import { CommentItem } from '@/components/ui/comment-item'
+import { ProfileCard } from '@/components/ui/profile-card'
 import Link from 'next/link'
-import { updateRequestTitle, updateRequestDescription, updateRequestStatus, updateRequestAssignee, updateRequestProject, deleteRequest, createComment, deleteComment, fetchCommentsForRequest, fetchProjectsForConnection } from './actions'
+import { deleteRequest, createComment, deleteComment, fetchCommentsForRequest, fetchProjectsForConnection, updateRequest } from './actions'
+import { isOptimisticId, updateRequestLatestDraft, scheduleRequestFlush } from '../utils/optimisticTracker'
 import { ConvertToTaskModal, type ConvertToTaskModalProps, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
 import { convertRequestToTask } from '../tasks/actions'
 import { toast } from 'sonner'
@@ -145,20 +147,31 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   // Use prop if provided, otherwise check pathname
   const isGlobalView = propIsGlobalView ?? pathname?.startsWith('/requests')
   
-  // Determine if the request is locked for editing based on view context and organization type
-  // Agency view: locked if created by client
-  // Client view: locked if created by agency
-  const isLocked = (() => {
-    if (!createdByOrgType) return false
-    if (variant === 'agency') {
-      return createdByOrgType === 'client'
-    } else {
-      return createdByOrgType === 'agency'
-    }
-  })()
+  // Determine if this is a client-submitted request
+  const isClientSubmitted = createdByOrgType === 'client'
   
-  // Determine if current org can edit this request (based on lock status and disconnected state)
-  const canEdit = !isLocked && !isDisconnected
+  // Client permissions for client-submitted requests
+  const canClientEditTitle = variant === 'client' && isClientSubmitted && status === 'new'
+  const canClientEditDescription = variant === 'client' && isClientSubmitted && status === 'new'
+  const canClientEditProject = variant === 'client' && isClientSubmitted && status === 'new'
+  const canClientDelete = variant === 'client' && isClientSubmitted && status === 'new'
+  
+  // Agency permissions for client-submitted requests
+  const canAgencyEditTitle = variant === 'agency' && !isClientSubmitted && !isDisconnected
+  const canAgencyEditDescription = variant === 'agency' && !isClientSubmitted && !isDisconnected
+  const canAgencyEditStatus = variant === 'agency' && !isDisconnected
+  const canAgencyEditProject = variant === 'agency' && !isDisconnected
+  const canAgencyEditAssignee = variant === 'agency' && !isDisconnected
+  const canAgencyDelete = variant === 'agency' && !isClientSubmitted && !isDisconnected
+  
+  // Combined permissions
+  const canEditTitle = variant === 'client' ? canClientEditTitle : canAgencyEditTitle
+  const canEditDescription = variant === 'client' ? canClientEditDescription : canAgencyEditDescription
+  const canEditProject = variant === 'client' ? canClientEditProject : canAgencyEditProject
+  const canDelete = variant === 'client' ? canClientDelete : canAgencyDelete
+  
+  // Show lock icon only for client view when status !== 'new' for client-submitted requests
+  const showLockIcon = variant === 'client' && isClientSubmitted && status !== 'new'
   
   // State for actions dropdown
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false)
@@ -230,6 +243,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
   const [comments, setComments] = useState<Comment[]>(initialComments)
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false)
   const [convertRequest, setConvertRequest] = useState<ConvertRequest | null>(null)
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [selectedSubmitter, setSelectedSubmitter] = useState<{ id: string; first_name: string; last_name: string; email: string; avatar_url?: string; organization: { id: string; name: string; logo_url?: string } } | null>(null)
   
   const openInternalConvertModal = useCallback(() => {
     if (!connectionId) {
@@ -689,8 +704,24 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       onRequestUpdate(requestId, { title: trimmedValue })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { title: trimmedValue })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
+    // Defensive check: ensure requestId is not a tempId (should be caught by isOptimisticId above)
+    if (isOptimisticId(requestId)) {
+      console.error('[RequestDetailContent] tempId leak in handleTitleSave - isOptimisticId check failed!', { requestId })
+      return
+    }
+    
     try {
-      await updateRequestTitle(requestId, trimmedValue)
+      await updateRequest(requestId, { title: trimmedValue })
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update title:', error)
@@ -715,8 +746,24 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       onRequestUpdate(requestId, { description: value })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { description: value })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
+    // Defensive check: ensure requestId is not a tempId (should be caught by isOptimisticId above)
+    if (isOptimisticId(requestId)) {
+      console.error('[RequestDetailContent] tempId leak in handleDescriptionSave - isOptimisticId check failed!', { requestId })
+      return
+    }
+    
     try {
-      await updateRequestDescription(requestId, value)
+      await updateRequest(requestId, { description: value })
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update description:', error)
@@ -741,8 +788,24 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       onRequestUpdate(requestId, { project: selectedProject })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { project_id: projectId === 'general' ? null : projectId })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
+    // Defensive check: ensure requestId is not a tempId (should be caught by isOptimisticId above)
+    if (isOptimisticId(requestId)) {
+      console.error('[RequestDetailContent] tempId leak in handleProjectSave - isOptimisticId check failed!', { requestId })
+      return
+    }
+    
     try {
-      await updateRequestProject(requestId, projectId === 'general' ? null : projectId)
+      await updateRequest(requestId, { project_id: projectId === 'general' ? null : projectId })
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update request project:', error)
@@ -770,8 +833,24 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       onRequestUpdate(requestId, { status: validStatus })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { status: validStatus })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
+    // Defensive check: ensure requestId is not a tempId (should be caught by isOptimisticId above)
+    if (isOptimisticId(requestId)) {
+      console.error('[RequestDetailContent] tempId leak in handleStatusChange - isOptimisticId check failed!', { requestId })
+      return
+    }
+    
     try {
-      await updateRequestStatus(requestId, validStatus)
+      await updateRequest(requestId, { status: validStatus })
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to update status:', error)
@@ -803,8 +882,24 @@ export function RequestDetailContent({ requestId, title, description, client, ag
         onRequestUpdate(requestId, { assignee: newAssignee })
       }
       
+      // Handle optimistic IDs
+      if (isOptimisticId(requestId)) {
+        // Track draft state and schedule flush
+        updateRequestLatestDraft(requestId, { assignee_user_id: memberId })
+        scheduleRequestFlush(requestId, async (realId, draft) => {
+          await updateRequest(realId, draft)
+        })
+        return // Success - no error, no await
+      }
+      
+      // Defensive check: ensure requestId is not a tempId (should be caught by isOptimisticId above)
+      if (isOptimisticId(requestId)) {
+        console.error('[RequestDetailContent] tempId leak in handleAssigneeSelect - isOptimisticId check failed!', { requestId })
+        return
+      }
+      
       try {
-        await updateRequestAssignee(requestId, memberId)
+        await updateRequest(requestId, { assignee_user_id: memberId })
         // Real-time subscription will handle UI updates
       } catch (error) {
         console.error('Failed to update assignee:', error)
@@ -828,8 +923,24 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       onRequestUpdate(requestId, { assignee: null })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(requestId)) {
+      // Track draft state and schedule flush
+      updateRequestLatestDraft(requestId, { assignee_user_id: null })
+      scheduleRequestFlush(requestId, async (realId, draft) => {
+        await updateRequest(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
+    // Defensive check: ensure requestId is not a tempId (should be caught by isOptimisticId above)
+    if (isOptimisticId(requestId)) {
+      console.error('[RequestDetailContent] tempId leak in handleClearAssignee - isOptimisticId check failed!', { requestId })
+      return
+    }
+    
     try {
-      await updateRequestAssignee(requestId, null)
+      await updateRequest(requestId, { assignee_user_id: null })
       // Real-time subscription will handle UI updates
     } catch (error) {
       console.error('Failed to clear assignee:', error)
@@ -840,6 +951,35 @@ export function RequestDetailContent({ requestId, title, description, client, ag
         onRequestUpdate(requestId, { assignee: previousAssignee })
       }
     }
+  }
+
+  const handleSubmitterClick = () => {
+    if (!submittedBy) return
+
+    // Parse name into first_name and last_name
+    const nameParts = submittedBy.name.trim().split(/\s+/)
+    const first_name = nameParts[0] || ''
+    const last_name = nameParts.slice(1).join(' ') || ''
+
+    // Determine organization based on createdByOrgType
+    const organization = createdByOrgType === 'client'
+      ? { id: client?.id || '', name: client?.name || 'Unknown', logo_url: client?.logoUrl }
+      : createdByOrgType === 'agency'
+      ? { id: agency?.id || '', name: agency?.name || 'Unknown', logo_url: agency?.logoUrl }
+      : { id: _currentOrgId, name: 'Unknown', logo_url: undefined }
+
+    // Construct member object matching ProfileCard's interface
+    const memberData = {
+      id: submittedBy.id,
+      first_name,
+      last_name,
+      email: submittedBy.email,
+      avatar_url: submittedBy.avatarUrl,
+      organization
+    }
+
+    setSelectedSubmitter(memberData)
+    setProfileDialogOpen(true)
   }
 
   const statusOptions: { value: 'new' | 'in_review' | 'accepted' | 'canceled' | 'closed', label: string }[] = [
@@ -891,7 +1031,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 <span className="text-[12px] leading-[20px] font-normal tracking-[0.0025rem]" style={{ color: 'var(--color-base-text-tertiary)' }}>
                   {getDialogTitle().replace('Request — ', '')}
                 </span>
-                {isLocked && (
+                {showLockIcon && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="flex items-center justify-center">
@@ -904,10 +1044,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                     </TooltipTrigger>
                     <TooltipContent side="bottom" align="center" sideOffset={8}>
                       <div className="text-xs text-center">
-                        {variant === 'client' 
-                          ? 'Created on your behalf. View and comment only.'
-                          : 'You can update status and assignee only'
-                        }
+                        Request is in progress. View and comment only.
                       </div>
                     </TooltipContent>
                   </Tooltip>
@@ -943,7 +1080,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 <LinkSimple size={16} style={{ color: 'var(--color-base-text-primary)' }} />
                 Copy link
               </DropdownMenuItem>
-              {!isDisconnected && !isLocked && (
+              {canDelete && (
                 <>
                   <div className="border-t border-[var(--color-neutral-6)] my-1" />
                   <DropdownMenuItem 
@@ -982,7 +1119,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                 maxLength={255}
                 preventNewLines={true}
                 className="px-0"
-                nonInteractive={!canEdit}
+                nonInteractive={!canEditTitle}
               />
             </div>
             {variant === 'agency' ? (
@@ -1042,7 +1179,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
         <div className="flex-1 overflow-auto min-h-0 pr-8 pb-10">
           <div className="flex flex-col gap-5">
             <div data-inline-edit="description">
-              {canEdit ? (
+              {canEditDescription ? (
                 <InlineEdit
                   type="text"
                   value={descriptionValue}
@@ -1158,7 +1295,8 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                   avatar={true}
                   avatarUrl={submittedBy?.avatarUrl || null}
                   text={submittedBy?.name || 'Unknown User'}
-                  nonInteractive={true}
+                  nonInteractive={!submittedBy}
+                  onClick={submittedBy ? handleSubmitterClick : undefined}
                 />
               </div>
             </div>
@@ -1186,7 +1324,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
                     badgeBorderRadius="4px"
                     maxHeight="210px"
                     className="h-6"
-                  nonInteractive={isDisconnected || !canEdit}
+                  nonInteractive={!canEditProject}
                   />
                 </div>
             </div>
@@ -1249,6 +1387,16 @@ export function RequestDetailContent({ requestId, title, description, client, ag
           request={convertRequest}
           agencyMembers={agencyMembers}
           projects={projects}
+        />
+      )}
+      {selectedSubmitter && (
+        <ProfileCard
+          member={selectedSubmitter}
+          isOpen={profileDialogOpen}
+          onClose={() => {
+            setProfileDialogOpen(false)
+            setSelectedSubmitter(null)
+          }}
         />
       )}
     </>
