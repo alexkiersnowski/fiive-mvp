@@ -735,7 +735,7 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
         <div className="flex flex-col gap-3 mt-1">
           {prefetchedRequests.map((request) => (
             <ListRow
-              key={(request as RequestWithUiId)._uiId ?? request.id}
+              key={(request as unknown as RequestWithUiId)._uiId ?? request.id}
               iconStart={
                 <ChatCentered
                   size={16}
