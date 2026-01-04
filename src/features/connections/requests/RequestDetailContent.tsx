@@ -966,7 +966,7 @@ export function RequestDetailContent({ requestId, title, description, client, ag
       ? { id: client?.id || '', name: client?.name || 'Unknown', logo_url: client?.logoUrl }
       : createdByOrgType === 'agency'
       ? { id: agency?.id || '', name: agency?.name || 'Unknown', logo_url: agency?.logoUrl }
-      : { id: currentOrgId, name: 'Unknown', logo_url: undefined }
+      : { id: _currentOrgId, name: 'Unknown', logo_url: undefined }
 
     // Construct member object matching ProfileCard's interface
     const memberData = {
