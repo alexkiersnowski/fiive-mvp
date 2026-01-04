@@ -627,8 +627,8 @@ export async function deleteWorkspace(data: { organizationId: string }) {
       }
     }
 
-    // Check billing footprint
-    if (organization.billing_status !== 'free' || organization.stripe_customer_id || organization.stripe_subscription_id) {
+    // Check billing footprint - only block if subscription exists (not just customer ID)
+    if (organization.billing_status !== 'free' || organization.stripe_subscription_id) {
       return { 
         ok: false, 
         message: "Cannot delete workspace with billing history. Please contact support." 
