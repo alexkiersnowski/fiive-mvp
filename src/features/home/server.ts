@@ -172,6 +172,10 @@ export const getRequestsPreview = cache(async (
 
   const connectionIds = connections.map(c => c.id);
 
+  // Fetch more items than needed to ensure we capture enough 'new' status items
+  // We'll sort by status priority (new > in_review > accepted) then by created_at
+  const fetchLimit = Math.max(limit * 3, 20);
+
   // Fetch request data with necessary fields for modal display
   const { data: requestsData, error: requestsError } = await supabase
     .from('requests')
@@ -201,7 +205,7 @@ export const getRequestsPreview = cache(async (
     .is('deleted_at', null)
     .in('status', ['new', 'in_review', 'accepted'])
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .limit(fetchLimit);
 
   if (requestsError || !requestsData || requestsData.length === 0) {
     return [];
@@ -319,7 +323,7 @@ export const getRequestsPreview = cache(async (
   }
 
   // Transform to Request format
-  return requestsData.map(request => {
+  const transformedRequests = requestsData.map(request => {
     const connection = Array.isArray(request.connections) ? request.connections[0] : request.connections;
     if (!connection) {
       throw new Error('Invalid connection');
@@ -380,6 +384,27 @@ export const getRequestsPreview = cache(async (
       createdByOrgType: formatters.getOrgType(request.created_by_org_id, orgTypeMap)
     } as Request;
   });
+
+  // Sort by status priority (new > in_review > accepted), then by created_at descending
+  const statusPriority: Record<string, number> = {
+    'new': 0,
+    'in_review': 1,
+    'accepted': 2
+  };
+
+  const sortedRequests = transformedRequests.sort((a, b) => {
+    // First sort by status priority
+    const statusDiff = (statusPriority[a.status] ?? 999) - (statusPriority[b.status] ?? 999);
+    if (statusDiff !== 0) return statusDiff;
+    
+    // Then by created_at descending (newest first within same status)
+    const aTime = new Date(a.createdAt).getTime();
+    const bTime = new Date(b.createdAt).getTime();
+    return bTime - aTime;
+  });
+
+  // Return top 'limit' items after sorting
+  return sortedRequests.slice(0, limit);
 });
 
 /**

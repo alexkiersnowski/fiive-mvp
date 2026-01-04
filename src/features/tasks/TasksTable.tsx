@@ -837,10 +837,9 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                 // Search results: Render accordion structure with pre-loaded data
                 // Always show all status headers, even with 0 results
                 statusOrder.map((status) => {
-                  // Filter clients that have tasks in this status
-                  const clientsInStatus = searchResults.clients.filter((client: SearchResults['clients'][0]) => 
-                    client.tasks.some((task: Task) => task.status === status)
-                  );
+                  // In search mode: Include ALL clients from search results (they match by organization name)
+                  // This ensures clients with 0 tasks still show their headers
+                  const clientsInStatus = searchResults.clients;
 
                   // Calculate status count from search results
                   const statusCount = searchResults.clients.reduce((sum: number, client: SearchResults['clients'][0]) => 
@@ -860,9 +859,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                         // Filter tasks for this status
                         const tasksInStatus = clientResult.tasks.filter((task: Task) => task.status === status);
                         
-                        if (tasksInStatus.length === 0) {
-                          return null;
-                        }
+                        // In search mode: Show client header even if 0 tasks in this status
+                        // (client matches by organization name, so it should appear in all status groups)
 
                         // Check if this client is collapsed in search mode
                         // Set tracks expanded clients, so if NOT in Set, it's collapsed
@@ -883,10 +881,12 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                               onToggle={() => onToggleClient(status, clientResult.client_id)}
                               isAgency={isAgency}
                             />
-                            {/* Render all tasks - data is pre-loaded, only when expanded */}
-                            {!isClientCollapsed && tasksInStatus.map((task: Task) => (
+                            {/* Render tasks only when expanded AND there are tasks */}
+                            {!isClientCollapsed && tasksInStatus.length > 0 && tasksInStatus.map((task: Task) => {
+                              const uiId = (task as any)._uiId || task.id
+                              return (
                               <GlobalTaskRow
-                                key={task.id}
+                                key={uiId}
                                 task={task}
                                 isAgency={isAgency}
                                 clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
@@ -904,7 +904,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                 setOpenActionsDropdown={setOpenActionsDropdown}
                                 baseRoute={baseRoute}
                               />
-                            ))}
+                              )
+                            })}
                           </React.Fragment>
                         );
                       })}
@@ -1052,9 +1053,11 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                               isAgency={isAgency}
                             />
                             {/* Render all tasks - data is pre-loaded, only when expanded */}
-                            {!isClientCollapsed && tasksInStatus.map((task: Task) => (
+                            {!isClientCollapsed && tasksInStatus.map((task: Task) => {
+                              const uiId = (task as any)._uiId || task.id
+                              return (
                               <GlobalTaskRow
-                                key={task.id}
+                                key={uiId}
                                 task={task}
                                 isAgency={isAgency}
                                 clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
@@ -1072,7 +1075,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                 setOpenActionsDropdown={setOpenActionsDropdown}
                                 baseRoute={baseRoute}
                               />
-                            ))}
+                              )
+                            })}
                           </React.Fragment>
                         );
                       })}
@@ -1185,9 +1189,11 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                               {(!hasData || (hasData && optimisticTasks.length > 0 && realTasks.length === 0 && isLoading)) && (
                                 <>
                                   {/* Render optimistic tasks FIRST (at the top) if they exist */}
-                                  {optimisticTasks.map((task) => (
+                                  {optimisticTasks.map((task) => {
+                                    const uiId = (task as any)._uiId || task.id
+                                    return (
                                     <GlobalTaskRow
-                                      key={task.id}
+                                      key={uiId}
                                       task={task}
                                       isAgency={isAgency}
                                       clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
@@ -1205,7 +1211,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                       setOpenActionsDropdown={setOpenActionsDropdown}
                                       baseRoute={baseRoute}
                                     />
-                                  ))}
+                                  )})}
                                   
                                   {/* Show skeleton while loading (existing skeleton logic) */}
                                   <div className="space-y-0">
@@ -1247,9 +1253,11 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                               {hasData && !isEmpty && !(optimisticTasks.length > 0 && realTasks.length === 0 && isLoading) && (
                                 <>
                                   {/* Render optimistic tasks FIRST (at the top) */}
-                                  {optimisticTasks.map((task) => (
+                                  {optimisticTasks.map((task) => {
+                                    const uiId = (task as any)._uiId || task.id
+                                    return (
                                     <GlobalTaskRow
-                                      key={task.id}
+                                      key={uiId}
                                       task={task}
                                       isAgency={isAgency}
                                       clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
@@ -1267,12 +1275,14 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                       setOpenActionsDropdown={setOpenActionsDropdown}
                                       baseRoute={baseRoute}
                                     />
-                                  ))}
+                                  )})}
                                   
                                   {/* Render real tasks (below optimistic) */}
-                                  {realTasks.map((task) => (
+                                  {realTasks.map((task) => {
+                                    const uiId = (task as any)._uiId || task.id
+                                    return (
                                     <GlobalTaskRow
-                                      key={task.id}
+                                      key={uiId}
                                       task={task}
                                       isAgency={isAgency}
                                       clientEditableMembers={getClientEditableMembersForTask(task.connectionId)}
@@ -1290,7 +1300,8 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                       setOpenActionsDropdown={setOpenActionsDropdown}
                                       baseRoute={baseRoute}
                                     />
-                                  ))}
+                                    )
+                                  })}
                                 </>
                               )}
                             </>

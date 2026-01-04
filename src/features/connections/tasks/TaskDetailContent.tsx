@@ -17,9 +17,10 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbS
 import { CommentInput } from '@/components/ui/comment-input'
 import { CommentItem } from '@/components/ui/comment-item'
 import Link from 'next/link'
-import { updateTaskTitle, updateTaskDescription, updateTaskStatus, updateTaskAssignee, updateTaskProject, updateTaskDueDate, updateTaskClientVisible, deleteTask, createComment, deleteComment, fetchCommentsForTask, fetchProjectsForConnection } from './actions'
+import { updateTaskTitle, updateTaskDescription, updateTaskStatus, updateTaskAssignee, updateTaskProject, updateTaskDueDate, updateTaskClientVisible, deleteTask, createComment, deleteComment, fetchCommentsForTask, fetchProjectsForConnection, updateTask } from './actions'
 import { toast } from 'sonner'
 import type { Task } from '../server'
+import { isOptimisticId, updateLatestDraft, scheduleFlush } from '../utils/optimisticTracker'
 
 interface Comment {
   id: string
@@ -621,6 +622,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       onTaskUpdate(taskId, { title: trimmedValue })
     }
     
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { title: trimmedValue })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
     try {
       await updateTaskTitle(taskId, trimmedValue)
       // Real-time subscription will handle UI updates
@@ -645,6 +656,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     // Update parent (table) optimistically
     if (onTaskUpdate) {
       onTaskUpdate(taskId, { description: value })
+    }
+    
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { description: value })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
     }
     
     try {
@@ -672,6 +693,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     // Update parent (table) optimistically
     if (onTaskUpdate) {
       onTaskUpdate(taskId, { project: selectedProject })
+    }
+    
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { project_id: !projectId || projectId === '' ? null : projectId })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
     }
     
     try {
@@ -707,6 +738,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     // Update parent (table) optimistically
     if (onTaskUpdate) {
       onTaskUpdate(taskId, { status: typedStatus })
+    }
+    
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { status: typedStatus })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
     }
     
     try {
@@ -772,6 +813,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
         onTaskUpdate(taskId, updatePayload)
       }
       
+      // Handle optimistic IDs
+      if (isOptimisticId(taskId)) {
+        // Track draft state and schedule flush
+        updateLatestDraft(taskId, { assignee_user_id: memberId })
+        scheduleFlush(taskId, async (realId, draft) => {
+          await updateTask(realId, draft)
+        })
+        return // Success - no error, no await
+      }
+      
       try {
         await updateTaskAssignee(taskId, memberId)
         // Real-time subscription will handle UI updates
@@ -797,6 +848,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
     // Update parent (table) optimistically
     if (onTaskUpdate) {
         onTaskUpdate(taskId, { assignee: null, clientVisibilityLocked: false })
+    }
+    
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { assignee_user_id: null })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
     }
     
     try {
@@ -843,6 +904,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
       onTaskUpdate(taskId, { dueDate: normalizedDisplay || null, dueDateRaw: dateStr })
     }
 
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { due_date: dateStr })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+
     try {
       await updateTaskDueDate(taskId, dateStr)
       // Real-time subscription will handle UI updates
@@ -873,6 +944,16 @@ export function TaskDetailContent({ taskId, title, description, client, agency, 
 
     if (onTaskUpdate) {
       onTaskUpdate(taskId, { clientVisible: checked })
+    }
+
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { client_visible: checked })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
     }
 
     try {

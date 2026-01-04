@@ -15,6 +15,7 @@ import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 import type { TasksSnapshot, Task, SearchResults } from '@/features/tasks/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { Comment } from '@/features/connections/server';
+import { registerRealIdMapping, finalize, getLatestDraft } from '@/features/connections/utils/optimisticTracker';
 
 interface TasksContentProps {
   snapshot: TasksSnapshot;
@@ -859,7 +860,8 @@ export function TasksContent({
       clientVisibilityLocked: payload.clientVisibilityLocked ?? false,
       sourceRequestId: null,
       linkedRequest: null,
-    };
+      _uiId: payload.tempId, // Stable UI identity for React keys (prevents remount on temp→real swap)
+    } as Task & { _uiId: string };
 
     // Add to accordion cache (optimistic task is always 'to_do')
     // Determine client org ID for cache key
@@ -925,6 +927,71 @@ export function TasksContent({
     handleFetchTasksForClientStatus('to_do', clientOrgId, true);
   }, [connections, context, allConnectionsMetadata, handleFetchTasksForClientStatus, tasksByClientStatus]);
 
+  // Helper to merge draft state into fetched task (only patchable fields)
+  const mergeDraftIntoTask = useCallback((task: Task, draft: Partial<Task>): Task => {
+    const merged = { ...task }
+    
+    // Only merge known patchable fields (don't override server timestamps, etc.)
+    if (draft.status !== undefined) {
+      merged.status = draft.status as Task['status']
+    }
+    
+    if (draft.title !== undefined) {
+      merged.title = draft.title
+    }
+    
+    if (draft.description !== undefined) {
+      merged.description = draft.description
+    }
+    
+    if (draft.client_visible !== undefined) {
+      merged.clientVisible = draft.client_visible
+    }
+    
+    // assignee_user_id → assignee object
+    // Note: We preserve the optimistic assignee object if it exists in the current task
+    if (draft.assignee_user_id !== undefined) {
+      if (draft.assignee_user_id === null) {
+        merged.assignee = null
+      }
+      // If assignee_user_id is set but assignee object doesn't match, 
+      // we'll let realtime update handle the full object fetch
+    }
+    
+    // project_id → project object
+    if (draft.project_id !== undefined) {
+      if (draft.project_id === null) {
+        merged.project = null
+      } else {
+        // Keep existing project if ID matches, otherwise preserve optimistic project
+        if (merged.project?.id !== draft.project_id) {
+          merged.project = merged.project || null
+        }
+      }
+    }
+    
+    // due_date → dueDate/dueDateRaw
+    if (draft.due_date !== undefined) {
+      if (draft.due_date === null) {
+        merged.dueDate = null
+        merged.dueDateRaw = null
+      } else {
+        // Parse ISO date to display format
+        const date = new Date(draft.due_date)
+        if (!isNaN(date.getTime())) {
+          merged.dueDateRaw = draft.due_date
+          // Format display date
+          const day = date.getDate()
+          const month = date.toLocaleDateString('en-US', { month: 'short' })
+          const year = date.getFullYear()
+          merged.dueDate = `${day} ${month} ${year}`
+        }
+      }
+    }
+    
+    return merged
+  }, [])
+
   const handleTaskCreated = useCallback(async ({ taskId, tempId, connectionId }: { taskId: string; tempId?: string; connectionId?: string }) => {
     // Use connectionId from payload, fallback to selectedConnectionId for backward compatibility
     const targetConnectionId = connectionId || selectedConnectionId
@@ -932,10 +999,22 @@ export function TasksContent({
     
     try {
       // Use connectionId directly and skip cache for immediate post-insert fetch
-      const task = await fetchTaskByIdGlobal(taskId, context, targetConnectionId, true);
+      let task = await fetchTaskByIdGlobal(taskId, context, targetConnectionId, true);
       if (!task) {
         console.error('Failed to fetch newly created task');
         return;
+      }
+      
+      // Register realId mapping for optimistic updates (if tempId exists)
+      if (tempId) {
+        registerRealIdMapping(tempId, taskId)
+        
+        // Merge optimistic draft state into fetched task before replacement
+        // This prevents status/assignee from reverting to initial values
+        const draft = getLatestDraft(tempId)
+        if (draft && Object.keys(draft).length > 0) {
+          task = mergeDraftIntoTask(task, draft)
+        }
       }
       
       // Show success toast after successfully fetching the task
@@ -987,12 +1066,14 @@ export function TasksContent({
         
         // If real task already exists, just remove temp (don't add duplicate or overwrite)
         // Otherwise, replace temp with real task at the top
+        // Preserve _uiId from optimistic task to maintain stable React key
+        const taskWithUiId = { ...task, _uiId: tempId || task.id } as Task & { _uiId: string }
         if (hasRealTask) {
           // Real task already in cache (from fetch merge), just remove temp
           newMap.set(cacheKey, without);
         } else {
           // Replace temp with real task at the top
-          newMap.set(cacheKey, [task, ...without]);
+          newMap.set(cacheKey, [taskWithUiId, ...without]);
         }
         
         // CRITICAL: Sync ref synchronously so fetch callback can read the real task
@@ -1007,6 +1088,11 @@ export function TasksContent({
       // Note: Fetch was already triggered in handleTaskOptimistic, so we don't need to fetch again here
       // The in-progress fetch will merge the real task with complete server data when it completes
       
+      // Register realId mapping for optimistic updates (if tempId exists)
+      if (tempId) {
+        registerRealIdMapping(tempId, taskId)
+      }
+      
       // Update selectedTask if it matches tempId (using functional update to avoid stale closure)
       if (tempId) {
         setSelectedTask(prev => {
@@ -1015,6 +1101,11 @@ export function TasksContent({
           }
           return prev;
         });
+      }
+      
+      // Finalize after both replacement and modal swap complete
+      if (tempId) {
+        finalize(tempId)
       }
       
       // Fetch comments for the new task
@@ -1035,7 +1126,7 @@ export function TasksContent({
         tempIdToTaskIdRef.current.delete(tempId);
       }
     }
-  }, [selectedConnectionId, context, collapsedClients]);
+  }, [selectedConnectionId, context, collapsedClients, mergeDraftIntoTask]);
 
   // Helper to find task in cached accordion state or search results
   const findTaskInCache = useCallback((taskId: string): Task | null => {
@@ -1221,7 +1312,14 @@ export function TasksContent({
         if (isNewStatusClientExpanded && hasNewCacheData) {
           // Check if task already exists (avoid duplicates)
           if (!newTasks.some(t => t.id === taskId)) {
-            newMap.set(newCacheKey, [{ ...oldTask, ...updates }, ...newTasks]);
+            // Insert task in sorted position (by created_at DESC)
+            const updatedTask = { ...oldTask, ...updates };
+            const sortedTasks = [...newTasks, updatedTask].sort((a, b) => {
+              const aTime = a.createdAtRaw ? new Date(a.createdAtRaw).getTime() : 0;
+              const bTime = b.createdAtRaw ? new Date(b.createdAtRaw).getTime() : 0;
+              return bTime - aTime; // Descending (newest first)
+            });
+            newMap.set(newCacheKey, sortedTasks);
             // Mark as optimistic so fetch replaces it with complete server data
             optimisticCacheKeysRef.current.add(newCacheKey);
           }

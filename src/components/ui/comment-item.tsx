@@ -35,9 +35,9 @@ export function CommentItem({ id, userName, userAvatar, createdAt, text, created
   const linkifyText = (text: string): React.ReactNode[] => {
     if (!text) return []
     
-    // URL regex pattern: matches http://, https://, www., and domain patterns
+    // URL regex pattern: only matches explicit URLs starting with https://, http://, or www.
     // Also handles URLs that may be followed by punctuation
-    const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+[^\s]*)/gi
+    const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi
     
     const parts: React.ReactNode[] = []
     let lastIndex = 0
@@ -56,11 +56,9 @@ export function CommentItem({ id, userName, userAvatar, createdAt, text, created
       // But keep punctuation that's commonly part of URLs (/, ?, &, =, etc.)
       url = url.replace(/[.,;:!?]+$/, '')
       
-      // Ensure www. URLs have http:// prefix
+      // Ensure www. URLs have https:// prefix
       let href = url
       if (url.startsWith('www.')) {
-        href = `https://${url}`
-      } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
         href = `https://${url}`
       }
       

@@ -140,6 +140,15 @@ export async function updateProjectStatus(
   projectId: string, 
   status: 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
 ) {
+  // Assertion: catch tempId leaks
+  if (projectId.startsWith('temp-')) {
+    if (isDev()) {
+      console.error('[updateProjectStatus] TEMPID LEAK DETECTED:', { projectId, status })
+      console.error('[updateProjectStatus] Stack trace:', new Error().stack)
+    }
+    throw new Error('Invalid project ID: tempId passed to updateProjectStatus')
+  }
+  
   const supabase = await createClient();
   
   if (isDev()) {

@@ -98,7 +98,7 @@ export function VirtualizedRequestList({
     return (
       <div className="w-full">
         {requests.map((request, index) => (
-          <div key={request.id}>
+          <div key={(request as any)._uiId ?? request.id}>
             {renderRow(request, index)}
           </div>
         ))}
@@ -125,7 +125,7 @@ export function VirtualizedRequestList({
 
         return (
           <div
-            key={request.id}
+            key={(request as any)._uiId ?? request.id}
             ref={(node) => rowVirtualizer.measureElement(node)}
             data-index={virtualRow.index}
             style={{ height: `${virtualRow.size}px` }}

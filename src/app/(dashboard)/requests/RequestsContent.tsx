@@ -8,6 +8,8 @@ import { RequestsHeader } from '@/features/requests/RequestsHeader';
 import { RequestDetailModal } from '@/features/connections/requests/RequestDetailModal';
 import { NewRequestModal } from '@/features/connections/requests/NewRequestModal';
 import { fetchRequestByIdGlobal, fetchCommentsForRequestGlobal, fetchRequestsCounts, fetchRequestsForClientStatus, searchClientsWithRequests, fetchAssignedRequestsByClient } from '@/features/requests/actions';
+import { registerRequestRealIdMapping, finalizeRequest, getRequestLatestDraft } from '@/features/connections/utils/optimisticTracker';
+import { mergeDraftIntoRequest } from '@/features/connections/requests/utils';
 import type { RequestStatus } from '@/features/requests/requestGrouping';
 import { fetchProjectsForConnection } from '@/features/connections/requests/actions';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '@/features/connections/tasks/ConvertToTaskModal';
@@ -747,6 +749,12 @@ export function RequestsContent({
     projectId: string | null
     projectName?: string | null
     assigneeUserId: string | null
+    assignee?: {
+      id: string
+      name: string
+      email: string
+      avatarUrl?: string
+    } | null
     connectionId: string
   }) => {
     // Use connectionId from payload instead of state (state gets cleared when modal closes)
@@ -821,7 +829,7 @@ export function RequestsContent({
           logoUrl: selectedConnection.logoUrl,
         });
     
-    const optimisticRequest: Request = {
+    const optimisticRequest: Request & { _uiId?: string } = {
       id: payload.tempId,
       connectionId: targetConnectionId,
       title: payload.title,
@@ -838,12 +846,13 @@ export function RequestsContent({
         orgName: context.organization.name || '',
         orgLogo: undefined,
       },
-      assignee: null,
+      assignee: payload.assignee || null,
       client,
       agency,
       createdAt: now.toISOString(), // Use ISO timestamp for proper sorting (newest first)
       createdByOrgId: context.organization.id,
       createdByOrgType: context.variant,
+      _uiId: payload.tempId, // Stable UI identity for React keys (prevents remount on temp→real swap)
     };
 
     // Add to accordion cache (optimistic request is always 'new')
@@ -921,10 +930,22 @@ export function RequestsContent({
     
     try {
       // Use connectionId directly and skip cache for immediate post-insert fetch
-      const request = await fetchRequestByIdGlobal(requestId, context, targetConnectionId, true);
+      let request = await fetchRequestByIdGlobal(requestId, context, targetConnectionId, true);
       if (!request) {
         console.error('Failed to fetch newly created request');
         return;
+      }
+      
+      // Register realId mapping for optimistic updates (if tempId exists)
+      if (tempId) {
+        registerRequestRealIdMapping(tempId, requestId)
+        
+        // Merge optimistic draft state into fetched request before replacement
+        // This prevents status/assignee from reverting to initial values
+        const draft = getRequestLatestDraft(tempId)
+        if (draft && Object.keys(draft).length > 0) {
+          request = mergeDraftIntoRequest(request, draft)
+        }
       }
       
       // Determine client org ID for cache key
@@ -965,11 +986,19 @@ export function RequestsContent({
         const newMap = new Map(prev);
         const existingRequests = newMap.get(cacheKey) || [];
         
+        // Find optimistic entry to preserve _uiId
+        const optimisticEntry = tempId ? existingRequests.find(r => r.id === tempId) : null
+        
         // Always ensure real request exists, even if fetch merge already added it
         const hasRealRequest = existingRequests.some(r => r.id === request.id);
         
         // Remove temp request and any duplicate real request
         const without = existingRequests.filter(r => r.id !== tempId && r.id !== request.id);
+        
+        // Preserve _uiId from optimistic entry to maintain stable React key
+        const requestWithUiId = optimisticEntry 
+          ? { ...request, _uiId: (optimisticEntry as any)._uiId || tempId }
+          : { ...request, _uiId: tempId || request.id }
         
         // If real request already exists, just remove temp (don't add duplicate or overwrite)
         // Otherwise, replace temp with real request at the top
@@ -978,7 +1007,7 @@ export function RequestsContent({
           newMap.set(cacheKey, without);
         } else {
           // Replace temp with real request at the top
-          newMap.set(cacheKey, [request, ...without]);
+          newMap.set(cacheKey, [requestWithUiId, ...without]);
         }
         
         // CRITICAL: Sync ref synchronously so fetch callback can read the real request
@@ -1002,6 +1031,14 @@ export function RequestsContent({
           return prev;
         });
       }
+      
+      // Finalize after both replacement and modal swap complete
+      if (tempId) {
+        finalizeRequest(tempId)
+      }
+      
+      // Show success toast after server confirms and request is successfully fetched
+      toast.success('Request created successfully');
       
       // Fetch comments for the new request
       try {
@@ -1201,7 +1238,40 @@ export function RequestsContent({
         if (isNewStatusClientExpanded && hasNewCacheData) {
           // Check if request already exists (avoid duplicates)
           if (!newRequests.some(r => r.id === requestId)) {
-            newMap.set(newCacheKey, [{ ...oldRequest, ...updates }, ...newRequests]);
+            // Insert request in sorted position (by created_at DESC)
+            const updatedRequest = { ...oldRequest, ...updates };
+            // Parse date helper (matching requestGrouping.ts logic)
+            const parseDate = (value?: string | null): number | null => {
+              if (!value || value.trim() === '') return null;
+              if (value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+                const isoFormat = value.replace(' ', 'T');
+                const timestamp = Date.parse(isoFormat);
+                return Number.isNaN(timestamp) ? null : timestamp;
+              }
+              if (value.includes('T') || value.includes('Z')) {
+                const timestamp = Date.parse(value);
+                return Number.isNaN(timestamp) ? null : timestamp;
+              }
+              const timestamp = Date.parse(value);
+              return Number.isNaN(timestamp) ? null : timestamp;
+            };
+            const sortedRequests = [...newRequests, updatedRequest].sort((a, b) => {
+              const aCreated = parseDate(a.createdAt);
+              const bCreated = parseDate(b.createdAt);
+              
+              if (aCreated !== null && bCreated !== null && aCreated !== bCreated) {
+                return bCreated - aCreated; // newest first (descending)
+              }
+              
+              if (aCreated !== null && bCreated === null) return -1;
+              if (aCreated === null && bCreated !== null) return 1;
+              
+              // Fallback to ID for stable sort
+              if (a.id < b.id) return -1;
+              if (a.id > b.id) return 1;
+              return 0;
+            });
+            newMap.set(newCacheKey, sortedRequests);
             // Mark as optimistic so fetch replaces it with complete server data
             optimisticCacheKeysRef.current.add(newCacheKey);
           }

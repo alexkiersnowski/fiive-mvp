@@ -10,6 +10,8 @@ import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
 import type { Request, Comment } from '../server';
 import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequests } from '../requests/actions';
+import { registerRequestRealIdMapping, finalizeRequest, getRequestLatestDraft } from '../utils/optimisticTracker';
+import { mergeDraftIntoRequest } from '../requests/utils';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal'
 import { convertRequestToTask } from '../tasks/actions'
 import { PAGE_SIZE, isDev } from '../constants';
@@ -834,10 +836,16 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
     projectId: string | null
     projectName?: string | null
     assigneeUserId: string | null
+    assignee?: {
+      id: string
+      name: string
+      email: string
+      avatarUrl?: string
+    } | null
   }) => {
     const now = new Date()
 
-    const optimisticRow: Request = {
+    const optimisticRow: Request & { _uiId?: string } = {
       id: payload.tempId,
       connectionId,
       title: payload.title,
@@ -854,7 +862,7 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
         orgName: context.organization.name || '',
         orgLogo: undefined,
       },
-      assignee: null,
+      assignee: payload.assignee || null,
       client: {
         id: snapshot.partner.id,
         name: snapshot.partner.name,
@@ -864,6 +872,7 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
     // The sorting function uses Date.parse() which works reliably with ISO strings
     createdAt: now.toISOString(),
     createdByOrgId: context.organization.id,
+    _uiId: payload.tempId, // Stable UI identity for React keys (prevents remount on temp→real swap)
     }
 
     // Sort after prepending to maintain correct order
@@ -886,23 +895,56 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
 
   async function handleRequestCreated({ requestId, tempId }: { requestId: string; tempId?: string }) {
     try {
-      const req = await fetchRequestById(connectionId, requestId)
+      let req = await fetchRequestById(connectionId, requestId)
       if (!req) return
+      
+      // Register realId mapping for optimistic updates (if tempId exists)
+      if (tempId) {
+        registerRequestRealIdMapping(tempId, requestId)
+        
+        // Merge optimistic draft state into fetched request before replacement
+        // This prevents status/assignee from reverting to initial values
+        const draft = getRequestLatestDraft(tempId)
+        if (draft && Object.keys(draft).length > 0) {
+          req = mergeDraftIntoRequest(req, draft)
+        }
+      }
+      
       // Replace temp row if present; otherwise prepend and increment count
       setAllRequests(prev => {
         const optimisticEntry = tempId ? prev.find(r => r.id === tempId) : null
         
         // If replacing optimistic entry, preserve its ISO timestamp for proper sorting
         // Server returns formatted date which doesn't include time, causing sorting issues
+        // Also preserve _uiId from optimistic entry to maintain stable React key
         const finalReq = optimisticEntry && optimisticEntry.createdAt.includes('T') 
-          ? { ...req, createdAt: optimisticEntry.createdAt }
-          : req
+          ? { ...req, createdAt: optimisticEntry.createdAt, _uiId: (optimisticEntry as any)._uiId || tempId }
+          : { ...req, _uiId: tempId || req.id }
         
         const without = prev.filter(r => r.id !== tempId && r.id !== req.id)
         const next = [finalReq, ...without]
         // Sort after replacing/adding to maintain correct order
         return sortRequestsForDisplay(next)
       })
+      
+      // Swap modal's request ID if modal is open with tempId
+      if (tempId) {
+        setSelectedRequest(prev => {
+          if (prev && prev.requestId === tempId) {
+            return {
+              ...prev,
+              requestId: requestId
+            }
+          }
+          return prev
+        })
+      }
+      
+      // Finalize after both replacement and modal swap complete
+      if (tempId) {
+        finalizeRequest(tempId)
+      }
+      
       // If no temp was present, bump the count; if temp existed, count already included
       if (!tempId) {
         setUnfilteredTotalCount(c => c + 1)
@@ -913,10 +955,14 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
       if (!tempId && context.variant === 'agency' && req.status === 'new') {
         setNewRequestsCount(prev => (prev || 0) + 1)
       }
+      
+      // Show success toast after server confirms and request is successfully fetched
+      toast.success('Request created successfully')
     } catch (error) {
       if (isDev()) {
         console.error('Failed to insert newly created request into table:', error)
       }
+      toast.error('Failed to create request')
     }
   }
 

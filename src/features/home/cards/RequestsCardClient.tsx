@@ -505,7 +505,7 @@ export default function RequestsCardClient({
             <TableBody>
               {localRequests.map((request) => (
                 <TableRow
-                  key={request.id}
+                  key={(request as any)._uiId ?? request.id}
                   tabIndex={0}
                   className="cursor-pointer transition-colors duration-75 hover:bg-[var(--color-interactive-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--color-interactive-border-focus)]"
                   onClick={() => handleRowClick(request.id)}
@@ -516,9 +516,9 @@ export default function RequestsCardClient({
                     }
                   }}
                 >
-                  <TableCell className="w-[40%] py-2">
+                  <TableCell className="w-[40%] py-2 truncate">
                     <span
-                      className="text-sm-regular truncate"
+                      className="text-sm-regular"
                       style={{ color: "var(--color-base-text-primary)" }}
                     >
                       {request.title?.trim() || "Untitled request"}

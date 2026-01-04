@@ -147,7 +147,7 @@ function StatusSectionComponent({
             const isDragging = draggedRequestId === request.id
             return (
               <RequestRow
-                key={request.id}
+                key={(request as any)._uiId ?? request.id}
                 request={request}
                 isAgency={isAgency}
                 isDisconnected={isDisconnected}

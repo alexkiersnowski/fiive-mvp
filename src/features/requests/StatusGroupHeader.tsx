@@ -9,9 +9,10 @@ interface StatusGroupHeaderProps {
   statusCount: number | string // From metadata fetch
   isCollapsed: boolean
   onToggle: () => void
+  isAgency?: boolean
 }
 
-export function StatusGroupHeader({ status, statusCount, isCollapsed, onToggle }: StatusGroupHeaderProps) {
+export function StatusGroupHeader({ status, statusCount, isCollapsed, onToggle, isAgency }: StatusGroupHeaderProps) {
   return (
     <div
       className="bg-[var(--color-neutral-2)] border-b border-[var(--color-neutral-4)] h-[44px] grid items-center cursor-pointer transition-colors duration-75 w-full hover:bg-[var(--color-interactive-surface-hover)]"
@@ -44,6 +45,7 @@ export function StatusGroupHeader({ status, statusCount, isCollapsed, onToggle }
           size="sm"
           showText={true}
           className="flex-shrink-0"
+          customLabel={status === 'new' && !isAgency ? 'Submitted' : undefined}
         />
         <span className="text-xs-regular text-[var(--color-base-text-tertiary)]">
           {statusCount} {typeof statusCount === 'number' && statusCount === 1 ? 'request' : 'requests'}

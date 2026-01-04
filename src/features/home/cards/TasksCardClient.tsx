@@ -508,7 +508,7 @@ export default function TasksCardClient({
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-[40%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
-                  Name
+                  Title
                 </TableHead>
                 <TableHead className="w-[20%] text-xs-regular text-[var(--color-base-text-tertiary)] truncate">
                   Status
@@ -535,9 +535,9 @@ export default function TasksCardClient({
                     }
                   }}
                 >
-                  <TableCell className="w-[40%] py-2">
+                  <TableCell className="w-[40%] py-2 truncate">
                     <span
-                      className="text-sm-regular truncate"
+                      className="text-sm-regular"
                       style={{ color: "var(--color-base-text-primary)" }}
                     >
                       {task.title?.trim() || "Untitled task"}

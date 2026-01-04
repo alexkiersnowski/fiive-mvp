@@ -11,7 +11,8 @@ import type { InlineEditRef } from '@/components/ui/inline-edit'
 import { ProfileCard } from '@/components/ui/profile-card'
 import { Plus, SortAscending, LockSimple, ClipboardText } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { updateTaskAssignee, updateTaskStatus, deleteTask, fetchProjectsForConnection } from './actions'
+import { updateTaskAssignee, updateTaskStatus, deleteTask, fetchProjectsForConnection, updateTask } from './actions'
+import { isOptimisticId, updateLatestDraft, scheduleFlush } from '../utils/optimisticTracker'
 import { sortTasksWithPinnedFirst, groupTasksByStatus } from './taskSort'
 import type { Task, TaskStatus } from '../server'
 import { useConnection } from '../ConnectionContext'
@@ -198,6 +199,16 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
         onTaskUpdate(taskId, updates)
       }
       
+      // Handle optimistic IDs
+      if (isOptimisticId(taskId)) {
+        // Track draft state and schedule flush
+        updateLatestDraft(taskId, { assignee_user_id: memberId })
+        scheduleFlush(taskId, async (realId, draft) => {
+          await updateTask(realId, draft)
+        })
+        return // Success - no error, no await
+      }
+      
       // Set loading guard
       isMutingAssignee.current = true
       
@@ -230,6 +241,16 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     // Notify parent for bidirectional updates (table → modal)
     if (onTaskUpdate) {
       onTaskUpdate(taskId, { assignee: null, clientVisibilityLocked: false })
+    }
+    
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { assignee_user_id: null })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
     }
     
     // Set loading guard
@@ -268,6 +289,21 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
     
     const typedStatus = newStatus as TaskStatus
     
+    // Notify parent for bidirectional updates (table → modal)
+    if (onTaskUpdate) {
+      onTaskUpdate(taskId, { status: typedStatus })
+    }
+    
+    // Handle optimistic IDs
+    if (isOptimisticId(taskId)) {
+      // Track draft state and schedule flush
+      updateLatestDraft(taskId, { status: typedStatus })
+      scheduleFlush(taskId, async (realId, draft) => {
+        await updateTask(realId, draft)
+      })
+      return // Success - no error, no await
+    }
+    
     // Cancel any existing pending update for this task
     const existingPending = pendingStatusUpdatesRef.current.get(taskId)
     if (existingPending) {
@@ -281,11 +317,6 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
       status: typedStatus,
       abortController
     })
-    
-    // Notify parent for bidirectional updates (table → modal)
-    if (onTaskUpdate) {
-      onTaskUpdate(taskId, { status: typedStatus })
-    }
     
     try {
       await updateTaskStatus(taskId, typedStatus)

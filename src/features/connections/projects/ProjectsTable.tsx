@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -19,6 +19,7 @@ import type { Project } from '../server'
 import { VirtualizedProjectList } from './VirtualizedProjectList'
 import { useConnection } from '../ConnectionContext'
 import { Skeleton } from '@/components/ui/skeleton'
+import { isOptimisticId, updateProjectLatestDraft, scheduleProjectFlush } from '../utils/optimisticTracker'
 
 interface ProjectsTableProps {
   userAvatar?: string
@@ -71,6 +72,9 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
   // Loading guard refs to prevent rapid-fire mutations
   const isMutingAssignee = useRef(false)
   const isMutingStatus = useRef(false)
+  
+  // Track pending status updates per project ID to prevent flickering
+  const pendingStatusUpdatesRef = useRef<Map<string, Project['status']>>(new Map())
   
   // Profile Card state
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -198,11 +202,8 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
     }
   }
 
-  // Status handler with loading guard
-  const handleStatusChange = async (projectId: string, newStatus: string) => {
-    // Prevent rapid-fire mutations
-    if (isMutingStatus.current) return
-    
+  // Status handler with pending override pattern
+  const handleStatusChange = useCallback(async (projectId: string, newStatus: string): Promise<void> => {
     const validStatuses = ['planned', 'active', 'on_hold', 'completed', 'canceled'] as const
     if (!(validStatuses as readonly string[]).includes(newStatus)) {
       if (process.env.NODE_ENV !== 'production') {
@@ -211,44 +212,55 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
       return
     }
     
-    const typedStatus = newStatus as 'planned' | 'active' | 'on_hold' | 'completed' | 'canceled'
+    const typedStatus = newStatus as Project['status']
     
     // Notify parent for bidirectional updates (table → modal)
     if (onProjectUpdate) {
       onProjectUpdate(projectId, { status: typedStatus })
     }
     
-    // Set loading guard
-    isMutingStatus.current = true
+    // Handle optimistic IDs
+    if (isOptimisticId(projectId)) {
+      // Track draft state and schedule flush
+      updateProjectLatestDraft(projectId, { status: typedStatus })
+      scheduleProjectFlush(projectId, async (realId, draft) => {
+        // Call per-field actions based on what's in draft
+        if (draft.status !== undefined) {
+          await updateProjectStatus(realId, draft.status)
+        }
+      })
+      return // Success - no error, no await
+    }
+    
+    // Set pending override so the dropdown never snaps back
+    pendingStatusUpdatesRef.current.set(projectId, typedStatus)
     
     try {
       await updateProjectStatus(projectId, typedStatus)
-      const statusLabels = {
-        planned: 'Planned',
-        active: 'Active',
-        on_hold: 'On hold',
-        completed: 'Completed',
-        canceled: 'Canceled'
-      }
-      toast.success(`Status updated to ${statusLabels[typedStatus]}`)
-      // Real-time subscription will handle UI updates
+      // Do NOT clear here; let realtime/cached data catch up, then clear in an effect (below)
     } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Failed to update status:', error)
-      }
+      pendingStatusUpdatesRef.current.delete(projectId)
       toast.error('Failed to update status')
-      // Revert parent state on error
+      
+      // Revert parent if you're pushing optimistic parent updates
       if (onProjectUpdate) {
         const originalProject = projects.find(p => p.id === projectId)
         if (originalProject) {
           onProjectUpdate(projectId, { status: originalProject.status })
         }
       }
-    } finally {
-      // Clear loading guard
-      isMutingStatus.current = false
     }
-  }
+  }, [onProjectUpdate, projects])
+
+  // Clear pending status updates when realtime data matches
+  useEffect(() => {
+    for (const project of projects) {
+      const pending = pendingStatusUpdatesRef.current.get(project.id)
+      if (pending && pending === project.status) {
+        pendingStatusUpdatesRef.current.delete(project.id)
+      }
+    }
+  }, [projects])
 
   // Profile Card handler
   const _handleContactClick = (contact: {
@@ -558,7 +570,10 @@ export default function ProjectsTable({ userAvatar: _userAvatar = '', userInitia
                       >
                         <InlineEdit
                           type="badge"
-                          value={project.status}
+                          value={(() => {
+                            const pending = pendingStatusUpdatesRef.current.get(project.id)
+                            return pending ?? project.status
+                          })()}
                           options={[
                             { value: 'planned', label: 'Planned' },
                             { value: 'active', label: 'Active' },
