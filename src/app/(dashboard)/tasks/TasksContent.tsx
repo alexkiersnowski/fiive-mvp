@@ -15,7 +15,7 @@ import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 import type { TasksSnapshot, Task, SearchResults } from '@/features/tasks/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { Comment } from '@/features/connections/server';
-import { registerRealIdMapping, finalize, getLatestDraft } from '@/features/connections/utils/optimisticTracker';
+import { registerRealIdMapping, finalize, getLatestDraft, type TaskDraft } from '@/features/connections/utils/optimisticTracker';
 
 interface TasksContentProps {
   snapshot: TasksSnapshot;
@@ -928,7 +928,7 @@ export function TasksContent({
   }, [connections, context, allConnectionsMetadata, handleFetchTasksForClientStatus, tasksByClientStatus]);
 
   // Helper to merge draft state into fetched task (only patchable fields)
-  const mergeDraftIntoTask = useCallback((task: Task, draft: Partial<Task>): Task => {
+  const mergeDraftIntoTask = useCallback((task: Task, draft: TaskDraft): Task => {
     const merged = { ...task }
     
     // Only merge known patchable fields (don't override server timestamps, etc.)
