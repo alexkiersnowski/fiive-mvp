@@ -14,7 +14,7 @@ import { toast } from 'sonner'
 import { PaywallModal } from '@/components/ui/paywall-modal'
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateTaskAssignee, updateTaskStatus } from '@/features/connections/tasks/actions'
-import type { Task, SearchResults } from './types'
+import type { Task, TaskWithUiId, SearchResults } from './types'
 import { StatusGroupHeader } from './StatusGroupHeader'
 import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalTaskRow } from './GlobalTaskRow'
@@ -883,7 +883,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                             />
                             {/* Render tasks only when expanded AND there are tasks */}
                             {!isClientCollapsed && tasksInStatus.length > 0 && tasksInStatus.map((task: Task) => {
-                              const uiId = (task as any)._uiId || task.id
+                              const uiId = (task as TaskWithUiId)._uiId || task.id
                               return (
                               <GlobalTaskRow
                                 key={uiId}
@@ -1054,7 +1054,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                             />
                             {/* Render all tasks - data is pre-loaded, only when expanded */}
                             {!isClientCollapsed && tasksInStatus.map((task: Task) => {
-                              const uiId = (task as any)._uiId || task.id
+                              const uiId = (task as TaskWithUiId)._uiId || task.id
                               return (
                               <GlobalTaskRow
                                 key={uiId}
@@ -1190,7 +1190,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                 <>
                                   {/* Render optimistic tasks FIRST (at the top) if they exist */}
                                   {optimisticTasks.map((task) => {
-                                    const uiId = (task as any)._uiId || task.id
+                                    const uiId = (task as TaskWithUiId)._uiId || task.id
                                     return (
                                     <GlobalTaskRow
                                       key={uiId}
@@ -1254,7 +1254,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                 <>
                                   {/* Render optimistic tasks FIRST (at the top) */}
                                   {optimisticTasks.map((task) => {
-                                    const uiId = (task as any)._uiId || task.id
+                                    const uiId = (task as TaskWithUiId)._uiId || task.id
                                     return (
                                     <GlobalTaskRow
                                       key={uiId}
@@ -1279,7 +1279,7 @@ export default function TasksTable({ userAvatar = '', userInitials = 'U', onTask
                                   
                                   {/* Render real tasks (below optimistic) */}
                                   {realTasks.map((task) => {
-                                    const uiId = (task as any)._uiId || task.id
+                                    const uiId = (task as TaskWithUiId)._uiId || task.id
                                     return (
                                     <GlobalTaskRow
                                       key={uiId}

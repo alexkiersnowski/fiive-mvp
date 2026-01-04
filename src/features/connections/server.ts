@@ -522,6 +522,11 @@ export interface Request {
   createdByOrgType?: 'agency' | 'client'
 }
 
+// Request with optional UI identifier for optimistic updates
+export type RequestWithUiId = Request & {
+  _uiId?: string
+}
+
 export interface RecentRequestSummary {
   id: string
   title: string
@@ -594,6 +599,11 @@ export interface Task {
     createdByUserId?: string
     createdByName?: string
   } | null
+}
+
+// Task with optional UI identifier for optimistic updates
+export type TaskWithUiId = Task & {
+  _uiId?: string
 }
 
 // Cache connection info separately to avoid duplicate fetches

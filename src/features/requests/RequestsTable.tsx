@@ -15,7 +15,7 @@ import { PaywallModal } from '@/components/ui/paywall-modal'
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers'
 import { updateRequest } from '@/features/connections/requests/actions'
 import { isOptimisticId, updateRequestLatestDraft, scheduleRequestFlush } from '@/features/connections/utils/optimisticTracker'
-import type { Request, SearchResults } from './types'
+import type { Request, RequestWithUiId, SearchResults } from './types'
 import { StatusGroupHeader } from './StatusGroupHeader'
 import { ClientGroupHeader } from './ClientGroupHeader'
 import { GlobalRequestRow } from './GlobalRequestRow'
@@ -765,7 +765,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                             {/* Render requests only when expanded AND there are requests */}
                             {!isClientCollapsed && requestsInStatus.length > 0 && requestsInStatus.map((request: Request) => (
                               <GlobalRequestRow
-                                key={(request as any)._uiId ?? request.id}
+                                key={(request as RequestWithUiId)._uiId ?? request.id}
                                 request={request}
                                 isAgency={isAgency}
                                 comboboxOptions={comboboxOptions}
@@ -934,7 +934,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                             {/* Render all requests - data is pre-loaded, only when expanded */}
                             {!isClientCollapsed && requestsInStatus.map((request: Request) => (
                               <GlobalRequestRow
-                                key={(request as any)._uiId ?? request.id}
+                                key={(request as RequestWithUiId)._uiId ?? request.id}
                                 request={request}
                                 isAgency={isAgency}
                                 comboboxOptions={comboboxOptions}
@@ -1068,7 +1068,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                                   {/* Render optimistic requests FIRST (at the top) if they exist */}
                                   {optimisticRequests.map((request) => (
                                     <GlobalRequestRow
-                                      key={(request as any)._uiId ?? request.id}
+                                      key={(request as RequestWithUiId)._uiId ?? request.id}
                                       request={request}
                                       isAgency={isAgency}
                                       comboboxOptions={comboboxOptions}
@@ -1130,7 +1130,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                                   {/* Render optimistic requests FIRST (at the top) */}
                                   {optimisticRequests.map((request) => (
                                     <GlobalRequestRow
-                                      key={(request as any)._uiId ?? request.id}
+                                      key={(request as RequestWithUiId)._uiId ?? request.id}
                                       request={request}
                                       isAgency={isAgency}
                                       comboboxOptions={comboboxOptions}
@@ -1153,7 +1153,7 @@ export default function RequestsTable({ userAvatar = '', userInitials = 'U', onR
                                   {/* Render real requests (below optimistic) */}
                                   {realRequests.map((request) => (
                                     <GlobalRequestRow
-                                      key={(request as any)._uiId ?? request.id}
+                                      key={(request as RequestWithUiId)._uiId ?? request.id}
                                       request={request}
                                       isAgency={isAgency}
                                       comboboxOptions={comboboxOptions}

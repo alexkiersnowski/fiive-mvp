@@ -1,4 +1,5 @@
-import type { Task, Request } from '../server'
+// Types imported but not directly used - kept for type references in comments
+// import type { Task, Request } from '../server'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 

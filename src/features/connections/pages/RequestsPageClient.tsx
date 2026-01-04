@@ -8,7 +8,7 @@ import { useConnection } from '../ConnectionContext';
 import RequestsTable from '../requests/RequestsTable';
 import { RequestDetailModal } from '../requests/RequestDetailModal'
 import { NewRequestModal } from '../requests/NewRequestModal'
-import type { Request, Comment } from '../server';
+import type { Request, RequestWithUiId, Comment } from '../server';
 import { fetchRequestsForConnection, fetchRequestById, fetchCommentsForRequests } from '../requests/actions';
 import { registerRequestRealIdMapping, finalizeRequest, getRequestLatestDraft } from '../utils/optimisticTracker';
 import { mergeDraftIntoRequest } from '../requests/utils';
@@ -917,8 +917,8 @@ function RequestsPageClientContent({ connectionId, initialRequests, initialTotal
         // If replacing optimistic entry, preserve its ISO timestamp for proper sorting
         // Server returns formatted date which doesn't include time, causing sorting issues
         // Also preserve _uiId from optimistic entry to maintain stable React key
-        const finalReq = optimisticEntry && optimisticEntry.createdAt.includes('T') 
-          ? { ...req, createdAt: optimisticEntry.createdAt, _uiId: (optimisticEntry as any)._uiId || tempId }
+        const finalReq: RequestWithUiId = optimisticEntry && optimisticEntry.createdAt.includes('T') 
+          ? { ...req, createdAt: optimisticEntry.createdAt, _uiId: (optimisticEntry as RequestWithUiId)._uiId || tempId }
           : { ...req, _uiId: tempId || req.id }
         
         const without = prev.filter(r => r.id !== tempId && r.id !== req.id)

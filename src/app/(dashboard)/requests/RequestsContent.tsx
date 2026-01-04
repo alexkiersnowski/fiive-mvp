@@ -16,7 +16,7 @@ import { ConvertToTaskModal, type ConvertToTaskModalValues } from '@/features/co
 import { PaywallModal } from '@/components/ui/paywall-modal';
 import { runWithPaywallCheck } from '@/lib/tasks-requests-helpers';
 import { convertRequestToTask } from '@/features/connections/tasks/actions';
-import type { RequestsSnapshot, Request, SearchResults } from '@/features/requests/types';
+import type { RequestsSnapshot, Request, RequestWithUiId, SearchResults } from '@/features/requests/types';
 import type { EnhancedModeContext } from '@/lib/mode/getActiveContext';
 import type { Comment } from '@/features/connections/server';
 
@@ -996,8 +996,8 @@ export function RequestsContent({
         const without = existingRequests.filter(r => r.id !== tempId && r.id !== request.id);
         
         // Preserve _uiId from optimistic entry to maintain stable React key
-        const requestWithUiId = optimisticEntry 
-          ? { ...request, _uiId: (optimisticEntry as any)._uiId || tempId }
+        const requestWithUiId: RequestWithUiId = optimisticEntry 
+          ? { ...request, _uiId: (optimisticEntry as RequestWithUiId)._uiId || tempId }
           : { ...request, _uiId: tempId || request.id }
         
         // If real request already exists, just remove temp (don't add duplicate or overwrite)

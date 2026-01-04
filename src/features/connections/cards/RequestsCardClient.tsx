@@ -16,7 +16,7 @@ import { NewRequestModal } from '../requests/NewRequestModal';
 import { ConvertToTaskModal, type ConvertToTaskModalValues } from '../tasks/ConvertToTaskModal';
 import { convertRequestToTask } from '../tasks/actions';
 import { deleteRequest } from '../requests/actions';
-import type { Request } from '../server';
+import type { Request, RequestWithUiId } from '../server';
 
 type PrefetchedComment = {
   id: string;
@@ -735,7 +735,7 @@ export function RequestsCardClient({ connectionId, requests, prefetchedNextReque
         <div className="flex flex-col gap-3 mt-1">
           {prefetchedRequests.map((request) => (
             <ListRow
-              key={(request as any)._uiId ?? request.id}
+              key={(request as RequestWithUiId)._uiId ?? request.id}
               iconStart={
                 <ChatCentered
                   size={16}

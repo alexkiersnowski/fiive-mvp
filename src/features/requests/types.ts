@@ -40,6 +40,11 @@ export type Request = {
   createdByOrgType?: 'agency' | 'client'
 }
 
+// Request with optional UI identifier for optimistic updates
+export type RequestWithUiId = Request & {
+  _uiId?: string
+}
+
 export type RequestsSnapshot = {
   requests: Request[]; // Flat ordered list
   total: number;

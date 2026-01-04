@@ -21,7 +21,7 @@ import { PaywallModal } from "@/components/ui/paywall-modal";
 import { convertRequestToTask } from "@/features/connections/tasks/actions";
 import { fetchRequestByIdGlobal, fetchCommentsForRequestGlobal, fetchRequestsSnapshot } from "@/features/requests/actions";
 import { toast } from "sonner";
-import type { Request } from "@/features/requests/types";
+import type { Request, RequestWithUiId } from "@/features/requests/types";
 import type { StatsCardProps } from "../types";
 import type { Comment } from "@/features/connections/server";
 import { dispatchRequestStatusChanged, dispatchRequestDeleted } from "./stats/NewRequestsCard";
@@ -505,7 +505,7 @@ export default function RequestsCardClient({
             <TableBody>
               {localRequests.map((request) => (
                 <TableRow
-                  key={(request as any)._uiId ?? request.id}
+                  key={(request as RequestWithUiId)._uiId ?? request.id}
                   tabIndex={0}
                   className="cursor-pointer transition-colors duration-75 hover:bg-[var(--color-interactive-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--color-interactive-border-focus)]"
                   onClick={() => handleRowClick(request.id)}
