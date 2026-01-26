@@ -118,7 +118,7 @@ export function agencyProWelcomeTemplate({
       <li style="margin-bottom: 8px; padding-left: 4px;">All current & future features</li>
       <li style="margin-bottom: 8px; padding-left: 4px;">Priority onboarding & support</li>
       <li style="margin-bottom: 8px; padding-left: 4px;">Influence the future of Fiive</li>
-      <li style="margin-bottom: 8px; padding-left: 4px;">Founding member rate locked in</li>
+      <li style="margin-bottom: 8px; padding-left: 4px;">Price locked in while subscribed</li>
     </ul>
 
     <!-- Divider -->
