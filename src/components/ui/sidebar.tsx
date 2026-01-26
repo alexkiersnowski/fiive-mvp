@@ -220,10 +220,10 @@ const SidebarComponent = memo(function SidebarComponent({
                 weight="fill"
                 style={{ fill: '#D87335' }}
               />
-              Early access
+              {isClientView ? 'Feedback' : 'Limited availability'}
             </Badge>
             <AlertDescription className="text-xs-regular px-1.5 mt-1" style={{ color: 'var(--color-base-text-secondary)' }}>
-              {isClientView ? "Your feedback influences what we build next" : "You're exploring Fiive. Secure your place as one of the first 100 Founding Members."}
+              {isClientView ? "Your feedback influences what we build next" : "You're exploring Fiive. Agency Pro is limited to 100 agencies."}
             </AlertDescription>
             {isClientView ? (
               <Button
@@ -244,7 +244,7 @@ const SidebarComponent = memo(function SidebarComponent({
                   className="self-start h-auto p-2 text-xs-regular cursor-pointer hover:bg-interactive-surface-hover transition-all duration-75"
                   style={{ marginLeft: '-4px' }}
                 >
-                  <span className="mr-1">Get early access</span>
+                  <span className="mr-1">Upgrade to Agency Pro</span>
                   <ArrowRight size={16} weight="regular" />
                 </Button>
               </NextLink>
@@ -262,10 +262,10 @@ const SidebarComponent = memo(function SidebarComponent({
                 weight="fill"
                 style={{ fill: '#D87335' }}
               />
-              Founding member
+              Agency Pro
             </Badge>
             <AlertDescription className="text-xs-regular px-1.5 mt-1" style={{ color: 'var(--color-base-text-secondary)' }}>
-              You&apos;re one of the Founding 100 defining the future of Fiive
+              You&apos;re on Agency Pro. This plan is limited to 100 agencies.
             </AlertDescription>
             <Button
               variant="ghost"
@@ -274,7 +274,7 @@ const SidebarComponent = memo(function SidebarComponent({
               style={{ marginLeft: '-4px' }}
               onClick={() => window.location.href = 'mailto:support@fiive.co'}
             >
-              <span className="mr-1">Share your ideas</span>
+              <span className="mr-1">Share feedback</span>
               <ArrowRight size={16} weight="regular" />
             </Button>
           </>
@@ -369,7 +369,7 @@ const SidebarComponent = memo(function SidebarComponent({
                     window.location.href = 'mailto:support@fiive.co'
                   }
                 }}
-                aria-label={normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Early access') : 'Founding 50 feedback'}
+                aria-label={normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Limited availability') : 'Share feedback'}
                 suppressHydrationWarning
               >
                 <StarFour 
@@ -380,7 +380,7 @@ const SidebarComponent = memo(function SidebarComponent({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={8}>
-              {normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Early access') : 'Founding 50 feedback'}
+              {normalizedBillingStatus === 'free' ? (capabilities?.canSeeClients === false ? 'Give feedback' : 'Limited availability') : 'Share feedback'}
             </TooltipContent>
           </Tooltip>
         ) : (

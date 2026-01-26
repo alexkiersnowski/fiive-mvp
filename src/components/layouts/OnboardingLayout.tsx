@@ -850,11 +850,6 @@ export default function OnboardingLayout({
                 right: '-125%',
                 top: '-5%',
                 opacity: 1,
-                // Safari flicker fix: force hardware acceleration
-                transform: 'translateZ(0)',
-                willChange: 'transform',
-                backfaceVisibility: 'hidden',
-                pointerEvents: 'none',
               }}
             />
             {/* Watermark image on top */}

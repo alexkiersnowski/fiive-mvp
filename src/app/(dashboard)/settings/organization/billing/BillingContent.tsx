@@ -53,7 +53,7 @@ const AGENCY_PRO_FEATURES = [
   { text: 'All current & future features' },
   { text: 'Priority onboarding & support' },
   { text: 'Directly influence the future of Fiive' },
-  { text: 'Founding member rate locked in' }
+  { text: 'Price locked in while subscribed' }
 ]
 
 /**
@@ -389,7 +389,7 @@ export default function BillingContent({ variant: _variant, billingStatus, sessi
             price={isAnnualBilling ? "99" : "119"}
             currency="€"
             isActive={false}
-            buttonText="Get early access"
+            buttonText="Upgrade"
             features={AGENCY_PRO_FEATURES}
             badge={{
               text: 'Only 100 spots',
