@@ -9,7 +9,6 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://fiive.co"),
   title: "Fiive – Client Management Software for Agencies",
   description: "Client management and client portal software for agencies to manage clients, projects, requests, and collaboration in one place.",
   viewport: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no",
@@ -19,7 +18,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
     title: "Fiive – Client Management Software for Agencies",
     description: "Client management and client portal software for agencies to manage clients, projects, requests, and collaboration in one place.",
   },
